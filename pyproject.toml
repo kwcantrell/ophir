@@ -1,0 +1,64 @@
+[tool.ruff]
+# Exclude commonly ignored directories and files.
+exclude = [
+    ".bzr",
+    ".direnv",
+    ".eggs",
+    ".git",
+    ".git-rewrite",
+    ".hg",
+    ".ipynb_checkpoints",
+    ".mypy_cache",
+    ".nox",
+    ".pants.d",
+    ".pyenv",
+    ".pytest_cache",
+    ".pytype",
+    ".ruff_cache",
+    ".svn",
+    ".tox",
+    ".venv",
+    ".vscode",
+    "__pypackages__",
+    "_build",
+    "buck-out",
+    "build",
+    "dist",
+    "node_modules",
+    "site-packages",
+    "venv",
+]
+
+# Set the target Python version for linting and formatting.
+target-version = "py310" # Adjust to your project's target Python version
+
+# Set the preferred line length.
+line-length = 100 # Matches Black's default
+
+[tool.ruff.lint]
+# Enable a core set of rules for general code quality.
+select = [
+    "E",  # pycodestyle errors
+    "F",  # pyflakes
+    "I",  # isort
+    "W",  # pycodestyle warnings
+    "B",  # flake8-bugbear
+    "N",  # pep8-naming
+    "D",  # pydocstyle
+]
+
+# Ignore specific rules that might be too restrictive or conflict with other tools.
+ignore = [
+    "E501", # Line too long (handled by formatter)
+    "D203", # One blank line required before class docstring (pep257 conflict)
+    "D204", # One blank line required after class docstring (pep257 conflict)
+    "D213", # Multi-line docstring summary should start on the second line (pep257 conflict)
+    "D400", # First line of docstring should end with a period (opinionated)
+    "D401", # First line of docstring should be in imperative mood (opinionated)
+]
+
+[tool.ruff.format]
+# Configure Ruff's formatter to match Black's style.
+quote-style = "double"
+indent-style = "space"
+line-ending = "auto"
