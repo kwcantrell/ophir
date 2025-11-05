@@ -250,13 +250,18 @@ class RotaryNumberEmbedding(nn.Module):
 
         r = max - min
         self.emb_dim = emb_dim
-        self.base = r / torch.pi
+        exp = (-2 * (emb_dim / 2 - 1)) / emb_dim
+        self.base = (torch.pi / r) ** (1 / exp)
         self.wk = nn.Parameter(
             1.0 / (self.base ** (torch.arange(0, self.emb_dim, 2).float() / self.emb_dim)),
             requires_grad=False,
         )
         self.weight = nn.Parameter(torch.empty((1, 1, emb_dim)))
         self.reset_parameters()
+
+    def set_weight(self, weight):
+        with torch.no_grad():
+            self.weight.set_(weight)
 
     def reset_parameters(self) -> None:
         nn.init.normal_(self.weight)
@@ -265,7 +270,6 @@ class RotaryNumberEmbedding(nn.Module):
         # create rotation matrices
         x = x.squeeze(-1)
         freqs = torch.einsum("...i,...j->...ij", x, self.wk)
-
         # Expand to full dimension (cos/sin pairs)
         cos = torch.cos(freqs).repeat_interleave(2, dim=-1)
         sin = torch.sin(freqs).repeat_interleave(2, dim=-1)
