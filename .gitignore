@@ -1,6 +1,7 @@
 ### ADD custom .gitignore paths here
 
-
+saved-models/
+data/
 
 ### Below are common .gitignore DO NOT EDIT ###
 # Byte-compiled / optimized / DLL files
