@@ -1,4 +1,4 @@
-from typing import Tuple
+from typing import Optional
 
 import torch
 import torch.nn.functional as F
@@ -40,16 +40,21 @@ def alibi_mod(score, b, h, q_idx, kv_idx):
 causal_masks = {}
 
 
-def causal_mod(b, h, q_idx, kv_idx):
-    return q_idx >= kv_idx
+def causal_mod(elm_enc):
+    def _inner(b, h, q_idx, kv_idx):
+        return ((q_idx <= elm_enc) & (kv_idx <= elm_enc)) | (q_idx >= kv_idx)
+
+    return _inner
 
 
-def causal_block_mask(NUM_BATCH, NUM_HEADS, NUM_Q_LEN, KV_LEN):
-    key = (NUM_BATCH, NUM_HEADS, NUM_Q_LEN, KV_LEN)
+def causal_block_mask(elements_in_encoder, NUM_BATCH, NUM_HEADS, NUM_Q_LEN, KV_LEN):
+    key = (elements_in_encoder, NUM_BATCH, NUM_HEADS, NUM_Q_LEN, KV_LEN)
     if key in causal_masks:
         return causal_masks[key]
 
-    mask = create_block_mask(causal_mod, NUM_BATCH, NUM_HEADS, NUM_Q_LEN, KV_LEN)
+    mask = create_block_mask(
+        causal_mod(elements_in_encoder), NUM_BATCH, NUM_HEADS, NUM_Q_LEN, KV_LEN
+    )
     causal_masks[key] = mask
     return mask
 
@@ -116,7 +121,6 @@ class FlexMHA(nn.Module):
         #     query, key, value, score_mod=alibi_mod, block_mask=block_mask
         # )
         attention = compiled_flex_attention(query, key, value, block_mask=block_mask)
-
         # combine heads
         return self.proj_out(attention.transpose(1, 2).reshape(B, L, Hkv * Ev))
 
@@ -146,18 +150,19 @@ class TransformerEncoderBlock(nn.Module):
 
 
 class TransformerDecoderBlock(nn.Module):
-    __constants__ = ["emb_dim", "num_heads"]
+    __constants__ = ["emb_dim", "num_heads", "elements_in_encoder"]
     emb_dim: float
     num_heads: float
+    elements_in_encoder: int
 
-    def __init__(self, emb_dim, num_heads):
+    def __init__(self, emb_dim, num_heads, elements_in_encoder):
         super().__init__()
         self.emb_dim = emb_dim
         self.num_heads = num_heads
+        self.elements_in_encoder = elements_in_encoder
 
         self._rezero = nn.Parameter(torch.tensor(0.0, dtype=torch.float32))
         self.causal_mha = FlexMHA(num_heads=num_heads, emb_dim=self.emb_dim)
-        self.cross_mha = FlexMHA(num_heads=num_heads, emb_dim=self.emb_dim)
         self.mlp = MLP(self.emb_dim)
 
         self.reset_parameters()
@@ -165,11 +170,11 @@ class TransformerDecoderBlock(nn.Module):
     def reset_parameters(self):
         nn.init.zeros_(self._rezero)
 
-    def forward(self, decoder: torch.Tensor, encoder: torch.Tensor) -> torch.Tensor:
-        causal_mask = causal_block_mask(None, None, decoder.shape[1], decoder.shape[1])
+    def forward(self, decoder: torch.Tensor) -> torch.Tensor:
+        causal_mask = causal_block_mask(
+            self.elements_in_encoder, None, None, decoder.shape[1], decoder.shape[1]
+        )
         decoder = decoder + self._rezero * self.causal_mha(decoder, decoder, decoder, causal_mask)
-
-        decoder = decoder + self._rezero * self.cross_mha(decoder, encoder, encoder, None)
         return decoder + self._rezero * self.mlp(decoder)
 
 
@@ -245,17 +250,18 @@ class xVal(nn.Module):
 
 
 class RotaryNumberEmbedding(nn.Module):
-    def __init__(self, emb_dim, min: float, max: float):
+    def __init__(self, emb_dim: int, min_value: float, max_value: float):
         super().__init__()
 
-        r = max - min
+        r = max_value - min_value
         self.emb_dim = emb_dim
         exp = (-2 * (emb_dim / 2 - 1)) / emb_dim
         self.base = (torch.pi / r) ** (1 / exp)
         self.wk = nn.Parameter(
-            1.0 / (self.base ** (torch.arange(0, self.emb_dim, 2).float() / self.emb_dim)),
+            torch.tensor([self.base**exp for _ in range(emb_dim // 2)], dtype=torch.float),
             requires_grad=False,
         )
+
         self.weight = nn.Parameter(torch.empty((1, 1, emb_dim)))
         self.reset_parameters()
 
@@ -291,7 +297,7 @@ class RotaryEmbedding(nn.Module):
 
     def forward(self, x: torch.Tensor):
         # create rotation matrices
-        b, s, e = x.shape
+        _, s, _ = x.shape
         positions = torch.arange(s, dtype=x.dtype, device=x.device)
         freqs = torch.einsum("i,j->ij", positions, self.wk)
 
@@ -307,81 +313,100 @@ class RotaryEmbedding(nn.Module):
 class SingleCoinPricePredictor(nn.Module):
     __constants__ = [
         "emb_dim",
-        "num_end_layers",
         "num_dec_layers",
         "num_heads",
-        "mean",
-        "std",
+        "min_value",
+        "max_value",
+        "elements_in_encoder",
     ]
     emb_dim: int
-    num_enc_layers: int
     num_dec_layers: int
     num_heads: int
-    mean: float
-    std: float
+    min_value: float
+    max_value: float
+    elements_in_encoder: int
 
     def __init__(
         self,
         emb_dim: int,
-        num_enc_layers: int,
         num_dec_layers: int,
         num_heads: int,
-        mean: float,
-        std: float,
+        min_value: float,
+        max_value: float,
+        elements_in_encoder: int,
     ):
         super().__init__()
 
         self.emb_dim = emb_dim
-        self.num_enc_layers = num_enc_layers
         self.num_dec_layers = num_dec_layers
         self.num_heads = num_heads
-        self.mean = mean
-        self.std = std
+        self.min_value = min_value
+        self.max_value = max_value
+        self.elements_in_encoder = elements_in_encoder
 
-        # self.discretizer = xVal(k=1, emb_dim=self.emb_dim, mean=self.mean, std=self.std)
-        size = 500
-        num_points = 2 * size + 1
-        self.discretizer = RotaryNumberEmbedding(emb_dim, -size, size)
-        self.rot_pos = RotaryEmbedding(emb_dim)
-        # self.predictor = Transformer(self.emb_dim, self.num_enc_layers, self.num_dec_layers, self.num_heads)
-        self.encoder = nn.ModuleList(
-            [
-                TransformerEncoderBlock(self.emb_dim, self.num_heads)
-                for _ in range(self.num_dec_layers)
-            ]
-        )
+        self.discretizer = RotaryNumberEmbedding(emb_dim, min_value, max_value)
+        self.start_emb = nn.Parameter(torch.empty(emb_dim))
+        nn.init.normal_(self.start_emb)
+        self.mask_emb = nn.Parameter(torch.empty(emb_dim))
+        nn.init.normal_(self.mask_emb)
 
+        self.rot_embeddings = RotaryEmbedding(emb_dim)
         self.decoder = nn.ModuleList(
             [
-                TransformerDecoderBlock(self.emb_dim, self.num_heads)
+                TransformerDecoderBlock(self.emb_dim, self.num_heads, self.elements_in_encoder)
                 for _ in range(self.num_dec_layers)
             ]
         )
-        self.ff_out = nn.Linear(emb_dim, num_points)
+        self.ff_out = nn.Linear(emb_dim, 1)
 
-    def _prepare_encoder_input(self, input: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-        input = self.discretizer(input)
-        # return input
-        return self.rot_pos(input)
+    def _prepare_encoder_input(self, encoder_input: torch.Tensor, mask=None) -> torch.Tensor:
+        b, _, _ = encoder_input.shape
+        start_token = torch.broadcast_to(self.start_emb, (b, 1, self.emb_dim))
 
-    def _prepare_decoder_input(self, input: torch.Tensor, encoder_output) -> torch.Tensor:
-        # output = torch.cat([encoder_output, encoder_output[:, -1:, :]], dim=1)
-        output = encoder_output[:, -1:, :]
-        if input is not None:
-            input = self.discretizer(input)
-            output = torch.cat([output, input], dim=1)
-        return self.rot_pos(output)
+        if self.training and mask is not None:
+            b, _, _ = encoder_input.shape
+            unmask = torch.rand_like(encoder_input) < 0.2
+            change_mask = torch.rand_like(encoder_input) < 0.1
 
-    def forward(self, enc_inp: torch.Tensor, dec_inp: torch.Tensor):
-        encoder_input = self._prepare_encoder_input(enc_inp)
-        encoder_output = encoder_input
-        for layer in self.encoder:
-            encoder_output = layer(encoder_output)
+            change = torch.empty_like(encoder_input)
+            change.normal_(encoder_input.mean(), encoder_input.std())
+            encoder_input = torch.where(mask & unmask & change_mask, change, encoder_input)
 
-        decoder_input = self._prepare_decoder_input(dec_inp, encoder_output)
-        decoder_output = decoder_input
-        for layer in self.decoder:
-            decoder_output = layer(decoder_output, encoder_output)
+            encoder_input = self.discretizer(encoder_input)
+            encoder_input = torch.where(mask & ~unmask, self.mask_emb, encoder_input)
+        else:
+            encoder_input = self.discretizer(encoder_input)
 
-        output = self.ff_out(decoder_output)
+        encoder_input = torch.concat([encoder_input, start_token], dim=1)
+        return encoder_input
+
+    def _prepare_decoder_input(self, decoder_input: torch.Tensor, encoder_input) -> torch.Tensor:
+        if decoder_input is not None:
+            if self.training:
+                print("???")
+                mask = torch.rand_like(decoder_input) < 0.1
+                change = torch.empty_like(decoder_input)
+                change.normal_(decoder_input.mean(), decoder_input.std())
+                decoder_input = torch.where(mask, change, decoder_input)
+            decoder_input = self.discretizer(decoder_input)
+            output = torch.cat([encoder_input, decoder_input], dim=1)
+        else:
+            output = encoder_input
         return output
+
+    def forward(
+        self,
+        enc_inp: torch.Tensor,
+        dec_inp: torch.Tensor,
+        random_mask: Optional[torch.Tensor] = None,
+    ):
+        encoder_input = self._prepare_encoder_input(enc_inp, random_mask)
+        decoder_input = self._prepare_decoder_input(dec_inp, encoder_input)
+
+        decoder_output = self.rot_embeddings(decoder_input)
+
+        for layer in self.decoder:
+            decoder_output = layer(decoder_output)
+        model_output = self.ff_out(decoder_output)
+
+        return model_output

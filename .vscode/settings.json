@@ -1,4 +1,9 @@
 {
+    "notebook.formatOnSave.enabled": true,
+    "notebook.codeActionsOnSave": {
+        "notebook.source.fixAll": "explicit",
+        "notebook.source.organizeImports": "explicit"
+    },
     "[python]": {
         "editor.formatOnSave": true,
         "editor.defaultFormatter": "charliermarsh.ruff",
@@ -7,6 +12,6 @@
             "source.organizeImports": "explicit"
         },
     },
-    "ruff.nativeServer": "on",
-    "ruff.configuration": "../pyproject.toml"
+    "ruff.nativeServer": "auto",
+    "ruff.configuration": "pyproject.toml"
 }

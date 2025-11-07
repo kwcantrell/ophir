@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from abc import abstractmethod
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -248,18 +248,40 @@ class Identity(Modifier):
 
 
 class NormPDF(Modifier):
-    def __init__(self, size, std=1):
+    def __init__(self, min, max, num_buckets, std=1):
         super().__init__()
+        self.min = min
+        self.max = max
         self.std = std
-        self.size = size
-        self.num_points = size * 2 + 1
-        self.x_values = np.linspace(-size, size, self.num_points)
+        self.num_buckets = num_buckets
+        self.x_values = np.linspace(self.min, self.max, num=self.num_buckets, endpoint=True)
 
-    def _apply(self, original_input):
+    def _apply(self, original_input: np.array) -> Tuple[np.ndarray, np.ndarray]:
         mod_input = []
         for i in original_input:
             mod_input.append(norm.pdf(self.x_values, loc=i, scale=self.std))
-        return np.vstack(mod_input)
+        probs = np.vstack(mod_input)
+        return self.x_values[probs.argmax(-1)]
+
+
+class Tokenize(Modifier):
+    def __init__(self, min, max, num_buckets, std=1):
+        super().__init__()
+        self.min = min
+        self.max = max
+        self.std = std
+        self.num_buckets = num_buckets
+        self.x_values = np.linspace(self.min, self.max, num=self.num_buckets, endpoint=True)
+
+    def _apply(self, original_input: np.array) -> Tuple[np.ndarray, np.ndarray]:
+        mod_input = []
+        for i in original_input:
+            mod_input.append(norm.pdf(self.x_values, loc=i, scale=self.std))
+        probs = np.vstack(mod_input)
+        return probs.argmax(-1)
+
+    def _reverse(self, modified_input):
+        return self.x_values[modified_input.argmax(-1)]
 
 
 class Lambda(Modifier):
@@ -307,8 +329,8 @@ class LogTransform(Modifier):
 
 
 class ModifierPipeline:
-    def __init__(self, modifiers: List[Modifier]):
-        self.modifiers = modifiers
+    def __init__(self, modifiers: Optional[List[Modifier]] = None):
+        self.modifiers = modifiers if modifiers is not None else [Identity()]
         self.dynamic_modifiers = []
 
     def __call__(self, x: np.ndarray) -> np.ndarray:
@@ -339,18 +361,20 @@ class SingleCoinPriceDataset(Dataset):
         preprocess_data: np.ndarray,
         elements_per_sample: int,
         elements_in_encoder: int,
-        preprocess_pipeline: Optional[ModifierPipeline] = ModifierPipeline([Identity()]),
-        enc_mod_pipeline: Optional[ModifierPipeline] = ModifierPipeline([Identity()]),
-        dec_mod_pipeline: Optional[ModifierPipeline] = ModifierPipeline([Identity()]),
+        preprocess_pipeline: Optional[ModifierPipeline] = None,
+        enc_mod_pipeline: Optional[ModifierPipeline] = None,
+        dec_mod_pipeline: Optional[ModifierPipeline] = None,
         return_sample_index: bool = False,
+        points_per_day: int = 24 * 60,
     ):
         self.preprocess_data = preprocess_data
         self.preprocess_pipeline = preprocess_pipeline
-
-        self.elements_per_sample = elements_per_sample
-        self.elements_in_encoder = elements_in_encoder
         self.enc_mod_pipeline = enc_mod_pipeline
         self.dec_mod_pipeline = dec_mod_pipeline
+        self.points_per_day = points_per_day
+        self.elements_per_sample = (elements_per_sample + 1) * self.points_per_day
+        self.elements_in_encoder = elements_in_encoder * self.points_per_day
+
         self.return_sample_index = return_sample_index
         self.size = self.preprocess_data.shape[0] - self.elements_per_sample + 1
 
@@ -386,17 +410,28 @@ class SingleCoinPriceDataset(Dataset):
     def __getitem__(self, sample):
         start_index = sample
         end_index = start_index + self.elements_per_sample
-        elements = self.preprocess_data[start_index:end_index].copy()
+        elements = (
+            self.preprocess_data[start_index:end_index]
+            .copy()
+            .reshape(-1, self.points_per_day)
+            .mean(-1)
+        )
         (encoder_input, decoder_input) = self.enc_mod_pipeline(elements)
 
         encoder_input = np.expand_dims(encoder_input, axis=-1).astype(np.float32)
         decoder_input = np.expand_dims(decoder_input, axis=-1).astype(np.float32)
 
-        decoder_output = self.dec_mod_pipeline(decoder_input).astype(np.float32)
+        if self.dec_mod_pipeline is not None:
+            decoder_input, decoder_output = self.dec_mod_pipeline(decoder_input)
+        else:
+            decoder_output = decoder_input.copy()
         if not self.return_sample_index:
             return (
-                (torch.tensor(encoder_input), torch.tensor(decoder_input)),
-                torch.tensor(decoder_output),
+                (
+                    torch.from_numpy(encoder_input),
+                    torch.from_numpy(decoder_input[:-1]),
+                ),
+                torch.from_numpy(np.concat([encoder_input, decoder_output], axis=0)),
             )
 
         return (encoder_input, decoder_input), (start_index, end_index)

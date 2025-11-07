@@ -27,6 +27,8 @@ exclude = [
     "node_modules",
     "site-packages",
     "venv",
+    "saved-models",
+    "data"
 ]
 
 # Set the target Python version for linting and formatting.
@@ -43,18 +45,12 @@ select = [
     "I",  # isort
     "W",  # pycodestyle warnings
     "B",  # flake8-bugbear
-    "N",  # pep8-naming
-    "D",  # pydocstyle
 ]
 
 # Ignore specific rules that might be too restrictive or conflict with other tools.
 ignore = [
     "E501", # Line too long (handled by formatter)
-    "D203", # One blank line required before class docstring (pep257 conflict)
-    "D204", # One blank line required after class docstring (pep257 conflict)
-    "D213", # Multi-line docstring summary should start on the second line (pep257 conflict)
-    "D400", # First line of docstring should end with a period (opinionated)
-    "D401", # First line of docstring should be in imperative mood (opinionated)
+    "F401", # unused imports
 ]
 
 [tool.ruff.format]
