@@ -2,6 +2,7 @@
 
 saved-models/
 data/
+lightning_logs/
 
 ### Below are common .gitignore DO NOT EDIT ###
 # Byte-compiled / optimized / DLL files

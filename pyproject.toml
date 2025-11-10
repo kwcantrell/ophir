@@ -49,6 +49,7 @@ select = [
 
 # Ignore specific rules that might be too restrictive or conflict with other tools.
 ignore = [
+    "E402",
     "E501", # Line too long (handled by formatter)
     "F401", # unused imports
 ]

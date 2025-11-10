@@ -13,5 +13,6 @@
         },
     },
     "ruff.nativeServer": "auto",
-    "ruff.configuration": "pyproject.toml"
+    "ruff.configuration": "pyproject.toml",
+    "python.languageServer": "Pylance"
 }

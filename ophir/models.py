@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, Tuple
 
 import torch
 import torch.nn.functional as F
@@ -87,12 +87,17 @@ class FlexMHA(nn.Module):
         self.proj_v = nn.Linear(emb_dim, emb_dim)
         self.proj_out = nn.Linear(emb_dim, emb_dim)
 
+        self.key_cache = None
+        self.value_cache = None
+        self.cache_index = 0
+
     def forward(
         self,
         query: torch.Tensor,
         key: torch.Tensor,
         value: torch.Tensor,
         block_mask: BlockMask,
+        kv_cache: bool = False,
     ) -> torch.Tensor:
         B, L, emb_q = query.shape
         _, S, emb_v = value.shape
@@ -171,10 +176,10 @@ class TransformerDecoderBlock(nn.Module):
         nn.init.zeros_(self._rezero)
 
     def forward(self, decoder: torch.Tensor) -> torch.Tensor:
-        causal_mask = causal_block_mask(
-            self.elements_in_encoder, None, None, decoder.shape[1], decoder.shape[1]
-        )
-        decoder = decoder + self._rezero * self.causal_mha(decoder, decoder, decoder, causal_mask)
+        # causal_mask = causal_block_mask(
+        #     self.elements_in_encoder, None, None, decoder.shape[1], decoder.shape[1]
+        # )
+        decoder = decoder + self._rezero * self.causal_mha(decoder, decoder, decoder, None)
         return decoder + self._rezero * self.mlp(decoder)
 
 
@@ -258,31 +263,23 @@ class RotaryNumberEmbedding(nn.Module):
         exp = (-2 * (emb_dim / 2 - 1)) / emb_dim
         self.base = (torch.pi / r) ** (1 / exp)
         self.wk = nn.Parameter(
-            torch.tensor([self.base**exp for _ in range(emb_dim // 2)], dtype=torch.float),
-            requires_grad=False,
+            torch.tensor([self.base**exp for _ in range(emb_dim // 2)]), requires_grad=False
         )
-
-        self.weight = nn.Parameter(torch.empty((1, 1, emb_dim)))
-        self.reset_parameters()
-
-    def set_weight(self, weight):
-        with torch.no_grad():
-            self.weight.set_(weight)
-
-    def reset_parameters(self) -> None:
+        self.weight = nn.Parameter(torch.empty(1, 1, emb_dim))
         nn.init.normal_(self.weight)
 
-    def forward(self, x: torch.Tensor):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         # create rotation matrices
-        x = x.squeeze(-1)
-        freqs = torch.einsum("...i,...j->...ij", x, self.wk)
+        freqs = torch.einsum("...i,...j->...ij", x.squeeze(-1), self.wk)
         # Expand to full dimension (cos/sin pairs)
         cos = torch.cos(freqs).repeat_interleave(2, dim=-1)
         sin = torch.sin(freqs).repeat_interleave(2, dim=-1)
 
-        even, odd = self.weight[..., ::2], self.weight[..., 1::2]
-        weight_rotated = torch.stack([-odd, even], dim=-1).reshape_as(self.weight)
-        return self.weight * cos + weight_rotated * sin
+        b, s, _ = x.shape
+        weight = self.weight.expand((b, s, -1))
+        even, odd = weight[..., ::2], weight[..., 1::2]
+        weight_rotated = torch.stack([-odd, even], dim=-1).reshape_as(weight)
+        return weight * cos + weight_rotated * sin
 
 
 class RotaryEmbedding(nn.Module):
@@ -345,11 +342,6 @@ class SingleCoinPricePredictor(nn.Module):
         self.elements_in_encoder = elements_in_encoder
 
         self.discretizer = RotaryNumberEmbedding(emb_dim, min_value, max_value)
-        self.start_emb = nn.Parameter(torch.empty(emb_dim))
-        nn.init.normal_(self.start_emb)
-        self.mask_emb = nn.Parameter(torch.empty(emb_dim))
-        nn.init.normal_(self.mask_emb)
-
         self.rot_embeddings = RotaryEmbedding(emb_dim)
         self.decoder = nn.ModuleList(
             [
@@ -357,42 +349,55 @@ class SingleCoinPricePredictor(nn.Module):
                 for _ in range(self.num_dec_layers)
             ]
         )
-        self.ff_out = nn.Linear(emb_dim, 1)
 
-    def _prepare_encoder_input(self, encoder_input: torch.Tensor, mask=None) -> torch.Tensor:
-        b, _, _ = encoder_input.shape
-        start_token = torch.broadcast_to(self.start_emb, (b, 1, self.emb_dim))
+    def _prepare_encoder_input(self, stock: Tuple[torch.Tensor], mask: bool = None) -> torch.Tensor:
+        (
+            stock_value,
+            year_embedding,
+            month_embedding,
+            day_embedding,
+            sector_embedding,
+            stock_embedding,
+            mask_embedding,
+        ) = stock
 
+        _, len, _ = stock_value.shape
+        (year_embedding, month_embedding, day_embedding) = (
+            year_embedding[:, :len],
+            month_embedding[:, :len],
+            day_embedding[:, :len],
+        )
         if self.training and mask is not None:
-            b, _, _ = encoder_input.shape
-            unmask = torch.rand_like(encoder_input) < 0.2
-            change_mask = torch.rand_like(encoder_input) < 0.1
+            unmask = torch.rand_like(stock_value) < 0.2
+            change_mask = torch.rand_like(stock_value) < 0.1
+            random_value = torch.empty_like(stock_value)
+            random_value.normal_(stock_value.mean(), stock_value.std())
 
-            change = torch.empty_like(encoder_input)
-            change.normal_(encoder_input.mean(), encoder_input.std())
-            encoder_input = torch.where(mask & unmask & change_mask, change, encoder_input)
-
-            encoder_input = self.discretizer(encoder_input)
-            encoder_input = torch.where(mask & ~unmask, self.mask_emb, encoder_input)
+            encoder_input = (
+                self.discretizer(
+                    torch.where(mask & unmask & change_mask, random_value, stock_value)
+                )
+                + year_embedding
+                + month_embedding
+                + day_embedding
+                + sector_embedding
+                + stock_embedding
+            )
+            encoder_input = torch.where(mask & ~unmask, mask_embedding, encoder_input)
         else:
-            encoder_input = self.discretizer(encoder_input)
-
-        encoder_input = torch.concat([encoder_input, start_token], dim=1)
+            encoder_input = (
+                self.discretizer(stock_value)
+                + year_embedding
+                + month_embedding
+                + day_embedding
+                + sector_embedding
+                + stock_embedding
+            )
         return encoder_input
 
-    def _prepare_decoder_input(self, decoder_input: torch.Tensor, encoder_input) -> torch.Tensor:
-        if decoder_input is not None:
-            if self.training:
-                print("???")
-                mask = torch.rand_like(decoder_input) < 0.1
-                change = torch.empty_like(decoder_input)
-                change.normal_(decoder_input.mean(), decoder_input.std())
-                decoder_input = torch.where(mask, change, decoder_input)
-            decoder_input = self.discretizer(decoder_input)
-            output = torch.cat([encoder_input, decoder_input], dim=1)
-        else:
-            output = encoder_input
-        return output
+    def _prepare_decoder_input(self, stock_value: Tuple[torch.Tensor]) -> torch.Tensor:
+        decoder_input = self.discretizer(stock_value)
+        return decoder_input
 
     def forward(
         self,
@@ -410,3 +415,83 @@ class SingleCoinPricePredictor(nn.Module):
         model_output = self.ff_out(decoder_output)
 
         return model_output
+
+
+class MulitClassPricePredictor(SingleCoinPricePredictor):
+    __constants__ = ["num_sector", "num_stock"]
+    num_sector: int
+    num_stock: int
+
+    def __init__(self, num_sector: int, num_stock: int, **kwargs: SingleCoinPricePredictor):
+        kwargs["elements_in_encoder"] += 1
+        super().__init__(**kwargs)
+
+        self.num_sector = num_sector
+        self.num_stock = num_stock
+
+        self.year_embedding = nn.Embedding(100, self.emb_dim)
+        self.month_embedding = nn.Embedding(12, self.emb_dim)
+        self.day_embedding = nn.Embedding(31, self.emb_dim)
+        self.sector_embedding = nn.Embedding(num_sector, self.emb_dim)
+        self.stock_embedding = nn.Embedding(num_stock, self.emb_dim)
+        self.mask_embedding = nn.Embedding(1, self.emb_dim)
+
+        self.ff_out = nn.Linear(self.emb_dim, 1)
+        self.year_ff = nn.Linear(self.emb_dim, 100)
+        self.month_ff = nn.Linear(self.emb_dim, 12)
+        self.day_ff = nn.Linear(self.emb_dim, 31)
+        self.sector_ff = nn.Linear(self.emb_dim, num_sector)
+        self.stock_ff = nn.Linear(self.emb_dim, num_stock)
+
+    def forward(
+        self,
+        encoder_value: torch.Tensor,
+        decoder_value: torch.Tensor,
+        year: torch.Tensor,
+        month: torch.Tensor,
+        day: torch.Tensor,
+        sector_token: torch.Tensor,
+        stock_token: torch.Tensor,
+        random_mask: Optional[torch.Tensor] = None,
+    ):
+        sector_embedding = self.sector_embedding(sector_token)
+        stock_embedding = self.stock_embedding(stock_token)
+        mask_embedding = self.mask_embedding(torch.zeros_like(stock_token))
+
+        year_embedding = self.year_embedding(year)
+        month_embedding = self.year_embedding(month)
+        day_embedding = self.day_embedding(day)
+
+        b, ds, _ = decoder_value.shape
+        embeddings = self.rot_embeddings(
+            torch.concat(
+                [
+                    self._prepare_encoder_input(
+                        (
+                            encoder_value,
+                            year_embedding,
+                            month_embedding,
+                            day_embedding,
+                            sector_embedding,
+                            stock_embedding,
+                            mask_embedding,
+                        ),
+                        random_mask,
+                    ),
+                    mask_embedding.broadcast_to((b, ds, self.emb_dim)),
+                ],
+                dim=1,
+            )
+        )
+
+        for layer in self.decoder:
+            embeddings = layer(embeddings)
+
+        return (
+            self.ff_out(embeddings),
+            self.year_ff(embeddings),
+            self.month_ff(embeddings),
+            self.day_ff(embeddings),
+            self.sector_ff(embeddings),
+            self.stock_ff(embeddings),
+        )
