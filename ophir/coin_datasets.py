@@ -499,7 +499,7 @@ def construct_datasets(
     elements_in_encoder: int,
     quicktest: bool = False,
 ):
-    points_per_day = 24 if sub_unit == "h" else 24 * 60
+    points_per_day = 1  # 24 if sub_unit == "h" else 24 * 60
     sector_token_path = os.path.join(dir_path, "sector_tokens.json")
     stock_token_path = os.path.join(dir_path, "stock_tokens.json")
 
@@ -522,7 +522,7 @@ def construct_datasets(
             tokens[item] = token
 
     def tokenize_file(fn):
-        sector_stock = fn.split("_usd_minute_historical.parquet")[0].split("_")
+        sector_stock = fn.split(".parquet")[0].split("-")
         sector = "_".join(sector_stock[:-1])
         stock = sector_stock[-1]
         add_token(sector_tokens, sector), add_token(stock_tokens, stock)
@@ -538,8 +538,8 @@ def construct_datasets(
         fp = os.path.join(dir_path, fn)
         tokens = tokenize_file(fn)
 
-        price_df = pd.read_parquet(fp, columns=["timestamp", "close"])
-        price_df["Date"] = pd.DatetimeIndex(price_df["timestamp"])
+        price_df = pd.read_parquet(fp)  # , columns=["timestamp", "close"])
+        # price_df["Date"] = pd.DatetimeIndex(price_df["timestamp"])
         price_df = price_df[["Date", "close"]]
         dataset_series = price_df.set_index("Date", inplace=False).sort_index().reset_index()
         if sub_unit == "h":

@@ -3,6 +3,7 @@
 saved-models/
 data/
 lightning_logs/
+.ophir
 
 ### Below are common .gitignore DO NOT EDIT ###
 # Byte-compiled / optimized / DLL files
