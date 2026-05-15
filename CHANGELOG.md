@@ -7,8 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-05-14
+
 ### Added
 
+- `commit` Claude Code skill (`.claude/skills/commit/SKILL.md`) that automates
+  release-hygiene commits: groups the working tree into ordered commit units,
+  infers SemVer bumps, updates the changelog and version files, and commits
+  only after explicit confirmation. Repo tooling; no runtime impact on the
+  `ophir` package.
 - Project README, changelog, and a Sphinx + autodoc documentation site,
   published to GitHub Pages via a `Docs` GitHub Actions workflow.
 
@@ -37,5 +44,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   value yields a rotation of π.
 - Model validation and minor fixes.
 
-[Unreleased]: https://github.com/kwcantrell/ophir/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/kwcantrell/ophir/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/kwcantrell/ophir/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/kwcantrell/ophir/releases/tag/v0.1.0
