@@ -1,0 +1,75 @@
+{
+    "name": "Claude Code Sandbox",
+    "build": {
+        "dockerfile": "Dockerfile",
+        "args": {
+            "TZ": "${localEnv:TZ:America/Los_Angeles}",
+            "CLAUDE_CODE_VERSION": "latest",
+            "GIT_DELTA_VERSION": "0.18.2"
+        }
+    },
+    "hostRequirements": {
+        "gpu": "optional"
+    },
+    "runArgs": [
+        "--cap-add=NET_ADMIN",
+        "--cap-add=NET_RAW",
+        "--cap-add=SYS_ADMIN",
+        "--add-host=host.docker.internal:host-gateway",
+        "--gpus=all"
+    ],
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "ms-python.python",
+                "charliermarsh.ruff",
+                "anthropic.claude-code"
+            ],
+            "settings": {
+                "terminal.integrated.defaultProfile.linux": "bash"
+            }
+        }
+    },
+    "remoteUser": "node",
+    "mounts": [
+        "source=claude-code-bashhistory-${devcontainerId},target=/commandhistory,type=volume",
+        "source=claude-code,target=/home/node/.claude,type=volume",
+        "source=uv-cache,target=/home/node/.cache/uv,type=volume",
+        "source=npm-cache,target=/home/node/.npm,type=volume",
+        "source=chrome-config,target=/home/node/.config/google-chrome,type=volume",
+        "source=chrome-policies,target=/etc/opt/chrome/policies,type=volume",
+        "source=matplotlib,target=/home/node/.config/matplotlib,type=volume",
+        "source=local-share,target=/home/node/.local/share,type=volume",
+        "source=/run/user/1000/wayland-0,target=/run/user/1000/wayland-0,type=bind",
+        "source=/run/user/1000/pulse,target=/run/user/1000/pulse,type=bind"
+        // "source=puppeteer-${devcontainerId}, target=/home/node/.cache/puppeteer,type=volume"
+    ],
+    "containerEnv": {
+        // "ANTHROPIC_BASE_URL": "http://host.docker.internal:11434",
+        // "ANTHROPIC_AUTH_TOKEN": "ollama",
+        // "ANTHROPIC_API_KEY": "",
+        // "ANTHROPIC_DEFAULT_OPUS_MODEL": "qwen3.5:9b-claude",
+        // "ANTHROPIC_DEFAULT_SONNET_MODEL": "qwen3.5:9b-claude",
+        // "ANTHROPIC_DEFAULT_HAIKU_MODEL": "qwen3.5:9b-claude",
+        // "CLAUDE_CODE_SUBAGENT_MODEL": "qwen3.5:9b-claude",
+        // "ANTHROPIC_MODEL": "qwen3.5:9b-claude",
+        // "NODE_OPTIONS": "--max-old-space-size=4096",
+        "XDG_RUNTIME_DIR": "/run/user/1000",
+        "PULSE_SERVER": "unix:/run/user/1000/pulse/native",
+        "WAYLAND_DISPLAY": "wayland-0",
+        "ELECTRON_OZONE_PLATFORM_HINT": "wayland",
+        "CLAUDE_CONFIG_DIR": "/home/node/.claude",
+        "SEARXNG_URL": "http://host.docker.internal:80",
+        "NVIDIA_VISIBLE_DEVICES": "all",
+        "NVIDIA_DRIVER_CAPABILITIES": "compute,utility,graphics,video",
+        "AUTORAG_OLLAMA_BASE_URL": "http://host.docker.internal:11434",
+        "HF_TOKEN": "${localEnv:HF_TOKEN}",
+        "UV_LINK_MODE": "copy",
+        "MPLCONFIGDIR": "/home/node/.config/matplotlib"
+    },
+    "workspaceMount": "source=${localWorkspaceFolder},target=/workspace/ophir,type=bind,consistency=delegated",
+    "workspaceFolder": "/workspace/ophir",
+    "postStartCommand": "cd /workspace/ophir && uv sync --all-extras && rm -f /home/node/.config/google-chrome/SingletonLock /home/node/.config/google-chrome/SingletonCookie /home/node/.config/google-chrome/SingletonSocket",
+    // "postStartCommand": "sudo /usr/local/bin/init-firewall.sh",
+    "waitFor": "postStartCommand"
+}
