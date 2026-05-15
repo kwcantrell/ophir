@@ -1,10 +1,6 @@
-# -*- coding: utf-8 -*-
-
-"""PyTorch‑Lightning wrapper for :class:`OHLCMulitClassPredictor`."""
+"""PyTorch-Lightning wrapper for :class:`OHLCMulitClassPredictor`."""
 
 from __future__ import annotations
-
-from typing import Union
 
 import lightning as L
 import torch
@@ -12,7 +8,7 @@ import torch.nn.functional as F
 from transformers import get_cosine_schedule_with_warmup
 
 # Import the dataclass that holds the raw input features.  It is
-# defined in ``model_data.py`` – the import is kept at the top of the
+# defined in ``model_data.py`` - the import is kept at the top of the
 # file so that the Lightning module can be used as a standalone
 # example.
 from .model_data import OHLCMulitClassPredictorInput  # type: ignore
@@ -23,7 +19,7 @@ from .models import OHLCMulitClassParameters, OHLCMulitClassPredictor
 #  Lightning wrapper
 # --------------------------------------------------------------------------- #
 class LightningOHLCPredictor(L.LightningModule):
-    def __init__(self, emb_dim: int, num_layers: int, num_heads: int):
+    def __init__(self, emb_dim: int, num_layers: int, num_heads: int) -> None:
         super().__init__()
         hparams: OHLCMulitClassParameters = OHLCMulitClassParameters(
             emb_dim=emb_dim, num_layers=num_layers, num_heads=num_heads
@@ -40,9 +36,7 @@ class LightningOHLCPredictor(L.LightningModule):
             input = OHLCMulitClassPredictorInput(**input).to_cuda()
         return input.to_cuda()
 
-    def forward(
-        self, input: Union[dict, OHLCMulitClassPredictorInput]
-    ) -> OHLCMulitClassPredictorInput:
+    def forward(self, input: dict | OHLCMulitClassPredictorInput) -> OHLCMulitClassPredictorInput:
         input = self._input_obj(input)
         return self.ohlc_predictor(input)
 
@@ -100,9 +94,7 @@ class LightningOHLCPredictor(L.LightningModule):
         model_output = self.forward(batch)
         loss = self.compute_loss(model_output)
 
-        self.log(
-            "train_loss", loss, prog_bar=False, on_epoch=True, on_step=True, logger=True
-        )
+        self.log("train_loss", loss, prog_bar=False, on_epoch=True, on_step=True, logger=True)
 
         return loss
 
@@ -111,9 +103,7 @@ class LightningOHLCPredictor(L.LightningModule):
         batch = self._input_obj(batch)
         model_output = self.forward(batch)
         loss = self.compute_loss(model_output)
-        self.log(
-            "val_loss", loss, prog_bar=False, on_epoch=True, on_step=True, logger=True
-        )
+        self.log("val_loss", loss, prog_bar=False, on_epoch=True, on_step=True, logger=True)
 
         return loss
 
@@ -121,12 +111,7 @@ class LightningOHLCPredictor(L.LightningModule):
         decay, no_decay, rezero_params = [], [], []
 
         for name, p in self.named_parameters():
-            if (
-                p.ndim >= 2
-                and "bias" not in name
-                and "norm" not in name
-                and "rezero" not in name
-            ):
+            if p.ndim >= 2 and "bias" not in name and "norm" not in name and "rezero" not in name:
                 decay.append(p)
             elif "rezero" not in name:
                 no_decay.append(p)
@@ -161,12 +146,12 @@ class LightningOHLCPredictor(L.LightningModule):
         return self._use_cache
 
     @use_cache.setter
-    def use_cache(self, value):
+    def use_cache(self, value) -> None:
         assert isinstance(value, bool)
         self.ohlc_predictor.ohlc_percentage_change.use_cache = value
         self.ohlc_predictor.volume_percentage_change.use_cache = value
 
-    def reset_rezero(self):
+    def reset_rezero(self) -> None:
         with torch.no_grad():
             for name, param in self.ohlc_predictor.named_parameters():
                 if "rezero" in name:

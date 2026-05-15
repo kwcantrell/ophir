@@ -36,6 +36,7 @@ build-backend = "uv_build"
 target-version = "py312"
 line-length = 100
 src = ["src", "tests"]
+extend-exclude = ["*.ipynb"]
 
 [tool.ruff.lint]
 select = [
@@ -55,6 +56,7 @@ select = [
 ignore = [
     "ANN401",  # Any — needed for torch/whisper interop
     "B008",    # function calls in default args — conflicts with FastAPI Depends pattern
+    "N812",    # `import lightning as L` / `torch.nn.functional as F` are standard aliases
 ]
 unfixable = [
     "F401",  # unused imports — don't auto-remove; files may be edited incrementally
@@ -62,6 +64,14 @@ unfixable = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["ANN"]
+# TECH DEBT: legacy torch/lightning model code predates the ANN ruleset.
+# ANN is suppressed per-file as a temporary measure — drop these entries and
+# add proper type annotations later. New code (ui.py, cli.py) stays enforced.
+"src/ophir/models.py" = ["ANN"]
+"src/ophir/ticker.py" = ["ANN"]
+"src/ophir/register.py" = ["ANN"]
+"src/ophir/training_models.py" = ["ANN"]
+"src/ophir/model_data.py" = ["ANN"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["ophir"]

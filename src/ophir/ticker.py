@@ -1,6 +1,5 @@
 import os
 from dataclasses import dataclass
-from typing import Dict, List
 
 import numpy as np
 import pandas as pd
@@ -41,7 +40,11 @@ def get_sp_500_symbols():
     # Wikipedia URL for S&P 500 companies
     url = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3"
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/58.0.3029.110 Safari/537.3"
+        )
     }
 
     try:
@@ -52,7 +55,7 @@ def get_sp_500_symbols():
     return list(dfs[0]["Symbol"])
 
 
-def get_splits(tickers: List[str], cache_path: str = None) -> Dict[str, "StockSplit"]:
+def get_splits(tickers: list[str], cache_path: str | None = None) -> dict[str, "StockSplit"]:
     import pickle
 
     import yfinance as yf
@@ -60,11 +63,12 @@ def get_splits(tickers: List[str], cache_path: str = None) -> Dict[str, "StockSp
 
     if cache_path is None:
         from .register import DATA_DIR
+
         cache_path = os.path.join(DATA_DIR, "yf_splits_cache.pkl")
 
     if os.path.exists(cache_path):
         with open(cache_path, "rb") as f:
-            cached: Dict[str, StockSplit] = pickle.load(f)
+            cached: dict[str, StockSplit] = pickle.load(f)
         missing = [t for t in tickers if t not in cached]
         if not missing:
             return {t: cached[t] for t in tickers if t in cached}
@@ -81,7 +85,9 @@ def get_splits(tickers: List[str], cache_path: str = None) -> Dict[str, "StockSp
         if series is None or len(series) == 0:
             cached[ticker] = None  # sentinel: queried, no splits
             continue
-        naive_index = series.index.tz_localize(None) if series.index.tz is not None else series.index
+        naive_index = (
+            series.index.tz_localize(None) if series.index.tz is not None else series.index
+        )
         cached[ticker] = StockSplit(
             id=ticker,
             dates=list(naive_index.to_numpy()),
@@ -97,8 +103,8 @@ def get_splits(tickers: List[str], cache_path: str = None) -> Dict[str, "StockSp
 @dataclass
 class StockSplit:
     id: str
-    dates: List[np.datetime64]
-    ratios: List[float]
+    dates: list[np.datetime64]
+    ratios: list[float]
 
     def apply_splits(self, df: pd.DataFrame) -> pd.DataFrame:
         """
@@ -110,7 +116,7 @@ class StockSplit:
         # Create cumulative adjustment factor
         adj_factor = pd.Series(1.0, index=df.index)
 
-        for date, ratio in zip(self.dates, self.ratios):
+        for date, ratio in zip(self.dates, self.ratios, strict=False):
             split_date = pd.to_datetime(date)
 
             # Apply to all dates BEFORE split date
@@ -154,9 +160,7 @@ def extract_features(df: pd.DataFrame, winsorize_returns: bool = False) -> pd.Da
         eps = 1e-8
         r_close = df["r_close"]
         r_close_rolling_std = r_close.rolling(window_size).std()
-        df = add_feature(
-            f"{window_size}_norm_returns", r_close / (r_close_rolling_std + eps), df
-        )
+        df = add_feature(f"{window_size}_norm_returns", r_close / (r_close_rolling_std + eps), df)
 
         # volatility normalization
         log_volume: pd.DataFrame = np.log(df["volume"] + eps)
@@ -181,9 +185,9 @@ def extract_features(df: pd.DataFrame, winsorize_returns: bool = False) -> pd.Da
 
     df_pad = add_feature("trade_occured", df_pad["close"].notna(), df_pad)
 
-    PAD_VALUE = 0.0
+    pad_value = 0.0
     for col in feature_cols:
-        df_pad[col] = df_pad[col].fillna(PAD_VALUE)
+        df_pad[col] = df_pad[col].fillna(pad_value)
 
     return df_pad[feature_cols]
 
@@ -232,8 +236,7 @@ class StockStreamer:
         df = df.assign(
             **{
                 "target_close": start_close * np.exp(df["target_r_close"].cumsum()),
-                "predicted_close": start_close
-                * np.exp(df["predicted_r_close"].cumsum()),
+                "predicted_close": start_close * np.exp(df["predicted_r_close"].cumsum()),
             }
         )
 
@@ -248,7 +251,7 @@ class StockStreamer:
 
         return df
 
-    def __len__(self):
+    def __len__(self) -> int:
         return self.size
 
     def __getitem__(self, i: int):
@@ -272,7 +275,7 @@ class StockHanlder:
     base_path: str
     return_stock_id: bool
     return_streamer: bool
-    stock_splits: Dict[str, StockSplit] = None
+    stock_splits: dict[str, StockSplit] = None
     shuffle: bool = False
     offset: int = -1
     min_year: int = None
@@ -288,7 +291,7 @@ class StockHanlder:
         if self.offset == -1:
             self.offset = self.seq_len
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self.stocks)
 
     def __getitem__(self, index):
@@ -303,14 +306,13 @@ class StockHanlder:
         else:
             return self.stock_df(stock)
 
-    def keep_stocks(self, stock_list):
+    def keep_stocks(self, stock_list) -> None:
         kept_stocks = {
-            stock: self.stock_dict[stock]
-            for stock in stock_list
-            if stock in self.stock_dict
+            stock: self.stock_dict[stock] for stock in stock_list if stock in self.stock_dict
         }
         print(
-            f"stocks kept: {len(kept_stocks)}/{len(self.stock_dict)}, stocks not found: {len(stock_list) - len(stock_list)}"
+            f"stocks kept: {len(kept_stocks)}/{len(self.stock_dict)}, "
+            f"stocks not found: {len(stock_list) - len(stock_list)}"
         )
         self.stock_dict = kept_stocks
         self.stocks = list(self.stock_dict.keys())
@@ -360,7 +362,7 @@ class StockHanlder:
 
 
 def extract_model_data(df: pd.DataFrame, response_size: int, return_date: bool = False):
-    features = [c for c, d in zip(df.columns, df.dtypes) if d != np.bool]
+    features = [c for c, d in zip(df.columns, df.dtypes, strict=False) if d != np.bool]
     feature_input = df[features].to_numpy()
     targets = df[["r_close", "upside", "downside"]].to_numpy()
     trade_occured = df["trade_occured"].to_numpy()
@@ -378,22 +380,18 @@ def extract_model_data(df: pd.DataFrame, response_size: int, return_date: bool =
 class StockStreamerDataset(Dataset):
     def __init__(
         self,
-        stock_streamers: List[StockStreamer],
+        stock_streamers: list[StockStreamer],
         response_size: int,
         return_date: bool = False,
-    ):
+    ) -> None:
         self.stock_streamers = stock_streamers
-        self.iterators = [
-            iter(streamer.create_iterator()) for streamer in self.stock_streamers
-        ]
-        self.lengths = np.array(
-            np.cumsum([stremer.size for stremer in self.stock_streamers])
-        )
+        self.iterators = [iter(streamer.create_iterator()) for streamer in self.stock_streamers]
+        self.lengths = np.array(np.cumsum([stremer.size for stremer in self.stock_streamers]))
 
         self.response_size = np.array([response_size])
         self.return_date = return_date
 
-    def __len__(self):
+    def __len__(self) -> int:
         return self.lengths[-1]
 
     def __getitem__(self, index):
@@ -408,14 +406,15 @@ class StockStreamerDataset(Dataset):
 
 class StockHandlerDataset(IterableDataset):
     def __init__(
-        self, stock_hanlder: List[StockHanlder], response_size: int, cache_size: int = 1
-    ):
+        self, stock_hanlder: list[StockHanlder], response_size: int, cache_size: int = 1
+    ) -> None:
         self.stock_hanlder = stock_hanlder
         self.response_size = np.array([response_size])
         self.cache_size = cache_size
 
         print(
-            f"Creating StockHandlerDataset with offset: {self.stock_hanlder.offset} and cache: {self.cache_size}"
+            f"Creating StockHandlerDataset with offset: {self.stock_hanlder.offset} "
+            f"and cache: {self.cache_size}"
         )
 
     def __iter__(self):

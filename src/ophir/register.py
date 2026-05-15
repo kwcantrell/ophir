@@ -1,9 +1,9 @@
 import os
 from datetime import timedelta
+from typing import Annotated
 
 import typer
 from massive import RESTClient
-from typing_extensions import Annotated
 
 # Get the absolute path of the current file
 current_file_path = os.path.abspath(__file__)
@@ -55,7 +55,8 @@ def fetch_base_trainer(file_name=None):
         dirpath=MODEL_DIR,
         filename=file_name + EPOCH_MODIFIER,
         save_top_k=1,  # Saves at the end of every epoch
-        save_on_train_epoch_end=True,  # To save all epoch checkpoints, or use 0 to save only the last
+        # To save all epoch checkpoints, or use 0 to save only the last
+        save_on_train_epoch_end=True,
     )
 
     trainer = L.Trainer(
@@ -102,7 +103,7 @@ def fetch_finetune_trainer():
 
 def get_massive_client():
     assert os.path.exists(os.path.join(OPHIR_DIR, ".massive_key"))
-    with open(os.path.join(OPHIR_DIR, ".massive_key"), "r") as f:
+    with open(os.path.join(OPHIR_DIR, ".massive_key")) as f:
         key = f.readline().strip()
     return RESTClient(key)
 
@@ -128,16 +129,12 @@ def _latest_base_ckpt(filename=None):
 
 
 def _latest_finetuned_ckpt():
-    fintune_paths = sorted(
-        [path for path in os.listdir(MODEL_DIR) if FINETUNE_NAME in path]
-    )
+    fintune_paths = sorted([path for path in os.listdir(MODEL_DIR) if FINETUNE_NAME in path])
     if len(fintune_paths) > 1:
         base_versions = sorted(
             [
                 (
-                    int(
-                        version.removeprefix(f"{FINETUNE_NAME}-v").removesuffix(".ckpt")
-                    ),
+                    int(version.removeprefix(f"{FINETUNE_NAME}-v").removesuffix(".ckpt")),
                     version,
                 )
                 for version in fintune_paths
@@ -155,16 +152,16 @@ def get_default_data_days_dir():
     return os.path.join(DATA_DIR, "days")
 
 
-def clear_ignore_symbols():
+def clear_ignore_symbols() -> None:
     print("Reseting ignore symbols mode...")
     path = os.path.join(DATA_DIR, "ignore-symbols.txt")
     if os.path.exists(path):
         os.remove(path)
 
 
-def set_ignore_symbols(symbols):
+def set_ignore_symbols(symbols) -> None:
     symbols = set(fetch_ignore_symbols_list()).union(symbols)
-    symbols = sorted(list(symbols))
+    symbols = sorted(symbols)
     with open(os.path.join(DATA_DIR, "ignore-symbols.txt"), "w") as f:
         for symbol in symbols:
             f.write(f"{symbol}\n")
@@ -175,14 +172,12 @@ def fetch_ignore_symbols_list():
     if not os.path.exists(os.path.join(DATA_DIR, "ignore-symbols.txt")):
         return []
 
-    with open(os.path.join(DATA_DIR, "ignore-symbols.txt"), "r") as f:
+    with open(os.path.join(DATA_DIR, "ignore-symbols.txt")) as f:
         symbols = [symbol.strip() for symbol in f.readlines()]
     return symbols
 
 
-def load_base_model_ckpt(
-    strict=True, return_ckpt_path=False, file_name=None, time_version=True
-):
+def load_base_model_ckpt(strict=True, return_ckpt_path=False, file_name=None, time_version=True):
     from ophir.training_models import LightningOHLCPredictor
 
     if file_name is None:
@@ -200,9 +195,7 @@ def load_base_model_ckpt(
     last_ckpt = os.path.join(MODEL_DIR, latest_version)
     if not return_ckpt_path:
         return LightningOHLCPredictor.load_from_checkpoint(last_ckpt, strict=strict)
-    return LightningOHLCPredictor.load_from_checkpoint(
-        last_ckpt, strict=strict
-    ), last_ckpt
+    return LightningOHLCPredictor.load_from_checkpoint(last_ckpt, strict=strict), last_ckpt
 
 
 def load_fintuned_ckpt(strict=True, return_ckpt_path=False):
@@ -214,9 +207,7 @@ def load_fintuned_ckpt(strict=True, return_ckpt_path=False):
     last_ckpt = os.path.join(MODEL_DIR, latest_version)
     if not return_ckpt_path:
         return LightningOHLCPredictor.load_from_checkpoint(last_ckpt, strict=strict)
-    return LightningOHLCPredictor.load_from_checkpoint(
-        last_ckpt, strict=strict
-    ), last_ckpt
+    return LightningOHLCPredictor.load_from_checkpoint(last_ckpt, strict=strict), last_ckpt
 
 
 def predict_trainer():
@@ -232,6 +223,6 @@ app = typer.Typer()
 @app.command()
 def massive_key(
     key: Annotated[str, typer.Argument(help="MASSIVE API key")],
-):
+) -> None:
     with open(os.path.join(OPHIR_DIR, ".massive_key"), "w") as f:
         f.write(f"{key}\n")

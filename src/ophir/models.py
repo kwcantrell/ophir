@@ -1,14 +1,12 @@
-# -*- coding: utf-8 -*-
-
 """
-OHLC multi‑class predictor with a flexible attention backbone.
+OHLC multi-class predictor with a flexible attention backbone.
 
 This module implements the core model used in the project.  The most
 notable changes from the original version are:
 
 * Causal block masks now cache also on the padding mask, preventing
   accidental reuse when the padding mask changes.
-* Minor type‑hinting and docstring improvements.
+* Minor type-hinting and docstring improvements.
 * A few defensive checks added for clarity.
 """
 
@@ -16,7 +14,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Dict, Tuple
+from typing import TYPE_CHECKING
 
 import torch
 from torch import nn
@@ -28,22 +26,23 @@ from torch.nn.attention.flex_attention import (
     or_masks,
 )
 
-from .model_data import OHLCMulitClassPredictorInput
+if TYPE_CHECKING:
+    from .model_data import OHLCMulitClassPredictorInput
 
 compiled_flex_attention = torch.compile(flex_attention, dynamic=True)
 
 
 # --------------------------------------------------------------------------- #
-# Hyper‑parameters
+# Hyper-parameters
 # --------------------------------------------------------------------------- #
 @dataclass(frozen=True, kw_only=True, slots=True)
 class OHLCMulitClassParameters:
     """
-    Hyper‑parameters for the OHLC multi‑class predictor.
+    Hyper-parameters for the OHLC multi-class predictor.
 
-    ``emb_dim`` – dimensionality of the token embeddings.
-    ``num_layers`` – number of transformer blocks.
-    ``num_heads`` – number of attention heads.
+    ``emb_dim`` - dimensionality of the token embeddings.
+    ``num_layers`` - number of transformer blocks.
+    ``num_heads`` - number of attention heads.
     """
 
     emb_dim: int
@@ -52,9 +51,7 @@ class OHLCMulitClassParameters:
 
     def __post_init__(self):
         assert self.emb_dim % 4 == 0  # emb_dim must be a multiple of 4
-        assert (
-            self.emb_dim % self.num_heads == 0
-        )  # emb_dim must be divisible by num_heads
+        assert self.emb_dim % self.num_heads == 0  # emb_dim must be divisible by num_heads
 
     @property
     def head_dim(self) -> int:
@@ -63,7 +60,7 @@ class OHLCMulitClassParameters:
 
     @property
     def hidden_dim(self):
-        """Hidden dimension used inside the MLP (4×emb_dim)."""
+        """Hidden dimension used inside the MLP (4xemb_dim)."""
         return 4 * self.emb_dim
 
 
@@ -119,7 +116,7 @@ def get_alibi_slopes(hparams: OHLCMulitClassParameters) -> torch.Tensor:
 # --------------------------------------------------------------------------- #
 @dataclass(kw_only=True, slots=True)
 class CausalPrefixBlockMasks:
-    masks: Dict[Tuple[int, int], BlockMask] = None
+    masks: dict[tuple[int, int], BlockMask] = None
 
     def __getitem__(self, index: tuple) -> BlockMask:
         """
@@ -130,42 +127,42 @@ class CausalPrefixBlockMasks:
         Parameters
         ----------
         index : tuple
-            ``(L, S, pad_mask)``
-            * ``L`` – total sequence length (int or 0‑d tensor).
-            * ``S`` – response block size (int or 0‑d tensor).
-            * ``pad_mask`` – padding‑mask callable.
+            ``(seq_len, response_size, pad_mask)``
+            * ``seq_len`` - total sequence length (int or 0-d tensor).
+            * ``response_size`` - response block size (int or 0-d tensor).
+            * ``pad_mask`` - padding-mask callable.
         """
-        L, S, pad_mask = index
-        if isinstance(L, torch.Tensor):
-            L = int(L.cpu().numpy())
-        if isinstance(S, torch.Tensor):
-            S = int(S.cpu().numpy())
+        seq_len, response_size, pad_mask = index
+        if isinstance(seq_len, torch.Tensor):
+            seq_len = int(seq_len.cpu().numpy())
+        if isinstance(response_size, torch.Tensor):
+            response_size = int(response_size.cpu().numpy())
 
-        key = (L, S)
+        key = (seq_len, response_size)
 
         if self.masks is None:
             self.masks = {}
 
         if key not in self.masks:
             self.masks[key] = create_block_mask(
-                self.create_mask(L, S, pad_mask), None, None, L, L
+                self.create_mask(seq_len, response_size, pad_mask), None, None, seq_len, seq_len
             )
         return self.masks[key]
 
-    def create_mask(self, L, S, pad_mask) -> BlockMask:
+    def create_mask(self, seq_len, response_size, pad_mask) -> BlockMask:
         """
         Build the causal mask function for a single block.
 
         Parameters
         ----------
-        L : int
+        seq_len : int
             Total sequence length.
-        S : int
-            Size of the response block (the last ``S`` tokens).
+        response_size : int
+            Size of the response block (the last ``response_size`` tokens).
         pad_mask : nn.Module | None
             Optional padding mask.
         """
-        response_block_size = L - S
+        response_block_size = seq_len - response_size
 
         def prefix(b, h, q_idx, kv_idx):
             # Queries in the prefix block can only attend to the prefix block.
@@ -177,8 +174,8 @@ class CausalPrefixBlockMasks:
 
         causal_mask = or_masks(prefix, causal)
 
-        # Debug – can be removed in production
-        print(f"creating block mask of size {L} with response size {S}...")
+        # Debug - can be removed in production
+        print(f"creating block mask of size {seq_len} with response size {response_size}...")
 
         if pad_mask is not None:
             return and_masks(causal_mask, pad_mask)
@@ -187,14 +184,14 @@ class CausalPrefixBlockMasks:
 
 
 # --------------------------------------------------------------------------- #
-# Flexible multi‑head attention
+# Flexible multi-head attention
 # --------------------------------------------------------------------------- #
 class FlexMHA(nn.Module):
-    """Multi‑head attention with ALiBi bias and flexible block masking."""
+    """Multi-head attention with ALiBi bias and flexible block masking."""
 
     slopes: torch.Tensor
 
-    def __init__(self, hparams: OHLCMulitClassParameters):
+    def __init__(self, hparams: OHLCMulitClassParameters) -> None:
         super().__init__()
         self.hparams = hparams
 
@@ -218,16 +215,16 @@ class FlexMHA(nn.Module):
         Returns
         -------
         torch.Tensor
-            Output tensor of shape ``(B, L, emb_dim)``.
+            Output tensor of shape ``(batch, seq_len, emb_dim)``.
         """
-        B, L, _ = x.shape
+        batch, seq_len, _ = x.shape
 
         qkv = self.qkv(x)
         q, k, v = qkv.chunk(3, dim=-1)
 
-        q = q.view(B, L, self.hparams.num_heads, self.hparams.head_dim).transpose(1, 2)
-        k = k.view(B, L, self.hparams.num_heads, self.hparams.head_dim).transpose(1, 2)
-        v = v.view(B, L, self.hparams.num_heads, self.hparams.head_dim).transpose(1, 2)
+        q = q.view(batch, seq_len, self.hparams.num_heads, self.hparams.head_dim).transpose(1, 2)
+        k = k.view(batch, seq_len, self.hparams.num_heads, self.hparams.head_dim).transpose(1, 2)
+        v = v.view(batch, seq_len, self.hparams.num_heads, self.hparams.head_dim).transpose(1, 2)
 
         def alibi_score_mod(score, b, h, qi, ki):
             m = self.slopes[h]
@@ -241,7 +238,7 @@ class FlexMHA(nn.Module):
             q, k, v, score_mod=alibi_score_mod, block_mask=block_mask, scale=scale
         )
 
-        out = out.transpose(1, 2).contiguous().view(B, L, self.hparams.emb_dim)
+        out = out.transpose(1, 2).contiguous().view(batch, seq_len, self.hparams.emb_dim)
 
         # combine heads
         return self.proj_out(out)
@@ -251,9 +248,9 @@ class FlexMHA(nn.Module):
 # MLP used inside the transformer block
 # --------------------------------------------------------------------------- #
 class MLP(nn.Module):
-    """Simple two‑layer MLP with GELU and dropout."""
+    """Simple two-layer MLP with GELU and dropout."""
 
-    def __init__(self, input_dim, hidden_dim, emb_dim):
+    def __init__(self, input_dim, hidden_dim, emb_dim) -> None:
         super().__init__()
         self.mlp = nn.Sequential(
             nn.Linear(input_dim, hidden_dim),
@@ -274,7 +271,7 @@ class TransformerBlock(nn.Module):
     A single transformer block with residual connections and ReZero scaling.
     """
 
-    def __init__(self, hparams: OHLCMulitClassParameters):
+    def __init__(self, hparams: OHLCMulitClassParameters) -> None:
         super().__init__()
         self._rezero = nn.Parameter(torch.tensor(0.0, dtype=torch.float))
 
@@ -285,9 +282,9 @@ class TransformerBlock(nn.Module):
         self.ln2 = nn.LayerNorm(hparams.emb_dim)
 
     def forward(self, x: torch.Tensor, block_mask: BlockMask) -> torch.Tensor:
-        # Self‑attention with residual connection
+        # Self-attention with residual connection
         encoder = x + self._rezero * self.mha(self.ln1(x), block_mask)
-        # Feed‑forward with residual connection
+        # Feed-forward with residual connection
         return encoder + self._rezero * self.mlp(self.ln2(encoder))
 
 
@@ -296,23 +293,21 @@ class TransformerBlock(nn.Module):
 # --------------------------------------------------------------------------- #
 class OHLCMulitClassPredictor(nn.Module):
     """
-    OHLC multi‑class predictor that outputs:
+    OHLC multi-class predictor that outputs:
 
-    * ``model_output`` – raw logits for the 3 target classes
+    * ``model_output`` - raw logits for the 3 target classes
       (r_return, upside, downside) for the *response* tokens.
-    * ``stock_embeddings`` – a single embedding per example obtained by
+    * ``stock_embeddings`` - a single embedding per example obtained by
       averaging the response embeddings.
     """
 
-    def __init__(self, hparams: OHLCMulitClassParameters):
+    def __init__(self, hparams: OHLCMulitClassParameters) -> None:
         super().__init__()
-        # Positional encoding – we keep it simple and trainable
+        # Positional encoding - we keep it simple and trainable
         self.pe = nn.Parameter(torch.randn((1, 512, hparams.emb_dim)))
         self.feature_mlp = nn.Linear(13, hparams.emb_dim)
         self.causal_masks = CausalPrefixBlockMasks()
-        self.encoder = nn.ModuleList(
-            [TransformerBlock(hparams) for _ in range(hparams.num_layers)]
-        )
+        self.encoder = nn.ModuleList([TransformerBlock(hparams) for _ in range(hparams.num_layers)])
         self.out_ff = nn.Linear(hparams.emb_dim, 3)
 
     def forward(self, input: OHLCMulitClassPredictorInput):
@@ -323,10 +318,10 @@ class OHLCMulitClassPredictor(nn.Module):
         ----------
         input : OHLCMulitClassPredictorInput
             The input dataclass containing:
-            * ``feature_input`` – raw features of shape ``(B, L, 13)``.
-            * ``trade_occured`` – boolean mask of shape ``(B, L)``.
-            * ``response_size`` – integer indicating the number of response tokens.
-            * ``model_output`` and ``stock_embeddings`` are written in‑place.
+            * ``feature_input`` - raw features of shape ``(B, L, 13)``.
+            * ``trade_occured`` - boolean mask of shape ``(B, L)``.
+            * ``response_size`` - integer indicating the number of response tokens.
+            * ``model_output`` and ``stock_embeddings`` are written in-place.
 
         Returns
         -------
@@ -338,16 +333,16 @@ class OHLCMulitClassPredictor(nn.Module):
         x = self.feature_mlp(feature)
 
         # Add positional encoding (safely slice to the actual length)
-        _, L, _ = x.shape
-        pe_slice = self.pe[:, :L]
+        _, seq_len, _ = x.shape
+        pe_slice = self.pe[:, :seq_len]
         x = x + pe_slice
 
-        # Build padding mask – True where no trade occurred
+        # Build padding mask - True where no trade occurred
         padding_mask = ~input.trade_occured
 
         # Build the causal block mask for this batch
         block_mask = self.causal_masks[
-            L, input.response_size, create_padding_mask(padding_mask)
+            seq_len, input.response_size, create_padding_mask(padding_mask)
         ]
 
         # Pass through the transformer encoder

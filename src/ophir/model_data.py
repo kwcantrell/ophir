@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List, Optional
 
 import numpy as np
 import pandas as pd
@@ -12,7 +11,8 @@ import torch
 class OHLCMulitClassPredictorInput:
     """Structured dataclass for OHLCMultiClassPredictor input/output.
     Args:
-        feature_input (torch.FloatTensor): shape (B, S, 13) feature vector that will be used as model input.
+        feature_input (torch.FloatTensor): shape (B, S, 13) feature vector that
+            will be used as model input.
         response_size (torch.LongTensor): ()  how many days the model will predict.
         trade_occured (torch.BoolTensor): (B, S) padding mask.
         targets (torch.FloatTensor): shape (B, S, 3) targets for model output
@@ -26,7 +26,7 @@ class OHLCMulitClassPredictorInput:
     trade_occured: torch.BoolTensor
     targets: torch.FloatTensor
     model_output: torch.FloatTensor = None
-    time: Optional[np.ndarray] = None
+    time: np.ndarray | None = None
     stock_embeddings: torch.FloatTensor = None
     return_full_targets: bool = False
     r_close_index = 0
@@ -88,13 +88,13 @@ class OHLCMulitClassPredictorInput:
         """
         with torch.no_grad():
             stock_embeddings = self.stock_embeddings.mean(1)
-            U, S, V = torch.pca_lowrank(stock_embeddings, q=3)
-            transformed_data = torch.matmul(stock_embeddings, V)
+            _u, _s, v = torch.pca_lowrank(stock_embeddings, q=3)
+            transformed_data = torch.matmul(stock_embeddings, v)
         return transformed_data.cpu().numpy()
 
     def to_pandas(self) -> pd.DataFrame:
         """Converts model_output to a pandas.DataFrame"""
-        b, s, _ = self.feature_input.shape
+        b, _s, _ = self.feature_input.shape
         dfs = []
 
         target_flag = self.return_full_targets
@@ -102,15 +102,21 @@ class OHLCMulitClassPredictorInput:
         for i in range(b):
             target_r_close = self.target_r_close[i].reshape(-1).detach().cpu().numpy()
             predicted_r_close = self.predicted_r_close[i].reshape(-1).detach().cpu().numpy()
-            predicted_r_close = np.concat([target_r_close[: -self.response_size], predicted_r_close])
+            predicted_r_close = np.concat(
+                [target_r_close[: -self.response_size], predicted_r_close]
+            )
 
             target_upside = self.target_upside[i].exp().reshape(-1).detach().cpu().numpy()
             predicted_upside = self.predicted_upside[i].exp().reshape(-1).detach().cpu().numpy()
             predicted_upside = np.concat([target_upside[: -self.response_size], predicted_upside])
 
             target_downside = (-self.target_downside[i]).exp().reshape(-1).detach().cpu().numpy()
-            predicted_downside = (-self.predicted_downside[i]).exp().reshape(-1).detach().cpu().numpy()
-            predicted_downside = np.concat([target_downside[: -self.response_size], predicted_downside])
+            predicted_downside = (
+                (-self.predicted_downside[i]).exp().reshape(-1).detach().cpu().numpy()
+            )
+            predicted_downside = np.concat(
+                [target_downside[: -self.response_size], predicted_downside]
+            )
             df = pd.DataFrame(
                 {
                     "target_r_close": target_r_close,

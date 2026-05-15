@@ -1,5 +1,4 @@
-import json
-from typing import Tuple
+import os
 
 import gradio as gr
 import numpy as np
@@ -21,8 +20,6 @@ from ophir.ticker import (
 
 sp_500 = get_sp_500_symbols()
 splits = get_splits(sp_500)
-
-import os
 
 base_path = os.path.join(DATA_DIR, "days", "stocks")
 elements_per_sample = 365
@@ -103,13 +100,13 @@ def build_ohlc_figure(symbol: str) -> go.Figure:
         title=f"OHLC for {symbol}",
         title_x=0.5,
         template="plotly_dark",
-        margin=dict(l=20, r=20, t=40, b=50),
+        margin={"l": 20, "r": 20, "t": 40, "b": 50},
         hovermode="x unified",
     )
     return fig
 
 
-def percent_return(closes: np.ndarray):
+def percent_return(closes: np.ndarray) -> float:
     initial_val = closes[0] + 1e-8
     final_val = closes[-1]
     return 100 * (final_val - initial_val) / initial_val
@@ -153,8 +150,8 @@ def build_embedding_figure() -> go.Figure:
     )  # (optional) unit variance
 
     # create point cloud
-    U, S, V = torch.pca_lowrank(x_centered, q=5)
-    point_cloud = torch.matmul(x_centered, V[:, :3])
+    _u, _s, v = torch.pca_lowrank(x_centered, q=5)
+    point_cloud = torch.matmul(x_centered, v[:, :3])
 
     # center point cloud
     centered_cloud = point_cloud - point_cloud.mean(0, keepdim=True)
@@ -177,51 +174,51 @@ def build_embedding_figure() -> go.Figure:
         y=centered_cloud[:, 1],
         z=centered_cloud[:, 2],
         mode="markers",
-        marker=dict(
-            size=5,
-            opacity=0.8,
-            # If you want a colour‑map, uncomment the next line:
-            color=r_close,  # mean close, make sure this is numpy
-            colorscale="Viridis",
-            showscale=True,  # show a color bar
-            colorbar=dict(title="r_close"),
-            cmin=np.percentile(r_close, 5),
-            cmax=np.percentile(r_close, 95),
-        ),
+        marker={
+            "size": 5,
+            "opacity": 0.8,
+            # If you want a colour-map, uncomment the next line:
+            "color": r_close,  # mean close, make sure this is numpy
+            "colorscale": "Viridis",
+            "showscale": True,  # show a color bar
+            "colorbar": {"title": "r_close"},
+            "cmin": np.percentile(r_close, 5),
+            "cmax": np.percentile(r_close, 95),
+        },
     )
 
     # ------------------------------------------------------------------
     #  Build the axis traces
     # ------------------------------------------------------------------
     axis_traces = [
-        # X‑axis  (red)
+        # X-axis  (red)
         go.Scatter3d(
             x=[-1, 1],
             y=[0, 0],
             z=[0, 0],
             mode="lines",
-            line=dict(color="red", width=4, showscale=False),
-            name="X‑axis",
+            line={"color": "red", "width": 4, "showscale": False},
+            name="X-axis",
             showlegend=False,
         ),
-        # Y‑axis  (green)
+        # Y-axis  (green)
         go.Scatter3d(
             x=[0, 0],
             y=[-1, 1],
             z=[0, 0],
             mode="lines",
-            line=dict(color="green", width=4, showscale=False),
-            name="Y‑axis",
+            line={"color": "green", "width": 4, "showscale": False},
+            name="Y-axis",
             showlegend=False,
         ),
-        # Z‑axis  (blue)
+        # Z-axis  (blue)
         go.Scatter3d(
             x=[0, 0],
             y=[0, 0],
             z=[-1, 1],
             mode="lines",
-            line=dict(color="blue", width=4, showscale=False),
-            name="Z‑axis",
+            line={"color": "blue", "width": 4, "showscale": False},
+            name="Z-axis",
             showlegend=False,
         ),
     ]
@@ -235,14 +232,14 @@ def build_embedding_figure() -> go.Figure:
             y=[0, 1, 0],
             z=[0, 0, 1],
             mode="markers+text",  # show both markers and text
-            marker=dict(size=5, color="rgba(0,0,0,0)", showscale=False),
+            marker={"size": 5, "color": "rgba(0,0,0,0)", "showscale": False},
             text=["PC 1", "PC 2", "PC 3"],  # list of strings, same length as data
             textposition=[
                 "top center",
                 "top center",
                 "top center",
             ],  # where the label sits relative to the marker
-            textfont=dict(size=12, color="white"),
+            textfont={"size": 12, "color": "white"},
             showlegend=False,
         ),
     ]
@@ -250,39 +247,39 @@ def build_embedding_figure() -> go.Figure:
     # ------------------------------------------------------------------
     #  Create figure
     # ------------------------------------------------------------------
-    fig = go.Figure(data=[trace] + axis_traces + axis_labels)
+    fig = go.Figure(data=[trace, *axis_traces, *axis_labels])
 
     # ------------------------------------------------------------------
     #  Set the background axis (these are difference than the trace axes)
     # ------------------------------------------------------------------
-    axis_dict = dict(
-        showticklabels=False,
-        showgrid=False,
-        zeroline=False,
-        showline=False,
-        showspikes=False,
-        ticks="",
-    )
+    axis_dict = {
+        "showticklabels": False,
+        "showgrid": False,
+        "zeroline": False,
+        "showline": False,
+        "showspikes": False,
+        "ticks": "",
+    }
 
     # ------------------------------------------------------------------
     #  Dark model and camera config
     # ------------------------------------------------------------------
     fig.update_layout(
         template="plotly_dark",
-        margin=dict(l=0, r=0, t=0, b=0),
+        margin={"l": 0, "r": 0, "t": 0, "b": 0},
         dragmode="orbit",
-        scene=dict(
-            xaxis=dict(title="", backgroundcolor="rgba(0,0,0,0)", **axis_dict),
-            yaxis=dict(title="", backgroundcolor="rgba(0,0,0,0)", **axis_dict),
-            zaxis=dict(title="", backgroundcolor="rgba(0,0,0,0)", **axis_dict),
-            aspectmode="cube",
-            camera=dict(
-                eye=dict(x=0, y=0, z=1.5),  # <-- further away
-                center=dict(x=0, y=0, z=0),  # <-- look at data centre
-                up=dict(x=0, y=1, z=0),
-                projection=dict(type="perspective"),
-            ),
-        ),
+        scene={
+            "xaxis": dict(title="", backgroundcolor="rgba(0,0,0,0)", **axis_dict),
+            "yaxis": dict(title="", backgroundcolor="rgba(0,0,0,0)", **axis_dict),
+            "zaxis": dict(title="", backgroundcolor="rgba(0,0,0,0)", **axis_dict),
+            "aspectmode": "cube",
+            "camera": {
+                "eye": {"x": 0, "y": 0, "z": 1.5},  # <-- further away
+                "center": {"x": 0, "y": 0, "z": 0},  # <-- look at data centre
+                "up": {"x": 0, "y": 1, "z": 0},
+                "projection": {"type": "perspective"},
+            },
+        },
     )
 
     return fig
@@ -291,14 +288,14 @@ def build_embedding_figure() -> go.Figure:
 # ------------------------------------------------------------------
 # 3️⃣  Chat logic (now compatible with Gradio)
 # ------------------------------------------------------------------
-def chat(user_message: str, history: list):
+def chat(user_message: str, history: list) -> tuple[list, list]:
     """
     :param user_message: string typed by the user
     :param history: list of dicts with keys 'role' and 'content'
     :return: updated history for both the chatbot component and the State
     """
     if not user_message:
-        # Nothing to do – just echo the current history back
+        # Nothing to do - just echo the current history back
         return history, history
 
     # Append the user message to the conversation history
@@ -323,12 +320,12 @@ def chat(user_message: str, history: list):
     return history, history
 
 
-# 4️⃣  UI – Chat on the left, plots + scrollable list on the right
+# 4️⃣  UI - Chat on the left, plots + scrollable list on the right
 with gr.Blocks() as demo:
     with gr.Row(equal_height=True, elem_classes=["max-row"]):
         # ── Left column (ticker list) ──
         with gr.Column(scale=0, min_width=150, elem_classes="thin", variant="compact"):
-            tickers = sorted(list(val_stock_handler.stocks))
+            tickers = sorted(val_stock_handler.stocks)
             ticker_list = gr.Radio(
                 choices=tickers,
                 value="AAPL",
@@ -345,7 +342,7 @@ with gr.Blocks() as demo:
             )
             # Assume build_embedding_figure() is defined above
             embedding_plot = gr.Plot(
-                label="Embedding Scatter (3‑D)", value=build_embedding_figure()
+                label="Embedding Scatter (3-D)", value=build_embedding_figure()
             )
             ticker_list.change(
                 lambda symbol: build_ohlc_figure(symbol),
@@ -353,69 +350,68 @@ with gr.Blocks() as demo:
                 outputs=ohlc_plot,
             )
 
-    with gr.Row():
+    with gr.Row(), gr.Column():
         # ── Left column (chat) ──
-        with gr.Column():
-            chatbot = gr.Chatbot(label="Chatbot", height=800)
-            msg = gr.Textbox(
-                elem_id="user_textbox",
-                placeholder="Type your message…",
-                lines=1,
-                interactive=True,
-            )
-            send_btn = gr.Button("Send", variant="primary")
-            state = gr.State(value=[])
+        chatbot = gr.Chatbot(label="Chatbot", height=800)
+        msg = gr.Textbox(
+            elem_id="user_textbox",
+            placeholder="Type your message…",
+            lines=1,
+            interactive=True,
+        )
+        send_btn = gr.Button("Send", variant="primary")
+        state = gr.State(value=[])
 
-            send_btn.click(chat, inputs=[msg, state], outputs=[chatbot, state])
-            msg.submit(chat, inputs=[msg, state], outputs=[chatbot, state]).then(
-                lambda: gr.update(msg.elem_id, value="")
-            )
+        send_btn.click(chat, inputs=[msg, state], outputs=[chatbot, state])
+        msg.submit(chat, inputs=[msg, state], outputs=[chatbot, state]).then(
+            lambda: gr.update(msg.elem_id, value="")
+        )
 
-            # # Global CSS (order doesn’t matter – it’s applied to the whole page)
-            gr.HTML(
-                """
-                <style>
-                /* 1️⃣  The row that holds the two columns */
-                .max-row { max-height:95vh; }
+        # # Global CSS (order doesn't matter - it's applied to the whole page)
+        gr.HTML(
+            """
+            <style>
+            /* 1️⃣  The row that holds the two columns */
+            .max-row { max-height:95vh; }
 
-                /* 2️⃣  Left column – keep it narrow, scrollable, full‑height */
-                .thin {
-                    flex: 0 0 150px;      /* fixed width – adjust if you want more */
-                    max-height:95vh;
-                    overflow-y:auto;
-                }
+            /* 2️⃣  Left column - keep it narrow, scrollable, full-height */
+            .thin {
+                flex: 0 0 150px;      /* fixed width - adjust if you want more */
+                max-height:95vh;
+                overflow-y:auto;
+            }
 
-                /* 3️⃣  Make the Radio component itself a column flex container */
-                .gradio-radio.ticker-list {
-                    display:flex          !important;
-                    flex-direction:column !important;
-                    flex-wrap:nowrap      !important;
-                    max-height:100%;
-                    width:100% !important;
-                    overflow-y:auto;
-                }
+            /* 3️⃣  Make the Radio component itself a column flex container */
+            .gradio-radio.ticker-list {
+                display:flex          !important;
+                flex-direction:column !important;
+                flex-wrap:nowrap      !important;
+                max-height:100%;
+                width:100% !important;
+                overflow-y:auto;
+            }
 
-                /* 4️⃣  Each option takes 100 % of the column’s width */
-                .gradio-radio.ticker-list .gradio-radio__item {
-                    flex:0 0 100% !important;
-                    width:100% !important;
-                    display:block !important;   /* block‑level so it fills the width */
-                }
+            /* 4️⃣  Each option takes 100 % of the column's width */
+            .gradio-radio.ticker-list .gradio-radio__item {
+                flex:0 0 100% !important;
+                width:100% !important;
+                display:block !important;   /* block-level so it fills the width */
+            }
 
-                /* 5️⃣  Optional – make the inner label block‑level as well */
-                .gradio-radio.ticker-list .gradio-radio__label {
-                    display:block !important;
-                    width:100% !important;
-                }
-                .same-line {
-                    vertical-align: middle;
-                }
-                .center {
-                    vertical-align: middle;
-                }
-                </style>
-                """
-            )
+            /* 5️⃣  Optional - make the inner label block-level as well */
+            .gradio-radio.ticker-list .gradio-radio__label {
+                display:block !important;
+                width:100% !important;
+            }
+            .same-line {
+                vertical-align: middle;
+            }
+            .center {
+                vertical-align: middle;
+            }
+            </style>
+            """
+        )
 
 
 # ------------------------------------------------------------------
