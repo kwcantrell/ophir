@@ -1,3 +1,19 @@
+"""The Ophir Gradio dashboard and local-LLM chat.
+
+Building blocks: per-ticker inference (:func:`get_ohlc`), a predicted-vs-actual
+candlestick figure (:func:`build_ohlc_figure`), a 3-D PCA stock-embedding cloud
+(:func:`build_embedding_figure`), and an Ollama-backed chat (:func:`chat`),
+assembled into a Gradio ``Blocks`` app launched by :func:`serve`.
+
+.. warning::
+
+   Importing this module runs live network calls (Wikipedia, Yahoo Finance),
+   builds a :class:`~ophir.ticker.StockHanlder`, and loads a base checkpoint
+   onto a CUDA device. It therefore cannot be imported by the documentation
+   build and requires a GPU, a checkpoint, network access, and a local Ollama
+   server at runtime.
+"""
+
 import os
 
 import gradio as gr
@@ -61,6 +77,19 @@ llm = ChatOllama(model="gpt-oss:20b")
 # 2️⃣  Helper functions
 # ------------------------------------------------------------------
 def get_ohlc(symbol: str) -> tuple[pd.DataFrame, OHLCMulitClassPredictorInput]:
+    """Run the model on a ticker and reconstruct its candles.
+
+    Parameters
+    ----------
+    symbol : str
+        The ticker symbol to evaluate.
+
+    Returns
+    -------
+    tuple[pandas.DataFrame, OHLCMulitClassPredictorInput]
+        The reconstructed target/predicted OHLC frame and the populated model
+        output object.
+    """
     if symbol not in stock_streamers:
         stock_streamers[symbol] = val_stock_handler[symbol]
 
@@ -77,6 +106,18 @@ def get_ohlc(symbol: str) -> tuple[pd.DataFrame, OHLCMulitClassPredictorInput]:
 
 
 def build_ohlc_figure(symbol: str) -> go.Figure:
+    """Build the predicted-vs-actual candlestick figure for a ticker.
+
+    Parameters
+    ----------
+    symbol : str
+        The ticker symbol to plot.
+
+    Returns
+    -------
+    plotly.graph_objects.Figure
+        A dark-themed figure with target and predicted candlestick traces.
+    """
     df, _ = get_ohlc(symbol)
     fig = go.Figure(
         data=[
@@ -107,12 +148,35 @@ def build_ohlc_figure(symbol: str) -> go.Figure:
 
 
 def percent_return(closes: np.ndarray) -> float:
+    """Compute the percent return between the first and last close.
+
+    Parameters
+    ----------
+    closes : numpy.ndarray
+        A 1-D series of close prices.
+
+    Returns
+    -------
+    float
+        ``100 · (last - first) / first`` (with a small epsilon guard).
+    """
     initial_val = closes[0] + 1e-8
     final_val = closes[-1]
     return 100 * (final_val - initial_val) / initial_val
 
 
 def build_embedding_figure() -> go.Figure:
+    """Build the 3-D PCA stock-embedding point cloud.
+
+    Collects every kept stock's pooled embedding, PCA-projects the
+    winsorized/normalized embeddings to 3-D, and renders a scatter colored by
+    each stock's predicted percent return (with reference axes).
+
+    Returns
+    -------
+    plotly.graph_objects.Figure
+        The dark-themed 3-D embedding figure.
+    """
     # ------------------------------------------------------------------
     # 1️⃣  Gather all embeddings
     # ------------------------------------------------------------------
@@ -289,10 +353,20 @@ def build_embedding_figure() -> go.Figure:
 # 3️⃣  Chat logic (now compatible with Gradio)
 # ------------------------------------------------------------------
 def chat(user_message: str, history: list) -> tuple[list, list]:
-    """
-    :param user_message: string typed by the user
-    :param history: list of dicts with keys 'role' and 'content'
-    :return: updated history for both the chatbot component and the State
+    """Append a user turn, query the local LLM, and return updated history.
+
+    Parameters
+    ----------
+    user_message : str
+        The string typed by the user.
+    history : list
+        Conversation history as dicts with ``role`` and ``content`` keys.
+
+    Returns
+    -------
+    tuple[list, list]
+        The updated history, returned for both the chatbot component and the
+        Gradio ``State``.
     """
     if not user_message:
         # Nothing to do - just echo the current history back
@@ -418,6 +492,17 @@ with gr.Blocks() as demo:
 # 5️⃣  Launch
 # ------------------------------------------------------------------
 def serve(port: int = 7860, share: bool = False, debug: bool = True) -> None:
+    """Launch the Gradio dashboard.
+
+    Parameters
+    ----------
+    port : int, optional
+        Gradio server port. Defaults to ``7860``.
+    share : bool, optional
+        If ``True``, expose a public Gradio share link. Defaults to ``False``.
+    debug : bool, optional
+        If ``True``, launch Gradio in debug mode. Defaults to ``True``.
+    """
     demo.launch(server_port=port, share=share, debug=debug)
 
 

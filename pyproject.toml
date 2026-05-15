@@ -1,7 +1,7 @@
 [project]
 name = "ophir"
 version = "0.1.0"
-description = "Add your description here"
+description = "BERT-style masked transformer for stock OHLC prediction, with a Gradio UI and local-LLM chat."
 readme = "README.md"
 authors = [
     { name = "Kalen Cantrell", email = "cantrell.kalen@gmail.com" }
@@ -82,4 +82,9 @@ known-first-party = ["ophir"]
 [dependency-groups]
 dev = [
     "ruff>=0.8.0",
+]
+docs = [
+    "sphinx>=8.1",
+    "furo>=2024.8.6",
+    "sphinx-autodoc-typehints>=2.5",
 ]

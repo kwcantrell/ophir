@@ -116,6 +116,12 @@ def get_alibi_slopes(hparams: OHLCMulitClassParameters) -> torch.Tensor:
 # --------------------------------------------------------------------------- #
 @dataclass(kw_only=True, slots=True)
 class CausalPrefixBlockMasks:
+    """Lazily built, cached causal + prefix flex-attention block masks.
+
+    Masks are keyed by ``(seq_len, response_size)`` so that a given shape is
+    only constructed once and reused across forward passes.
+    """
+
     masks: dict[tuple[int, int], BlockMask] = None
 
     def __getitem__(self, index: tuple) -> BlockMask:
@@ -260,6 +266,18 @@ class MLP(nn.Module):
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Apply the two-layer MLP.
+
+        Parameters
+        ----------
+        x : torch.Tensor
+            Input of shape ``(B, L, input_dim)``.
+
+        Returns
+        -------
+        torch.Tensor
+            Output of shape ``(B, L, emb_dim)``.
+        """
         return self.mlp(x)
 
 
@@ -282,6 +300,20 @@ class TransformerBlock(nn.Module):
         self.ln2 = nn.LayerNorm(hparams.emb_dim)
 
     def forward(self, x: torch.Tensor, block_mask: BlockMask) -> torch.Tensor:
+        """Apply attention then MLP, each in a ReZero-scaled residual.
+
+        Parameters
+        ----------
+        x : torch.Tensor
+            Input of shape ``(B, L, emb_dim)``.
+        block_mask : BlockMask
+            Mask from :class:`CausalPrefixBlockMasks`.
+
+        Returns
+        -------
+        torch.Tensor
+            Output of shape ``(B, L, emb_dim)``.
+        """
         # Self-attention with residual connection
         encoder = x + self._rezero * self.mha(self.ln1(x), block_mask)
         # Feed-forward with residual connection
