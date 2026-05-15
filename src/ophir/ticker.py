@@ -1,3 +1,14 @@
+"""Stock data ingestion, split adjustment, feature extraction, and datasets.
+
+This module turns per-stock parquet files into the fixed-length feature
+windows the model consumes. The pipeline is: discover parquet files
+(:func:`get_stock_parquets`), load and filter them (:class:`StockHanlder`),
+optionally back-adjust for splits (:class:`StockSplit`), compute the
+13-feature representation (:func:`extract_features`), slice into windows
+(:class:`StockStreamer`), and expose them as ``torch`` datasets
+(:class:`StockStreamerDataset`, :class:`StockHandlerDataset`).
+"""
+
 import os
 from dataclasses import dataclass
 
@@ -8,6 +19,21 @@ from torch.utils.data import Dataset, IterableDataset, get_worker_info
 
 
 def get_stock_parquets(base_path):
+    """Map each stock symbol to its parquet file under ``base_path``.
+
+    Expects Hive-style partition directories named ``<key>=<symbol>``, each
+    containing a single ``.parquet`` file.
+
+    Parameters
+    ----------
+    base_path : str
+        Directory containing the per-symbol partition directories.
+
+    Returns
+    -------
+    dict[str, str]
+        Mapping of symbol to absolute parquet path.
+    """
     stock_dirs = os.listdir(base_path)
 
     def parquet(path):
@@ -24,12 +50,45 @@ def get_stock_parquets(base_path):
 
 
 def get_starts(df, seq_len, offset):
+    """Compute window start indices spanning ``df``.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        The (preprocessed) frame to slice.
+    seq_len : int
+        Window length.
+    offset : int
+        Stride between consecutive window starts.
+
+    Returns
+    -------
+    numpy.ndarray
+        Integer start positions ``0, offset, 2·offset, …`` up to
+        ``len(df) - seq_len``.
+    """
     num_start = max(0, len(df) - seq_len)
     starts = np.arange(0, num_start, offset)
     return starts
 
 
 def get_start_dates(df: pd.DataFrame, seq_len, offset):
+    """Compute window start *dates* on a daily calendar over ``df``.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        A datetime-indexed frame.
+    seq_len : int
+        Window length in calendar days.
+    offset : int
+        Stride between consecutive window starts.
+
+    Returns
+    -------
+    numpy.ndarray
+        The calendar dates at which each window begins.
+    """
     dates = df.index.to_series()
     calendar = pd.date_range(dates.min(), dates.max(), freq="D")
     starts = np.arange(0, len(calendar) - seq_len, offset)
@@ -37,6 +96,18 @@ def get_start_dates(df: pd.DataFrame, seq_len, offset):
 
 
 def get_sp_500_symbols():
+    """Fetch the current S&P 500 constituent symbols from Wikipedia.
+
+    Returns
+    -------
+    list[str]
+        Ticker symbols scraped from the Wikipedia constituents table.
+
+    Notes
+    -----
+    Performs a live HTTP request and is invoked at import time by
+    ``ophir.ui``.
+    """
     # Wikipedia URL for S&P 500 companies
     url = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
     headers = {
@@ -56,6 +127,24 @@ def get_sp_500_symbols():
 
 
 def get_splits(tickers: list[str], cache_path: str | None = None) -> dict[str, "StockSplit"]:
+    """Fetch (and cache) stock-split history for ``tickers`` from Yahoo Finance.
+
+    Previously fetched results are read from a pickle cache; only missing
+    tickers trigger network calls. Tickers with no splits are recorded with a
+    sentinel so they are not re-queried.
+
+    Parameters
+    ----------
+    tickers : list[str]
+        Symbols to fetch split history for.
+    cache_path : str, optional
+        Pickle cache path. Defaults to ``<DATA_DIR>/yf_splits_cache.pkl``.
+
+    Returns
+    -------
+    dict[str, StockSplit]
+        Mapping of symbol to :class:`StockSplit` for tickers that have splits.
+    """
     import pickle
 
     import yfinance as yf
@@ -102,14 +191,35 @@ def get_splits(tickers: list[str], cache_path: str | None = None) -> dict[str, "
 
 @dataclass
 class StockSplit:
+    """Split history for a single stock.
+
+    Attributes
+    ----------
+    id : str
+        The ticker symbol.
+    dates : list[numpy.datetime64]
+        Effective split dates.
+    ratios : list[float]
+        Split ratios aligned with ``dates``.
+    """
+
     id: str
     dates: list[np.datetime64]
     ratios: list[float]
 
     def apply_splits(self, df: pd.DataFrame) -> pd.DataFrame:
-        """
-        df: DataFrame with index = datetime, columns = open/high/low/close/volume
-        splits: list of dicts with keys {"date", "ratio"}
+        """Back-adjust prices (and inversely volume) for the recorded splits.
+
+        Parameters
+        ----------
+        df : pandas.DataFrame
+            Datetime-indexed OHLCV frame.
+
+        Returns
+        -------
+        pandas.DataFrame
+            ``df`` with ``close`` divided, and ``volume`` multiplied, by the
+            cumulative pre-split adjustment factor.
         """
         df = df.sort_index()
 
@@ -134,6 +244,28 @@ class StockSplit:
 
 
 def extract_features(df: pd.DataFrame, winsorize_returns: bool = False) -> pd.DataFrame:
+    """Compute the 13-feature model representation from an OHLCV frame.
+
+    Features: log time delta, log close return ``r_close`` (optionally
+    winsorized), and rolling normalized returns / normalized volume /
+    volatility over 10-, 20-, and 60-day windows, plus the ``upside`` and
+    ``downside`` log ratios. The frame is reindexed onto a daily calendar;
+    padded days are zero-filled and flagged by ``trade_occured``.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        Datetime-indexed frame with ``high`` / ``low`` / ``close`` /
+        ``volume`` columns.
+    winsorize_returns : bool, optional
+        If ``True``, clip ``r_close`` to its 0.1 % / 99.9 % quantiles.
+        Defaults to ``False``.
+
+    Returns
+    -------
+    pandas.DataFrame
+        The calendar-padded feature columns (empty if ``df`` is empty).
+    """
     feature_cols = []
 
     def add_feature(feature_col, feature_val, df: pd.DataFrame) -> pd.DataFrame:
@@ -194,6 +326,25 @@ def extract_features(df: pd.DataFrame, winsorize_returns: bool = False) -> pd.Da
 
 @dataclass(kw_only=True)
 class StockStreamer:
+    """Slice one stock's OHLC history into fixed-length feature windows.
+
+    On construction the frame is split-adjusted (if ``stock_split`` is given),
+    feature-extracted, and indexed by window start positions.
+
+    Attributes
+    ----------
+    ohlc_df : pandas.DataFrame
+        Raw OHLCV history for one stock.
+    seq_len : int
+        Window length.
+    offset : int
+        Stride between windows; ``-1`` means non-overlapping (``= seq_len``).
+    stock_split : StockSplit, optional
+        Split history to back-adjust prices with.
+    shuffle : bool, optional
+        If ``True``, iterate windows in random order.
+    """
+
     ohlc_df: pd.DataFrame
     seq_len: int
     offset: int
@@ -218,15 +369,41 @@ class StockStreamer:
 
     @property
     def size(self):
+        """Number of windows available for this stock."""
         return len(self.starts)
 
     def get_starting_close(self, df: pd.DataFrame):
+        """Return the last raw close at or before the window's start date.
+
+        Parameters
+        ----------
+        df : pandas.DataFrame
+            A window slice (used only for its start date).
+
+        Returns
+        -------
+        float
+            The anchor close used to reconstruct absolute prices.
+        """
         date = df.index.min()
         date_mask = self.ohlc_df.index <= date
         return self.ohlc_df[date_mask].iloc[-1]["close"]
 
     def get_ohlcs(self, df: pd.DataFrame):
-        """Reconstruct OHLC candle sticks for model output"""
+        """Reconstruct absolute target/predicted OHLC candles from returns.
+
+        Parameters
+        ----------
+        df : pandas.DataFrame
+            A :meth:`OHLCMulitClassPredictorInput.to_pandas` frame holding the
+            target/predicted ``r_close`` / ``upside`` / ``downside`` series.
+
+        Returns
+        -------
+        pandas.DataFrame
+            ``df`` with absolute ``target_*`` and ``predicted_*`` open / high /
+            low / close columns (padding days removed).
+        """
         start_close = self.get_starting_close(df)
 
         # remove pad days
@@ -255,9 +432,17 @@ class StockStreamer:
         return self.size
 
     def __getitem__(self, i: int):
+        """Return the window of length ``seq_len`` starting at row ``i``."""
         return self.preprocessed_ohlc_df.iloc[i : i + self.seq_len]
 
     def create_iterator(self):
+        """Yield each window once, in random order when ``shuffle`` is set.
+
+        Yields
+        ------
+        pandas.DataFrame
+            A ``seq_len``-row slice of the preprocessed frame.
+        """
         starts = np.arange(len(self.starts))
         if self.shuffle:
             np.random.shuffle(starts)
@@ -266,11 +451,45 @@ class StockStreamer:
             yield self.preprocessed_ohlc_df.iloc[start : start + self.seq_len]
 
     def next(self):
+        """Return the next window, advancing the internal iterator."""
         return next(self.iterator)
 
 
 @dataclass(kw_only=True)
 class StockHanlder:
+    """Discover, load, filter, and stream a collection of stocks.
+
+    Wraps a directory of per-symbol parquet files, applying optional
+    year/volume/history filters and producing either raw daily frames or
+    :class:`StockStreamer` objects.
+
+    Attributes
+    ----------
+    seq_len : int
+        Window length passed to produced streamers.
+    base_path : str
+        Directory of per-symbol parquet partitions.
+    return_stock_id : bool
+        Reserved flag for callers that also want the symbol id.
+    return_streamer : bool
+        If ``True``, indexing returns a :class:`StockStreamer`; otherwise a
+        raw daily :class:`pandas.DataFrame`.
+    stock_splits : dict[str, StockSplit], optional
+        Split history keyed by symbol.
+    shuffle : bool, optional
+        Propagated to produced streamers.
+    offset : int, optional
+        Window stride; ``-1`` means non-overlapping.
+    min_year, max_year : int, optional
+        Inclusive lower / exclusive upper year filters.
+    min_volume : float, optional
+        Drop stocks whose mean volume is below this threshold.
+    min_ticker_history : int, optional
+        Drop stocks spanning fewer than this many days.
+    winsorize_returns : bool, optional
+        Reserved flag for return winsorization.
+    """
+
     seq_len: int
     base_path: str
     return_stock_id: bool
@@ -301,12 +520,31 @@ class StockHanlder:
         return self.stock(stock)
 
     def stock(self, stock):
+        """Return one stock as a streamer or a raw frame.
+
+        Parameters
+        ----------
+        stock : str
+            The ticker symbol.
+
+        Returns
+        -------
+        StockStreamer or pandas.DataFrame
+            Depending on ``return_streamer``.
+        """
         if self.return_streamer:
             return self.stock_streamer(stock)
         else:
             return self.stock_df(stock)
 
     def keep_stocks(self, stock_list) -> None:
+        """Restrict the handler to the intersection with ``stock_list``.
+
+        Parameters
+        ----------
+        stock_list : Iterable[str]
+            Symbols to keep; others are dropped.
+        """
         kept_stocks = {
             stock: self.stock_dict[stock] for stock in stock_list if stock in self.stock_dict
         }
@@ -318,6 +556,19 @@ class StockHanlder:
         self.stocks = list(self.stock_dict.keys())
 
     def stock_df(self, stock) -> pd.DataFrame:
+        """Load and daily-aggregate one stock, applying configured filters.
+
+        Parameters
+        ----------
+        stock : str
+            The ticker symbol.
+
+        Returns
+        -------
+        pandas.DataFrame
+            A date-indexed daily OHLCV frame, or an empty frame if the stock
+            fails the volume / history filters.
+        """
         path = self.stock_dict[stock]
         df = pd.read_parquet(path)
 
@@ -348,6 +599,18 @@ class StockHanlder:
         return df
 
     def stock_streamer(self, stock: str) -> StockStreamer:
+        """Build a :class:`StockStreamer` for one stock.
+
+        Parameters
+        ----------
+        stock : str
+            The ticker symbol.
+
+        Returns
+        -------
+        StockStreamer
+            A streamer over the (split-adjusted) loaded frame.
+        """
         stock_split = None
         if self.stock_splits is not None and stock in self.stock_splits:
             stock_split = self.stock_splits[stock]
@@ -362,6 +625,24 @@ class StockHanlder:
 
 
 def extract_model_data(df: pd.DataFrame, response_size: int, return_date: bool = False):
+    """Package a feature window into the model's input tensors.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        A preprocessed feature window (output of :func:`extract_features`).
+    response_size : int
+        Number of trailing days the model must predict.
+    return_date : bool, optional
+        If ``True``, also include the ``time`` index. Defaults to ``False``.
+
+    Returns
+    -------
+    dict
+        Keys ``feature_input``, ``targets``, ``trade_occured``,
+        ``response_size`` (and ``time`` when ``return_date`` is set), suitable
+        for :class:`~ophir.model_data.OHLCMulitClassPredictorInput`.
+    """
     features = [c for c, d in zip(df.columns, df.dtypes, strict=False) if d != np.bool]
     feature_input = df[features].to_numpy()
     targets = df[["r_close", "upside", "downside"]].to_numpy()
@@ -378,12 +659,29 @@ def extract_model_data(df: pd.DataFrame, response_size: int, return_date: bool =
 
 
 class StockStreamerDataset(Dataset):
+    """Map-style dataset over a fixed list of :class:`StockStreamer` objects.
+
+    Indices address windows across all streamers via cumulative lengths; an
+    exhausted streamer's iterator is transparently restarted.
+    """
+
     def __init__(
         self,
         stock_streamers: list[StockStreamer],
         response_size: int,
         return_date: bool = False,
     ) -> None:
+        """Initialize the dataset.
+
+        Parameters
+        ----------
+        stock_streamers : list[StockStreamer]
+            The streamers to draw windows from.
+        response_size : int
+            Number of trailing days to predict.
+        return_date : bool, optional
+            Forwarded to :func:`extract_model_data`. Defaults to ``False``.
+        """
         self.stock_streamers = stock_streamers
         self.iterators = [iter(streamer.create_iterator()) for streamer in self.stock_streamers]
         self.lengths = np.array(np.cumsum([stremer.size for stremer in self.stock_streamers]))
@@ -405,9 +703,27 @@ class StockStreamerDataset(Dataset):
 
 
 class StockHandlerDataset(IterableDataset):
+    """Iterable dataset that streams windows from a :class:`StockHanlder`.
+
+    Shards stocks across DataLoader workers and keeps a small rotating cache
+    of active streamers, sampling a window from a random cached streamer at a
+    time.
+    """
+
     def __init__(
         self, stock_hanlder: list[StockHanlder], response_size: int, cache_size: int = 1
     ) -> None:
+        """Initialize the dataset.
+
+        Parameters
+        ----------
+        stock_hanlder : StockHanlder
+            The handler whose stocks will be streamed.
+        response_size : int
+            Number of trailing days to predict.
+        cache_size : int, optional
+            Number of streamers kept active concurrently. Defaults to ``1``.
+        """
         self.stock_hanlder = stock_hanlder
         self.response_size = np.array([response_size])
         self.cache_size = cache_size
@@ -418,6 +734,13 @@ class StockHandlerDataset(IterableDataset):
         )
 
     def __iter__(self):
+        """Yield model-input dicts, sharded per worker.
+
+        Yields
+        ------
+        dict
+            An :func:`extract_model_data` payload for a sampled window.
+        """
         worker_info = get_worker_info()
         if worker_info is None:
             # Single-process data loading

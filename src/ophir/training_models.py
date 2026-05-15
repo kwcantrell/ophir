@@ -19,7 +19,26 @@ from .models import OHLCMulitClassParameters, OHLCMulitClassPredictor
 #  Lightning wrapper
 # --------------------------------------------------------------------------- #
 class LightningOHLCPredictor(L.LightningModule):
+    """PyTorch-Lightning wrapper around :class:`OHLCMulitClassPredictor`.
+
+    Owns the model, the weighted smooth-L1 loss over the three targets, and
+    the AdamW + cosine-warmup optimizer configuration (with a dedicated
+    learning rate for the ReZero parameters).
+    """
+
     def __init__(self, emb_dim: int, num_layers: int, num_heads: int) -> None:
+        """Build the wrapped predictor and save hyper-parameters.
+
+        Parameters
+        ----------
+        emb_dim : int
+            Token embedding dimensionality (must be a multiple of 4 and
+            divisible by ``num_heads``).
+        num_layers : int
+            Number of transformer blocks.
+        num_heads : int
+            Number of attention heads.
+        """
         super().__init__()
         hparams: OHLCMulitClassParameters = OHLCMulitClassParameters(
             emb_dim=emb_dim, num_layers=num_layers, num_heads=num_heads
@@ -31,16 +50,57 @@ class LightningOHLCPredictor(L.LightningModule):
         self.loss_state = "train"
 
     def _input_obj(self, input):
+        """Coerce a batch into a CUDA :class:`OHLCMulitClassPredictorInput`.
+
+        Parameters
+        ----------
+        input : dict or OHLCMulitClassPredictorInput
+            A raw collated batch (dict) or an already-built input object.
+
+        Returns
+        -------
+        OHLCMulitClassPredictorInput
+            The input object with its tensors moved to CUDA.
+        """
         if isinstance(input, dict):
             input["response_size"] = input["response_size"][0].squeeze()
             input = OHLCMulitClassPredictorInput(**input).to_cuda()
         return input.to_cuda()
 
     def forward(self, input: dict | OHLCMulitClassPredictorInput) -> OHLCMulitClassPredictorInput:
+        """Run the predictor on a batch.
+
+        Parameters
+        ----------
+        input : dict or OHLCMulitClassPredictorInput
+            A raw collated batch or a prepared input object.
+
+        Returns
+        -------
+        OHLCMulitClassPredictorInput
+            The input object with ``model_output`` and ``stock_embeddings``
+            populated.
+        """
         input = self._input_obj(input)
         return self.ohlc_predictor(input)
 
     def compute_loss(self, model_output: OHLCMulitClassPredictorInput):
+        """Compute the masked, weighted multi-target training loss.
+
+        Each target uses a smooth-L1 loss restricted to days where a trade
+        occurred; the components are logged and combined as
+        ``close + 0.5·upside + 0.5·downside``.
+
+        Parameters
+        ----------
+        model_output : OHLCMulitClassPredictorInput
+            A populated forward output.
+
+        Returns
+        -------
+        torch.Tensor
+            The scalar combined loss.
+        """
         mask = model_output.trade_occured[:, -model_output.response_size :]
         target_r_close = model_output.target_r_close
         predicted_r_close = model_output.predicted_r_close
@@ -89,6 +149,20 @@ class LightningOHLCPredictor(L.LightningModule):
         return close_loss + 0.5 * upside_loss + 0.5 * downside_loss
 
     def training_step(self, batch, batch_indx):
+        """Run one training step and log ``train_loss``.
+
+        Parameters
+        ----------
+        batch : dict or OHLCMulitClassPredictorInput
+            The collated training batch.
+        batch_indx : int
+            The batch index (unused; required by the Lightning API).
+
+        Returns
+        -------
+        torch.Tensor
+            The training loss for this batch.
+        """
         self.loss_state = "train"
         batch = self._input_obj(batch)
         model_output = self.forward(batch)
@@ -99,6 +173,20 @@ class LightningOHLCPredictor(L.LightningModule):
         return loss
 
     def validation_step(self, batch, batch_indx):
+        """Run one validation step and log ``val_loss``.
+
+        Parameters
+        ----------
+        batch : dict or OHLCMulitClassPredictorInput
+            The collated validation batch.
+        batch_indx : int
+            The batch index (unused; required by the Lightning API).
+
+        Returns
+        -------
+        torch.Tensor
+            The validation loss for this batch.
+        """
         self.loss_state = "val"
         batch = self._input_obj(batch)
         model_output = self.forward(batch)
@@ -108,6 +196,18 @@ class LightningOHLCPredictor(L.LightningModule):
         return loss
 
     def configure_optimizers(self):
+        """Configure AdamW with cosine warmup and ReZero-specific grouping.
+
+        Parameters are split into three groups — weight-decayed dense
+        weights, non-decayed (bias / norm) weights, and ReZero scalars (which
+        get their own learning rate).
+
+        Returns
+        -------
+        dict
+            A Lightning optimizer configuration with a step-interval cosine
+            warmup scheduler.
+        """
         decay, no_decay, rezero_params = [], [], []
 
         for name, p in self.named_parameters():
@@ -143,6 +243,7 @@ class LightningOHLCPredictor(L.LightningModule):
 
     @property
     def use_cache(self):
+        """Whether the predictor's percentage-change modules cache results."""
         return self._use_cache
 
     @use_cache.setter
@@ -152,6 +253,7 @@ class LightningOHLCPredictor(L.LightningModule):
         self.ohlc_predictor.volume_percentage_change.use_cache = value
 
     def reset_rezero(self) -> None:
+        """Re-zero every ReZero scalar in the predictor, in place."""
         with torch.no_grad():
             for name, param in self.ohlc_predictor.named_parameters():
                 if "rezero" in name:

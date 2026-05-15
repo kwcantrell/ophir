@@ -9,16 +9,28 @@ import torch
 
 @dataclass(kw_only=True, slots=True)
 class OHLCMulitClassPredictorInput:
-    """Structured dataclass for OHLCMultiClassPredictor input/output.
-    Args:
-        feature_input (torch.FloatTensor): shape (B, S, 13) feature vector that
-            will be used as model input.
-        response_size (torch.LongTensor): ()  how many days the model will predict.
-        trade_occured (torch.BoolTensor): (B, S) padding mask.
-        targets (torch.FloatTensor): shape (B, S, 3) targets for model output
-        model_output (torch.FloatTensor): shape (B, S, 3) output for model output
-        time (np.ndarray): Timestamps for each day in feature_input
-        stock_embeddings (torch.FloatTensor): stock embeddings
+    """Structured input/output container for :class:`OHLCMulitClassPredictor`.
+
+    The same object is threaded through the model: features and targets are
+    set by the caller, and ``model_output`` / ``stock_embeddings`` are written
+    back by the forward pass.
+
+    Attributes
+    ----------
+    feature_input : torch.FloatTensor
+        Shape ``(B, S, 13)`` feature vector used as model input.
+    response_size : torch.LongTensor
+        Scalar; how many trailing days the model predicts.
+    trade_occured : torch.BoolTensor
+        Shape ``(B, S)`` padding mask (``True`` where a trade occurred).
+    targets : torch.FloatTensor
+        Shape ``(B, S, 3)`` ground-truth targets.
+    model_output : torch.FloatTensor
+        Shape ``(B, S, 3)`` model predictions (written by the model).
+    time : numpy.ndarray, optional
+        Timestamps for each day in ``feature_input``.
+    stock_embeddings : torch.FloatTensor
+        Pooled per-example stock embeddings (written by the model).
     """
 
     feature_input: torch.FloatTensor
@@ -47,6 +59,22 @@ class OHLCMulitClassPredictorInput:
             self.time = np.expand_dims(self.time, axis=0)
 
     def chunk(self, tensor: torch.Tensor, chunk_index) -> torch.Tensor:
+        """Select one of the three target/output channels.
+
+        Parameters
+        ----------
+        tensor : torch.Tensor
+            A ``(..., 3)`` tensor (typically ``targets`` or ``model_output``).
+        chunk_index : int
+            Which channel to select: ``r_close_index``, ``upside_index``, or
+            ``downside_index``.
+
+        Returns
+        -------
+        torch.Tensor
+            The selected channel. Trimmed to the last ``response_size``
+            positions unless ``return_full_targets`` is set.
+        """
         chunk = tensor.chunk(3, dim=-1)[chunk_index]
         if not self.return_full_targets:
             chunk = chunk[:, -self.response_size :]
@@ -54,37 +82,55 @@ class OHLCMulitClassPredictorInput:
 
     @property
     def target_r_close(self):
+        """Ground-truth relative close return channel of ``targets``."""
         return self.chunk(self.targets, self.r_close_index)
 
     @property
     def predicted_r_close(self):
+        """Predicted relative close return channel of ``model_output``."""
         return self.chunk(self.model_output, self.r_close_index)
 
     @property
     def target_upside(self):
+        """Ground-truth upside channel of ``targets``."""
         return self.chunk(self.targets, self.upside_index)
 
     @property
     def predicted_upside(self):
+        """Predicted upside channel of ``model_output``."""
         return self.chunk(self.model_output, self.upside_index)
 
     @property
     def target_downside(self):
+        """Ground-truth downside channel of ``targets``."""
         return self.chunk(self.targets, self.downside_index)
 
     @property
     def predicted_downside(self):
+        """Predicted downside channel of ``model_output``."""
         return self.chunk(self.model_output, self.downside_index)
 
     def to_cuda(self) -> OHLCMulitClassPredictorInput:
+        """Move ``feature_input``, ``targets``, and ``trade_occured`` to CUDA.
+
+        Returns
+        -------
+        OHLCMulitClassPredictorInput
+            ``self``, with the tensors moved in place.
+        """
         self.feature_input = self.feature_input.cuda()
         self.targets = self.targets.cuda()
         self.trade_occured = self.trade_occured.cuda()
         return self
 
     def pca_projection(self) -> np.ndarray:
-        """PCA project of stock embeddings.
-        Returns a list of numpy arrays (B, 3)
+        """Project the stock embeddings onto their top 3 principal components.
+
+        Returns
+        -------
+        numpy.ndarray
+            A ``(B, 3)`` array of the embeddings (averaged over the sequence
+            axis) projected into the leading 3-D PCA subspace.
         """
         with torch.no_grad():
             stock_embeddings = self.stock_embeddings.mean(1)
@@ -93,7 +139,18 @@ class OHLCMulitClassPredictorInput:
         return transformed_data.cpu().numpy()
 
     def to_pandas(self) -> pd.DataFrame:
-        """Converts model_output to a pandas.DataFrame"""
+        """Convert targets and predictions to per-stock pandas frames.
+
+        For each example in the batch, builds a time-indexed frame holding the
+        target and predicted ``r_close`` / ``upside`` / ``downside`` series
+        (with predictions spliced onto the history prefix) plus the
+        ``trade_occured`` mask.
+
+        Returns
+        -------
+        list[pandas.DataFrame]
+            One frame per batch element, indexed by ``time``.
+        """
         b, _s, _ = self.feature_input.shape
         dfs = []
 
