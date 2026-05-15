@@ -1,0 +1,15 @@
+# Run `uv run pre-commit install` once after `uv sync`.
+# mypy runs via `uv run` against the project venv (torch/lightning/numpy/
+# py.typed all present), NOT an isolated pre-commit venv. Versions are
+# pinned in pyproject.toml / uv.lock.
+repos:
+  - repo: local
+    hooks:
+      - id: mypy
+        name: mypy (uv run, project venv)
+        entry: uv run --frozen mypy
+        language: system
+        pass_filenames: false
+        always_run: true
+        args: ["src/ophir"]
+        types: [python]
