@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-05-15
+
+### Added
+
+- Static type checking via `mypy` (strict; configured in `pyproject.toml`),
+  enforced by a local `pre-commit` hook that runs `mypy` against the project
+  venv. The 5 legacy torch/lightning modules and `ophir.ui` are relaxed via
+  `ignore_errors` overrides that mirror the existing ruff `ANN`
+  per-file-ignores as documented tech debt. Repo tooling; no runtime impact on
+  the `ophir` package.
+
 ## [0.1.1] - 2026-05-14
 
 ### Added
@@ -44,6 +55,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   value yields a rotation of π.
 - Model validation and minor fixes.
 
-[Unreleased]: https://github.com/kwcantrell/ophir/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/kwcantrell/ophir/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/kwcantrell/ophir/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/kwcantrell/ophir/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/kwcantrell/ophir/releases/tag/v0.1.0

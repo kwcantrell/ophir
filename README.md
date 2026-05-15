@@ -100,8 +100,10 @@ uv run --group docs sphinx-build -b html docs docs/_build/html
 
 ```bash
 uv sync --group dev
+uv run pre-commit install   # one-time: install the mypy git hook
 uv run ruff check .
 uv run ruff format --check .
+uv run mypy src/ophir
 uv run --group docs sphinx-build -W -b html docs docs/_build/html
 ```
 
