@@ -298,7 +298,8 @@ def load_base_model_ckpt(
 
 @overload
 def load_base_model_ckpt(
-    strict: bool,
+    strict: bool = ...,
+    *,
     return_ckpt_path: Literal[True],
     file_name: str | None = ...,
     time_version: bool = ...,
@@ -362,7 +363,8 @@ def load_fintuned_ckpt(
 
 @overload
 def load_fintuned_ckpt(
-    strict: bool,
+    strict: bool = ...,
+    *,
     return_ckpt_path: Literal[True],
 ) -> tuple[LightningOHLCPredictor, str]: ...
 

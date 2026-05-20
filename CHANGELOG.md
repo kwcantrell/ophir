@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.7] - 2026-05-20
+
+### Fixed
+
+- The chat panel's system prompt was constructed as a 4-tuple of strings
+  (`SystemMessage(content=(str, str, str, str,))`) due to a trailing comma
+  per line, sending a tuple to the LLM instead of a single string.
+  Concatenated into one string so the chat panel now receives the intended
+  system prompt.
+
+### Changed
+
+- Type-annotate `ophir.ui` and drop it from the mypy `ignore_errors`
+  overrides — the override block is now empty and removed. Drop the
+  `gradio.*` `ignore_missing_imports` override (gradio 6.4 ships
+  `py.typed`); add `plotly.*` to the consolidated `ignore_missing_imports`
+  block (plotly ships no stubs). Add `warn_unused_ignores = true` to
+  `[tool.mypy]`. Make `return_ckpt_path: Literal[True]` keyword-only in
+  both `load_base_model_ckpt` / `load_fintuned_ckpt` overloads so callers
+  can pass it with `strict` defaulted.
+
 ## [0.1.6] - 2026-05-20
 
 ### Changed
@@ -104,7 +125,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   value yields a rotation of π.
 - Model validation and minor fixes.
 
-[Unreleased]: https://github.com/kwcantrell/ophir/compare/v0.1.6...HEAD
+[Unreleased]: https://github.com/kwcantrell/ophir/compare/v0.1.7...HEAD
+[0.1.7]: https://github.com/kwcantrell/ophir/compare/v0.1.6...v0.1.7
 [0.1.6]: https://github.com/kwcantrell/ophir/compare/v0.1.5...v0.1.6
 [0.1.5]: https://github.com/kwcantrell/ophir/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/kwcantrell/ophir/compare/v0.1.3...v0.1.4

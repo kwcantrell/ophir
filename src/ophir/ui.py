@@ -15,10 +15,11 @@ assembled into a Gradio ``Blocks`` app launched by :func:`serve`.
 """
 
 import os
+from typing import Any
 
 import gradio as gr
 import numpy as np
-import pandas as pd
+import pandas as pd  # type: ignore[import-untyped]
 import plotly.graph_objects as go
 import torch
 import tqdm
@@ -29,6 +30,7 @@ from ophir.model_data import OHLCMulitClassPredictorInput
 from ophir.register import DATA_DIR, load_base_model_ckpt
 from ophir.ticker import (
     StockHanlder,
+    StockStreamer,
     extract_model_data,
     get_sp_500_symbols,
     get_splits,
@@ -54,7 +56,7 @@ val_stock_handler = StockHanlder(
     winsorize_returns=True,
 )
 val_stock_handler.keep_stocks(sp_500)
-stock_streamers = {}
+stock_streamers: dict[str, StockStreamer] = {}
 model, ckpt_path = load_base_model_ckpt(return_ckpt_path=True, time_version=True)
 model = model.cuda()
 
@@ -63,10 +65,10 @@ model = model.cuda()
 # ------------------------------------------------------------------
 system_prompt = SystemMessage(
     content=(
-        "Given the following conversation, relevant context, and a\n",
-        "follow up question, reply with an answer to the current question\n",
-        "the user is asking. Return only your response to the question\n",
-        "given the above information following the users instructions as needed.",
+        "Given the following conversation, relevant context, and a\n"
+        "follow up question, reply with an answer to the current question\n"
+        "the user is asking. Return only your response to the question\n"
+        "given the above information following the users instructions as needed."
     )
 )
 
@@ -147,7 +149,7 @@ def build_ohlc_figure(symbol: str) -> go.Figure:
     return fig
 
 
-def percent_return(closes: np.ndarray) -> float:
+def percent_return(closes: np.ndarray[Any, Any]) -> float:
     """Compute the percent return between the first and last close.
 
     Parameters
@@ -162,7 +164,7 @@ def percent_return(closes: np.ndarray) -> float:
     """
     initial_val = closes[0] + 1e-8
     final_val = closes[-1]
-    return 100 * (final_val - initial_val) / initial_val
+    return float(100 * (final_val - initial_val) / initial_val)
 
 
 def build_embedding_figure() -> go.Figure:
@@ -180,8 +182,8 @@ def build_embedding_figure() -> go.Figure:
     # ------------------------------------------------------------------
     # 1️⃣  Gather all embeddings
     # ------------------------------------------------------------------
-    empbeddings = []
-    r_closes = []  # array
+    empbeddings: list[torch.Tensor] = []
+    r_closes: list[float] = []  # array
     for stock in tqdm.tqdm(val_stock_handler.stocks):
         ohlcs, model_outputs = get_ohlc(stock)  # embeddings: np.ndarray
         if len(ohlcs) < 250:
@@ -194,6 +196,7 @@ def build_embedding_figure() -> go.Figure:
             r_closes.append(
                 percent_return(ohlcs.iloc[-response_size:]["predicted_close"].to_numpy())
             )
+            assert model_outputs.stock_embeddings is not None
             empbeddings.append(model_outputs.stock_embeddings)
 
     # Concatenate along the sample axis and force float32
@@ -228,15 +231,15 @@ def build_embedding_figure() -> go.Figure:
     centered_cloud /= max_range
 
     # bring everything to numpy
-    centered_cloud = centered_cloud.cpu().numpy()
+    centered_cloud_np = centered_cloud.cpu().numpy()
 
     # ------------------------------------------------------------------
     # 3️⃣  Build the scatter trace
     # ------------------------------------------------------------------
     trace = go.Scatter3d(
-        x=centered_cloud[:, 0],
-        y=centered_cloud[:, 1],
-        z=centered_cloud[:, 2],
+        x=centered_cloud_np[:, 0],
+        y=centered_cloud_np[:, 1],
+        z=centered_cloud_np[:, 2],
         mode="markers",
         marker={
             "size": 5,
@@ -352,19 +355,21 @@ def build_embedding_figure() -> go.Figure:
 # ------------------------------------------------------------------
 # 3️⃣  Chat logic (now compatible with Gradio)
 # ------------------------------------------------------------------
-def chat(user_message: str, history: list) -> tuple[list, list]:
+def chat(
+    user_message: str, history: list[dict[str, str]]
+) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
     """Append a user turn, query the local LLM, and return updated history.
 
     Parameters
     ----------
     user_message : str
         The string typed by the user.
-    history : list
+    history : list[dict[str, str]]
         Conversation history as dicts with ``role`` and ``content`` keys.
 
     Returns
     -------
-    tuple[list, list]
+    tuple[list[dict[str, str]], list[dict[str, str]]]
         The updated history, returned for both the chatbot component and the
         Gradio ``State``.
     """
@@ -386,6 +391,7 @@ def chat(user_message: str, history: list) -> tuple[list, list]:
     # Call the LLM
     response = llm.invoke(lc_messages)
     assistant_reply = response.content
+    assert isinstance(assistant_reply, str)
 
     # Append the assistant's reply to the history
     history.append({"role": "assistant", "content": assistant_reply})

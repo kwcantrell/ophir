@@ -1,6 +1,6 @@
 [project]
 name = "ophir"
-version = "0.1.6"
+version = "0.1.7"
 description = "BERT-style masked transformer for stock OHLC prediction, with a Gradio UI and local-LLM chat."
 readme = "README.md"
 authors = [
@@ -93,20 +93,13 @@ strict = true
 show_error_codes = true
 pretty = true
 warn_unused_configs = true
-
-# ------------------------------------------------------------------
-# TECH DEBT — `ophir.ui` has real strict violations + a latent bug.
-# Annotate and remove this override block in the next pass.
-# ------------------------------------------------------------------
-[[tool.mypy.overrides]]
-module = ["ophir.ui"]
-ignore_errors = true
+warn_unused_ignores = true
 
 [[tool.mypy.overrides]]
 # Third-party deps that ship no stubs / no py.typed marker.
 module = [
-    "gradio.*",
     "massive.*",
+    "plotly.*",
     "tqdm.*",
     "yfinance.*",
 ]
