@@ -1,6 +1,6 @@
 [project]
 name = "ophir"
-version = "0.1.2"
+version = "0.1.3"
 description = "BERT-style masked transformer for stock OHLC prediction, with a Gradio UI and local-LLM chat."
 readme = "README.md"
 authors = [

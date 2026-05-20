@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-05-19
+
+### Added
+
+- `CLAUDE.md` agent-bootstrap guide at the repo root: `src/ophir/` module
+  map, dev workflow, type-checking tech-debt layout, and runtime
+  requirements. Lets new agent sessions ramp up without re-exploring. Repo
+  tooling; no runtime impact on the `ophir` package.
+
 ## [0.1.2] - 2026-05-15
 
 ### Added
@@ -55,7 +64,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   value yields a rotation of π.
 - Model validation and minor fixes.
 
-[Unreleased]: https://github.com/kwcantrell/ophir/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/kwcantrell/ophir/compare/v0.1.3...HEAD
+[0.1.3]: https://github.com/kwcantrell/ophir/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/kwcantrell/ophir/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/kwcantrell/ophir/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/kwcantrell/ophir/releases/tag/v0.1.0
