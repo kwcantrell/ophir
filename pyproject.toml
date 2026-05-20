@@ -1,6 +1,6 @@
 [project]
 name = "ophir"
-version = "0.1.5"
+version = "0.1.6"
 description = "BERT-style masked transformer for stock OHLC prediction, with a Gradio UI and local-LLM chat."
 readme = "README.md"
 authors = [
@@ -67,11 +67,6 @@ unfixable = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["ANN"]
-# TECH DEBT: legacy torch/lightning model code predates the ANN ruleset.
-# ANN is suppressed per-file as a temporary measure — drop these entries and
-# add proper type annotations later. New code (ui.py, cli.py) stays enforced.
-"src/ophir/models.py" = ["ANN"]
-"src/ophir/ticker.py" = ["ANN"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["ophir"]
@@ -100,21 +95,21 @@ pretty = true
 warn_unused_configs = true
 
 # ------------------------------------------------------------------
-# TECH DEBT — mirrors the ruff ANN per-file-ignores above. The remaining
-# torch/lightning modules predate type discipline; `ophir.ui` has real
-# strict violations + a latent bug. Remove this block TOGETHER with the
-# ruff ANN ignores as each file is annotated.
+# TECH DEBT — `ophir.ui` has real strict violations + a latent bug.
+# Annotate and remove this override block in the next pass.
 # ------------------------------------------------------------------
 [[tool.mypy.overrides]]
-module = [
-    "ophir.models",
-    "ophir.ticker",
-    "ophir.ui",
-]
+module = ["ophir.ui"]
 ignore_errors = true
 
 [[tool.mypy.overrides]]
-module = ["gradio.*"]            # gradio ships no py.typed / stubs
+# Third-party deps that ship no stubs / no py.typed marker.
+module = [
+    "gradio.*",
+    "massive.*",
+    "tqdm.*",
+    "yfinance.*",
+]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

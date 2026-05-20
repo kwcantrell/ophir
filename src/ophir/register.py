@@ -15,7 +15,7 @@ from datetime import timedelta
 from typing import TYPE_CHECKING, Annotated, Literal, overload
 
 import typer
-from massive import RESTClient  # type: ignore[import-untyped]
+from massive import RESTClient
 
 if TYPE_CHECKING:
     from collections.abc import Iterable

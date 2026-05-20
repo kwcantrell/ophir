@@ -9,16 +9,22 @@ optionally back-adjust for splits (:class:`StockSplit`), compute the
 (:class:`StockStreamerDataset`, :class:`StockHandlerDataset`).
 """
 
+from __future__ import annotations
+
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
-import pandas as pd
+import pandas as pd  # type: ignore[import-untyped]
 import torch
 from torch.utils.data import Dataset, IterableDataset, get_worker_info
 
+if TYPE_CHECKING:
+    from collections.abc import Iterable, Iterator
 
-def get_stock_parquets(base_path):
+
+def get_stock_parquets(base_path: str) -> dict[str, str]:
     """Map each stock symbol to its parquet file under ``base_path``.
 
     Expects Hive-style partition directories named ``<key>=<symbol>``, each
@@ -36,20 +42,24 @@ def get_stock_parquets(base_path):
     """
     stock_dirs = os.listdir(base_path)
 
-    def parquet(path):
+    def parquet(path: str) -> str | None:
         for p in os.listdir(os.path.join(base_path, path)):
             if p.endswith(".parquet"):
                 return os.path.join(path, p)
+        return None
 
+    # Pinned latent behavior: partitions with no .parquet pass `None` to
+    # `os.path.join`, which raises TypeError. See test
+    # `test_get_stock_parquets_malformed_partition_raises_typeerror`.
     stocks = {
-        path.split("=")[-1]: os.path.join(base_path, parquet(path))
+        path.split("=")[-1]: os.path.join(base_path, parquet(path))  # type: ignore[arg-type]
         for path in stock_dirs
         if "=" in path
     }
     return stocks
 
 
-def get_starts(df, seq_len, offset):
+def get_starts(df: pd.DataFrame, seq_len: int, offset: int) -> np.ndarray[Any, Any]:
     """Compute window start indices spanning ``df``.
 
     Parameters
@@ -72,7 +82,7 @@ def get_starts(df, seq_len, offset):
     return starts
 
 
-def get_start_dates(df: pd.DataFrame, seq_len, offset):
+def get_start_dates(df: pd.DataFrame, seq_len: int, offset: int) -> np.ndarray[Any, Any]:
     """Compute window start *dates* on a daily calendar over ``df``.
 
     Parameters
@@ -92,10 +102,10 @@ def get_start_dates(df: pd.DataFrame, seq_len, offset):
     dates = df.index.to_series()
     calendar = pd.date_range(dates.min(), dates.max(), freq="D")
     starts = np.arange(0, len(calendar) - seq_len, offset)
-    return calendar[starts].to_numpy()
+    return np.asarray(calendar[starts].to_numpy())
 
 
-def get_sp_500_symbols():
+def get_sp_500_symbols() -> list[str]:
     """Fetch the current S&P 500 constituent symbols from Wikipedia.
 
     Returns
@@ -123,10 +133,10 @@ def get_sp_500_symbols():
     except Exception as e:
         print(f"An error occurred: {e}")
 
-    return list(dfs[0]["Symbol"])
+    return [str(s) for s in dfs[0]["Symbol"]]
 
 
-def get_splits(tickers: list[str], cache_path: str | None = None) -> dict[str, "StockSplit"]:
+def get_splits(tickers: list[str], cache_path: str | None = None) -> dict[str, StockSplit | None]:
     """Fetch (and cache) stock-split history for ``tickers`` from Yahoo Finance.
 
     Previously fetched results are read from a pickle cache; only missing
@@ -155,11 +165,14 @@ def get_splits(tickers: list[str], cache_path: str | None = None) -> dict[str, "
 
         cache_path = os.path.join(DATA_DIR, "yf_splits_cache.pkl")
 
+    cached: dict[str, StockSplit | None]
     if os.path.exists(cache_path):
         with open(cache_path, "rb") as f:
-            cached: dict[str, StockSplit] = pickle.load(f)
+            cached = pickle.load(f)
         missing = [t for t in tickers if t not in cached]
         if not missing:
+            # Pinned: the cache-hit early return preserves None sentinels;
+            # the late return filters them. See get_splits tests.
             return {t: cached[t] for t in tickers if t in cached}
     else:
         cached = {}
@@ -266,9 +279,9 @@ def extract_features(df: pd.DataFrame, winsorize_returns: bool = False) -> pd.Da
     pandas.DataFrame
         The calendar-padded feature columns (empty if ``df`` is empty).
     """
-    feature_cols = []
+    feature_cols: list[str] = []
 
-    def add_feature(feature_col, feature_val, df: pd.DataFrame) -> pd.DataFrame:
+    def add_feature(feature_col: str, feature_val: Any, df: pd.DataFrame) -> pd.DataFrame:
         df = df.assign(**{feature_col: feature_val})
         feature_cols.append(feature_col)
         return df
@@ -287,7 +300,7 @@ def extract_features(df: pd.DataFrame, winsorize_returns: bool = False) -> pd.Da
             lower=df["r_close"].quantile(0.001), upper=df["r_close"].quantile(0.999)
         )
 
-    def add_rolling_features(window_size, df):
+    def add_rolling_features(window_size: int, df: pd.DataFrame) -> pd.DataFrame:
         # normalized returns
         eps = 1e-8
         r_close = df["r_close"]
@@ -348,12 +361,12 @@ class StockStreamer:
     ohlc_df: pd.DataFrame
     seq_len: int
     offset: int
-    stock_split: StockSplit = None
+    stock_split: StockSplit | None = None
     shuffle: bool = False
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if len(self.ohlc_df) < 1:
-            self.starts = []
+            self.starts: np.ndarray[Any, Any] | list[Any] = []
             self.iterator = iter(self.create_iterator())
             return
 
@@ -368,11 +381,11 @@ class StockStreamer:
         self.starts = get_starts(self.preprocessed_ohlc_df, self.seq_len, self.offset)
 
     @property
-    def size(self):
+    def size(self) -> int:
         """Number of windows available for this stock."""
         return len(self.starts)
 
-    def get_starting_close(self, df: pd.DataFrame):
+    def get_starting_close(self, df: pd.DataFrame) -> float:
         """Return the last raw close at or before the window's start date.
 
         Parameters
@@ -387,9 +400,9 @@ class StockStreamer:
         """
         date = df.index.min()
         date_mask = self.ohlc_df.index <= date
-        return self.ohlc_df[date_mask].iloc[-1]["close"]
+        return float(self.ohlc_df[date_mask].iloc[-1]["close"])
 
-    def get_ohlcs(self, df: pd.DataFrame):
+    def get_ohlcs(self, df: pd.DataFrame) -> pd.DataFrame:
         """Reconstruct absolute target/predicted OHLC candles from returns.
 
         Parameters
@@ -431,11 +444,11 @@ class StockStreamer:
     def __len__(self) -> int:
         return self.size
 
-    def __getitem__(self, i: int):
+    def __getitem__(self, i: int) -> pd.DataFrame:
         """Return the window of length ``seq_len`` starting at row ``i``."""
         return self.preprocessed_ohlc_df.iloc[i : i + self.seq_len]
 
-    def create_iterator(self):
+    def create_iterator(self) -> Iterator[pd.DataFrame]:
         """Yield each window once, in random order when ``shuffle`` is set.
 
         Yields
@@ -450,7 +463,7 @@ class StockStreamer:
             start = self.starts[start]
             yield self.preprocessed_ohlc_df.iloc[start : start + self.seq_len]
 
-    def next(self):
+    def next(self) -> pd.DataFrame:
         """Return the next window, advancing the internal iterator."""
         return next(self.iterator)
 
@@ -494,16 +507,18 @@ class StockHanlder:
     base_path: str
     return_stock_id: bool
     return_streamer: bool
-    stock_splits: dict[str, StockSplit] = None
+    stock_splits: dict[str, StockSplit | None] | None = None
     shuffle: bool = False
     offset: int = -1
-    min_year: int = None
-    max_year: int = None
-    min_volume: float = None
-    min_ticker_history: int = None
+    min_year: int | None = None
+    max_year: int | None = None
+    min_volume: float | None = None
+    min_ticker_history: int | None = None
     winsorize_returns: bool = True
+    stocks: list[str] = field(init=False)
+    stock_dict: dict[str, str] = field(init=False)
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         self.stock_dict = get_stock_parquets(self.base_path)
         self.stocks = list(self.stock_dict.keys())
 
@@ -513,13 +528,13 @@ class StockHanlder:
     def __len__(self) -> int:
         return len(self.stocks)
 
-    def __getitem__(self, index):
+    def __getitem__(self, index: int | str) -> StockStreamer | pd.DataFrame:
         if isinstance(index, str):
             index = self.stocks.index(index)
         stock = self.stocks[index]
         return self.stock(stock)
 
-    def stock(self, stock):
+    def stock(self, stock: str) -> StockStreamer | pd.DataFrame:
         """Return one stock as a streamer or a raw frame.
 
         Parameters
@@ -537,7 +552,7 @@ class StockHanlder:
         else:
             return self.stock_df(stock)
 
-    def keep_stocks(self, stock_list) -> None:
+    def keep_stocks(self, stock_list: Iterable[str]) -> None:
         """Restrict the handler to the intersection with ``stock_list``.
 
         Parameters
@@ -557,7 +572,7 @@ class StockHanlder:
         self.stock_dict = kept_stocks
         self.stocks = list(self.stock_dict.keys())
 
-    def stock_df(self, stock) -> pd.DataFrame:
+    def stock_df(self, stock: str) -> pd.DataFrame:
         """Load and daily-aggregate one stock, applying configured filters.
 
         Parameters
@@ -626,15 +641,22 @@ class StockHanlder:
         )
 
 
-def extract_model_data(df: pd.DataFrame, response_size: int, return_date: bool = False):
+def extract_model_data(
+    df: pd.DataFrame,
+    response_size: int | np.ndarray[Any, Any],
+    return_date: bool = False,
+) -> dict[str, Any]:
     """Package a feature window into the model's input tensors.
 
     Parameters
     ----------
     df : pandas.DataFrame
         A preprocessed feature window (output of :func:`extract_features`).
-    response_size : int
-        Number of trailing days the model must predict.
+    response_size : int or numpy.ndarray
+        Number of trailing days the model must predict. Either a Python
+        ``int`` or a length-1 ``numpy`` array (as produced by the dataset
+        wrappers). Both produce a tensor that the ``LightningOHLCPredictor``
+        normalizes via ``squeeze``.
     return_date : bool, optional
         If ``True``, also include the ``time`` index. Defaults to ``False``.
 
@@ -649,7 +671,7 @@ def extract_model_data(df: pd.DataFrame, response_size: int, return_date: bool =
     feature_input = df[features].to_numpy()
     targets = df[["r_close", "upside", "downside"]].to_numpy()
     trade_occured = df["trade_occured"].to_numpy()
-    model_data = {
+    model_data: dict[str, Any] = {
         "feature_input": torch.from_numpy(feature_input).float(),
         "targets": torch.from_numpy(targets).float(),
         "trade_occured": torch.from_numpy(trade_occured),
@@ -660,7 +682,7 @@ def extract_model_data(df: pd.DataFrame, response_size: int, return_date: bool =
     return model_data
 
 
-class StockStreamerDataset(Dataset):
+class StockStreamerDataset(Dataset[dict[str, Any]]):
     """Map-style dataset over a fixed list of :class:`StockStreamer` objects.
 
     Indices address windows across all streamers via cumulative lengths; an
@@ -692,9 +714,9 @@ class StockStreamerDataset(Dataset):
         self.return_date = return_date
 
     def __len__(self) -> int:
-        return self.lengths[-1]
+        return int(self.lengths[-1])
 
-    def __getitem__(self, index):
+    def __getitem__(self, index: int) -> dict[str, Any]:
         index = np.argwhere(self.lengths > index)[0].squeeze()
         try:
             df = next(self.iterators[index])
@@ -704,7 +726,7 @@ class StockStreamerDataset(Dataset):
         return extract_model_data(df, self.response_size, self.return_date)
 
 
-class StockHandlerDataset(IterableDataset):
+class StockHandlerDataset(IterableDataset[dict[str, Any]]):
     """Iterable dataset that streams windows from a :class:`StockHanlder`.
 
     Shards stocks across DataLoader workers and keeps a small rotating cache
@@ -713,7 +735,7 @@ class StockHandlerDataset(IterableDataset):
     """
 
     def __init__(
-        self, stock_hanlder: list[StockHanlder], response_size: int, cache_size: int = 1
+        self, stock_hanlder: StockHanlder, response_size: int, cache_size: int = 1
     ) -> None:
         """Initialize the dataset.
 
@@ -735,7 +757,7 @@ class StockHandlerDataset(IterableDataset):
             f"and cache: {self.cache_size}"
         )
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[dict[str, Any]]:
         """Yield model-input dicts, sharded per worker.
 
         Yields
@@ -756,7 +778,7 @@ class StockHandlerDataset(IterableDataset):
             step = num_workers
 
         processed_stocks = 0
-        cache = []
+        cache: list[StockStreamer] = []
         cur_stock = 0
         shard_stock_indices = np.arange(start, len(self.stock_hanlder), step)
         while processed_stocks < len(shard_stock_indices):

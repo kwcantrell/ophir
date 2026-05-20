@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import torch
 from torch import nn
@@ -27,7 +27,15 @@ from torch.nn.attention.flex_attention import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from .model_data import OHLCMulitClassPredictorInput
+
+    MaskMod = Callable[[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor], torch.Tensor]
+    ScoreMod = Callable[
+        [torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor],
+        torch.Tensor,
+    ]
 
 compiled_flex_attention = torch.compile(flex_attention, dynamic=True)
 
@@ -49,7 +57,7 @@ class OHLCMulitClassParameters:
     num_layers: int
     num_heads: int
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         assert self.emb_dim % 4 == 0  # emb_dim must be a multiple of 4
         assert self.emb_dim % self.num_heads == 0  # emb_dim must be divisible by num_heads
 
@@ -59,7 +67,7 @@ class OHLCMulitClassParameters:
         return self.emb_dim // self.num_heads
 
     @property
-    def hidden_dim(self):
+    def hidden_dim(self) -> int:
         """Hidden dimension used inside the MLP (4xemb_dim)."""
         return 4 * self.emb_dim
 
@@ -67,7 +75,7 @@ class OHLCMulitClassParameters:
 # --------------------------------------------------------------------------- #
 # Padding mask
 # --------------------------------------------------------------------------- #
-def create_padding_mask(pads: torch.Tensor):
+def create_padding_mask(pads: torch.Tensor) -> MaskMod:
     """
     Build a padding mask that can be used inside the flexible attention block.
 
@@ -79,7 +87,9 @@ def create_padding_mask(pads: torch.Tensor):
         arguments as the other mask functions in ``flex_attention``.
     """
 
-    def padding(b, h, q_idx, kv_idx) -> torch.BoolTensor:
+    def padding(
+        b: torch.Tensor, h: torch.Tensor, q_idx: torch.Tensor, kv_idx: torch.Tensor
+    ) -> torch.Tensor:
         # The mask is True when *both* positions are not padding.
         return ~pads[b, q_idx] & ~pads[b, kv_idx]
 
@@ -100,7 +110,7 @@ def get_alibi_slopes(hparams: OHLCMulitClassParameters) -> torch.Tensor:
     n = 2 ** math.floor(math.log2(hparams.num_heads))
 
     m0 = 2.0 ** (-8.0 / n)
-    m = m0 ** torch.arange(1, 1 + n)
+    m = cast("torch.Tensor", m0 ** torch.arange(1, 1 + n))
 
     # If num_heads is not a power of two, append extra slopes (as in the reference code)
     if n < hparams.num_heads:
@@ -122,9 +132,12 @@ class CausalPrefixBlockMasks:
     only constructed once and reused across forward passes.
     """
 
-    masks: dict[tuple[int, int], BlockMask] = None
+    masks: dict[tuple[int, int], BlockMask] | None = None
 
-    def __getitem__(self, index: tuple) -> BlockMask:
+    def __getitem__(
+        self,
+        index: tuple[int | torch.Tensor, int | torch.Tensor, MaskMod],
+    ) -> BlockMask:
         """
         Retrieve a block mask for a given sequence length ``L`` and response size ``S``.
         The third element of ``index`` is the padding-mask function; its id is used
@@ -138,11 +151,15 @@ class CausalPrefixBlockMasks:
             * ``response_size`` - response block size (int or 0-d tensor).
             * ``pad_mask`` - padding-mask callable.
         """
-        seq_len, response_size, pad_mask = index
-        if isinstance(seq_len, torch.Tensor):
-            seq_len = int(seq_len.cpu().numpy())
-        if isinstance(response_size, torch.Tensor):
-            response_size = int(response_size.cpu().numpy())
+        seq_len_in, response_size_in, pad_mask = index
+        seq_len = (
+            int(seq_len_in.cpu().numpy()) if isinstance(seq_len_in, torch.Tensor) else seq_len_in
+        )
+        response_size = (
+            int(response_size_in.cpu().numpy())
+            if isinstance(response_size_in, torch.Tensor)
+            else response_size_in
+        )
 
         key = (seq_len, response_size)
 
@@ -155,7 +172,7 @@ class CausalPrefixBlockMasks:
             )
         return self.masks[key]
 
-    def create_mask(self, seq_len, response_size, pad_mask) -> BlockMask:
+    def create_mask(self, seq_len: int, response_size: int, pad_mask: MaskMod | None) -> MaskMod:
         """
         Build the causal mask function for a single block.
 
@@ -165,16 +182,20 @@ class CausalPrefixBlockMasks:
             Total sequence length.
         response_size : int
             Size of the response block (the last ``response_size`` tokens).
-        pad_mask : nn.Module | None
+        pad_mask : callable | None
             Optional padding mask.
         """
         response_block_size = seq_len - response_size
 
-        def prefix(b, h, q_idx, kv_idx):
+        def prefix(
+            b: torch.Tensor, h: torch.Tensor, q_idx: torch.Tensor, kv_idx: torch.Tensor
+        ) -> torch.Tensor:
             # Queries in the prefix block can only attend to the prefix block.
             return (q_idx < response_block_size) & (kv_idx < response_block_size)
 
-        def causal(b, h, q_idx, kv_idx):
+        def causal(
+            b: torch.Tensor, h: torch.Tensor, q_idx: torch.Tensor, kv_idx: torch.Tensor
+        ) -> torch.Tensor:
             # Classic causal mask: query index >= key index
             return q_idx >= kv_idx
 
@@ -232,7 +253,13 @@ class FlexMHA(nn.Module):
         k = k.view(batch, seq_len, self.hparams.num_heads, self.hparams.head_dim).transpose(1, 2)
         v = v.view(batch, seq_len, self.hparams.num_heads, self.hparams.head_dim).transpose(1, 2)
 
-        def alibi_score_mod(score, b, h, qi, ki):
+        def alibi_score_mod(
+            score: torch.Tensor,
+            b: torch.Tensor,
+            h: torch.Tensor,
+            qi: torch.Tensor,
+            ki: torch.Tensor,
+        ) -> torch.Tensor:
             m = self.slopes[h]
             bias = -m * (qi - ki).abs().float()
             return score + bias
@@ -240,14 +267,17 @@ class FlexMHA(nn.Module):
         scale = 1 / math.sqrt(self.hparams.head_dim)
 
         # Forward through the compiled flexible attention
-        out = compiled_flex_attention(
-            q, k, v, score_mod=alibi_score_mod, block_mask=block_mask, scale=scale
+        out = cast(
+            "torch.Tensor",
+            compiled_flex_attention(
+                q, k, v, score_mod=alibi_score_mod, block_mask=block_mask, scale=scale
+            ),
         )
 
         out = out.transpose(1, 2).contiguous().view(batch, seq_len, self.hparams.emb_dim)
 
         # combine heads
-        return self.proj_out(out)
+        return cast("torch.Tensor", self.proj_out(out))
 
 
 # --------------------------------------------------------------------------- #
@@ -256,7 +286,7 @@ class FlexMHA(nn.Module):
 class MLP(nn.Module):
     """Simple two-layer MLP with GELU and dropout."""
 
-    def __init__(self, input_dim, hidden_dim, emb_dim) -> None:
+    def __init__(self, input_dim: int, hidden_dim: int, emb_dim: int) -> None:
         super().__init__()
         self.mlp = nn.Sequential(
             nn.Linear(input_dim, hidden_dim),
@@ -278,7 +308,7 @@ class MLP(nn.Module):
         torch.Tensor
             Output of shape ``(B, L, emb_dim)``.
         """
-        return self.mlp(x)
+        return cast("torch.Tensor", self.mlp(x))
 
 
 # --------------------------------------------------------------------------- #
@@ -317,7 +347,7 @@ class TransformerBlock(nn.Module):
         # Self-attention with residual connection
         encoder = x + self._rezero * self.mha(self.ln1(x), block_mask)
         # Feed-forward with residual connection
-        return encoder + self._rezero * self.mlp(self.ln2(encoder))
+        return cast("torch.Tensor", encoder + self._rezero * self.mlp(self.ln2(encoder)))
 
 
 # --------------------------------------------------------------------------- #
@@ -342,7 +372,7 @@ class OHLCMulitClassPredictor(nn.Module):
         self.encoder = nn.ModuleList([TransformerBlock(hparams) for _ in range(hparams.num_layers)])
         self.out_ff = nn.Linear(hparams.emb_dim, 3)
 
-    def forward(self, input: OHLCMulitClassPredictorInput):
+    def forward(self, input: OHLCMulitClassPredictorInput) -> OHLCMulitClassPredictorInput:
         """
         Forward pass of the predictor.
 
@@ -362,7 +392,7 @@ class OHLCMulitClassPredictor(nn.Module):
         """
         # Feature projection
         feature = input.feature_input
-        x = self.feature_mlp(feature)
+        x = cast("torch.Tensor", self.feature_mlp(feature))
 
         # Add positional encoding (safely slice to the actual length)
         _, seq_len, _ = x.shape
@@ -383,6 +413,6 @@ class OHLCMulitClassPredictor(nn.Module):
 
         # Extract the response embeddings and compute outputs
         response_embeddings = x[:, -input.response_size :]
-        input.model_output = self.out_ff(response_embeddings)
+        input.model_output = cast("torch.Tensor", self.out_ff(response_embeddings))
         input.stock_embeddings = response_embeddings.mean(dim=1)
         return input

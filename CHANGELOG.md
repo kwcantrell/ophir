@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.6] - 2026-05-20
+
+### Changed
+
+- Type-annotate `ophir.models` and `ophir.ticker`; drop them from the ruff
+  `ANN` per-file-ignores and the mypy `ignore_errors` overrides. Widen
+  `extract_model_data(response_size)` from `int` to `int | numpy.ndarray`
+  to match existing call sites in `StockStreamerDataset` and
+  `StockHandlerDataset` (non-breaking — both forms already worked at
+  runtime). Widen `get_splits` return to `dict[str, StockSplit | None]`
+  to reflect the sentinel passthrough already exercised by tests.
+  Consolidate the third-party `ignore_missing_imports` mypy override into
+  one block covering `gradio`, `massive`, `tqdm`, and `yfinance`.
+
 ## [0.1.5] - 2026-05-20
 
 ### Changed
@@ -90,7 +104,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   value yields a rotation of π.
 - Model validation and minor fixes.
 
-[Unreleased]: https://github.com/kwcantrell/ophir/compare/v0.1.5...HEAD
+[Unreleased]: https://github.com/kwcantrell/ophir/compare/v0.1.6...HEAD
+[0.1.6]: https://github.com/kwcantrell/ophir/compare/v0.1.5...v0.1.6
 [0.1.5]: https://github.com/kwcantrell/ophir/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/kwcantrell/ophir/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/kwcantrell/ophir/compare/v0.1.2...v0.1.3
