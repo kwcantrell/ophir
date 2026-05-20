@@ -1,6 +1,6 @@
 [project]
 name = "ophir"
-version = "0.1.3"
+version = "0.1.4"
 description = "BERT-style masked transformer for stock OHLC prediction, with a Gradio UI and local-LLM chat."
 readme = "README.md"
 authors = [
@@ -84,6 +84,8 @@ dev = [
     "ruff>=0.8.0",
     "mypy>=1.18,<2.0",
     "pre-commit>=4.0",
+    "pytest>=8.0",
+    "pytest-mock>=3.14",
 ]
 docs = [
     "sphinx>=8.1",
@@ -120,3 +122,15 @@ ignore_errors = true
 [[tool.mypy.overrides]]
 module = ["gradio.*"]            # gradio ships no py.typed / stubs
 ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+addopts = "-q -ra --strict-markers --strict-config"
+filterwarnings = [
+    "error",
+    # Third-party churn we don't own (pandas freq='D', numpy, torch, yfinance).
+    "default::DeprecationWarning",
+    "default::PendingDeprecationWarning",
+    "default::FutureWarning",
+]

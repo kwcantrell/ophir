@@ -545,12 +545,14 @@ class StockHanlder:
         stock_list : Iterable[str]
             Symbols to keep; others are dropped.
         """
+        stock_list = list(stock_list)
         kept_stocks = {
             stock: self.stock_dict[stock] for stock in stock_list if stock in self.stock_dict
         }
+        not_found = [stock for stock in stock_list if stock not in self.stock_dict]
         print(
             f"stocks kept: {len(kept_stocks)}/{len(self.stock_dict)}, "
-            f"stocks not found: {len(stock_list) - len(stock_list)}"
+            f"stocks not found: {len(not_found)}"
         )
         self.stock_dict = kept_stocks
         self.stocks = list(self.stock_dict.keys())
