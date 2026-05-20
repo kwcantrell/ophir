@@ -1,6 +1,6 @@
 [project]
 name = "ophir"
-version = "0.1.4"
+version = "0.1.5"
 description = "BERT-style masked transformer for stock OHLC prediction, with a Gradio UI and local-LLM chat."
 readme = "README.md"
 authors = [
@@ -72,9 +72,6 @@ unfixable = [
 # add proper type annotations later. New code (ui.py, cli.py) stays enforced.
 "src/ophir/models.py" = ["ANN"]
 "src/ophir/ticker.py" = ["ANN"]
-"src/ophir/register.py" = ["ANN"]
-"src/ophir/training_models.py" = ["ANN"]
-"src/ophir/model_data.py" = ["ANN"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["ophir"]
@@ -103,18 +100,15 @@ pretty = true
 warn_unused_configs = true
 
 # ------------------------------------------------------------------
-# TECH DEBT — mirrors the ruff ANN per-file-ignores above. The 5 legacy
+# TECH DEBT — mirrors the ruff ANN per-file-ignores above. The remaining
 # torch/lightning modules predate type discipline; `ophir.ui` has real
 # strict violations + a latent bug. Remove this block TOGETHER with the
-# ruff ANN ignores in the follow-up.
+# ruff ANN ignores as each file is annotated.
 # ------------------------------------------------------------------
 [[tool.mypy.overrides]]
 module = [
     "ophir.models",
     "ophir.ticker",
-    "ophir.register",
-    "ophir.training_models",
-    "ophir.model_data",
     "ophir.ui",
 ]
 ignore_errors = true

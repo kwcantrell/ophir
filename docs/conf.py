@@ -20,8 +20,8 @@ sys.path.insert(0, os.path.abspath("../src"))
 project = "ophir"
 author = "Kalen Cantrell"
 copyright = f"{datetime.now():%Y}, {author}"
-release = "0.1.4"
-version = "0.1.4"
+release = "0.1.5"
+version = "0.1.5"
 
 # -- General configuration ---------------------------------------------------
 extensions = [

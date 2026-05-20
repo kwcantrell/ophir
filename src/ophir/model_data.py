@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any, ClassVar
 
 import numpy as np
-import pandas as pd
+import pandas as pd  # type: ignore[import-untyped]
 import torch
 
 
@@ -33,19 +34,19 @@ class OHLCMulitClassPredictorInput:
         Pooled per-example stock embeddings (written by the model).
     """
 
-    feature_input: torch.FloatTensor
-    response_size: torch.LongTensor
-    trade_occured: torch.BoolTensor
-    targets: torch.FloatTensor
-    model_output: torch.FloatTensor = None
-    time: np.ndarray | None = None
-    stock_embeddings: torch.FloatTensor = None
+    feature_input: torch.Tensor
+    response_size: torch.Tensor
+    trade_occured: torch.Tensor
+    targets: torch.Tensor
+    model_output: torch.Tensor | None = None
+    time: np.ndarray[Any, Any] | None = None
+    stock_embeddings: torch.Tensor | None = None
     return_full_targets: bool = False
-    r_close_index = 0
-    upside_index = 1
-    downside_index = 2
+    r_close_index: ClassVar[int] = 0
+    upside_index: ClassVar[int] = 1
+    downside_index: ClassVar[int] = 2
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if len(self.feature_input.shape) < 3:
             self.feature_input = self.feature_input.unsqueeze(0)
 
@@ -58,7 +59,7 @@ class OHLCMulitClassPredictorInput:
         if self.time is not None and len(self.time.shape) < 2:
             self.time = np.expand_dims(self.time, axis=0)
 
-    def chunk(self, tensor: torch.Tensor, chunk_index) -> torch.Tensor:
+    def chunk(self, tensor: torch.Tensor, chunk_index: int) -> torch.Tensor:
         """Select one of the three target/output channels.
 
         Parameters
@@ -81,33 +82,36 @@ class OHLCMulitClassPredictorInput:
         return chunk
 
     @property
-    def target_r_close(self):
+    def target_r_close(self) -> torch.Tensor:
         """Ground-truth relative close return channel of ``targets``."""
         return self.chunk(self.targets, self.r_close_index)
 
     @property
-    def predicted_r_close(self):
+    def predicted_r_close(self) -> torch.Tensor:
         """Predicted relative close return channel of ``model_output``."""
+        assert self.model_output is not None
         return self.chunk(self.model_output, self.r_close_index)
 
     @property
-    def target_upside(self):
+    def target_upside(self) -> torch.Tensor:
         """Ground-truth upside channel of ``targets``."""
         return self.chunk(self.targets, self.upside_index)
 
     @property
-    def predicted_upside(self):
+    def predicted_upside(self) -> torch.Tensor:
         """Predicted upside channel of ``model_output``."""
+        assert self.model_output is not None
         return self.chunk(self.model_output, self.upside_index)
 
     @property
-    def target_downside(self):
+    def target_downside(self) -> torch.Tensor:
         """Ground-truth downside channel of ``targets``."""
         return self.chunk(self.targets, self.downside_index)
 
     @property
-    def predicted_downside(self):
+    def predicted_downside(self) -> torch.Tensor:
         """Predicted downside channel of ``model_output``."""
+        assert self.model_output is not None
         return self.chunk(self.model_output, self.downside_index)
 
     def to_cuda(self) -> OHLCMulitClassPredictorInput:
@@ -123,7 +127,7 @@ class OHLCMulitClassPredictorInput:
         self.trade_occured = self.trade_occured.cuda()
         return self
 
-    def pca_projection(self) -> np.ndarray:
+    def pca_projection(self) -> np.ndarray[Any, Any]:
         """Project the stock embeddings onto their top 3 principal components.
 
         Returns
@@ -132,13 +136,14 @@ class OHLCMulitClassPredictorInput:
             A ``(B, 3)`` array of the embeddings (averaged over the sequence
             axis) projected into the leading 3-D PCA subspace.
         """
+        assert self.stock_embeddings is not None
         with torch.no_grad():
             stock_embeddings = self.stock_embeddings.mean(1)
             _u, _s, v = torch.pca_lowrank(stock_embeddings, q=3)
             transformed_data = torch.matmul(stock_embeddings, v)
         return transformed_data.cpu().numpy()
 
-    def to_pandas(self) -> pd.DataFrame:
+    def to_pandas(self) -> list[pd.DataFrame]:
         """Convert targets and predictions to per-stock pandas frames.
 
         For each example in the batch, builds a time-indexed frame holding the
@@ -151,8 +156,9 @@ class OHLCMulitClassPredictorInput:
         list[pandas.DataFrame]
             One frame per batch element, indexed by ``time``.
         """
+        assert self.time is not None
         b, _s, _ = self.feature_input.shape
-        dfs = []
+        dfs: list[pd.DataFrame] = []
 
         target_flag = self.return_full_targets
         self.return_full_targets = True

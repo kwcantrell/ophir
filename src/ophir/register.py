@@ -8,12 +8,21 @@ and a small Typer sub-application (:data:`app`) for storing the MASSIVE API
 key.
 """
 
+from __future__ import annotations
+
 import os
 from datetime import timedelta
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated, Literal, overload
 
 import typer
-from massive import RESTClient
+from massive import RESTClient  # type: ignore[import-untyped]
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
+
+    import lightning as L
+
+    from ophir.training_models import LightningOHLCPredictor
 
 # Get the absolute path of the current file
 current_file_path = os.path.abspath(__file__)
@@ -41,7 +50,7 @@ if not os.path.exists(MODEL_DIR):
     os.makedirs(MODEL_DIR)
 
 
-def fetch_base_trainer(file_name=None):
+def fetch_base_trainer(file_name: str | None = None) -> L.Trainer:
     """Build the :class:`lightning.Trainer` used for base pre-training.
 
     Configures mixed precision, CUDA acceleration, gradient clipping, a
@@ -103,7 +112,7 @@ def fetch_base_trainer(file_name=None):
     return trainer
 
 
-def fetch_finetune_trainer():
+def fetch_finetune_trainer() -> L.Trainer:
     """Build the :class:`lightning.Trainer` used for finetuning.
 
     Like :func:`fetch_base_trainer` but epoch-driven: it validates every epoch
@@ -138,7 +147,7 @@ def fetch_finetune_trainer():
     return trainer
 
 
-def get_massive_client():
+def get_massive_client() -> RESTClient:
     """Construct an authenticated MASSIVE REST client.
 
     Reads the API key previously stored by the ``ophir register massive-key``
@@ -160,12 +169,12 @@ def get_massive_client():
     return RESTClient(key)
 
 
-def _latest_base_ckpt(filename=None):
+def _latest_base_ckpt(filename: str) -> str:
     """Return the filename of the most recent base checkpoint.
 
     Parameters
     ----------
-    filename : str, optional
+    filename : str
         Substring that base checkpoint files must contain.
 
     Returns
@@ -193,7 +202,7 @@ def _latest_base_ckpt(filename=None):
     return latest_version
 
 
-def _latest_finetuned_ckpt():
+def _latest_finetuned_ckpt() -> str:
     """Return the filename of the most recent finetuned checkpoint.
 
     Returns
@@ -221,7 +230,7 @@ def _latest_finetuned_ckpt():
     return latest_version
 
 
-def get_default_data_days_dir():
+def get_default_data_days_dir() -> str:
     """Return the default directory holding per-day stock data.
 
     Returns
@@ -243,7 +252,7 @@ def clear_ignore_symbols() -> None:
         os.remove(path)
 
 
-def set_ignore_symbols(symbols) -> None:
+def set_ignore_symbols(symbols: Iterable[str]) -> None:
     """Add symbols to the persistent ignore list.
 
     The new symbols are unioned with the existing list and written back,
@@ -254,15 +263,14 @@ def set_ignore_symbols(symbols) -> None:
     symbols : Iterable[str]
         Ticker symbols to add to the ignore list.
     """
-    symbols = set(fetch_ignore_symbols_list()).union(symbols)
-    symbols = sorted(symbols)
+    merged = sorted(set(fetch_ignore_symbols_list()).union(symbols))
     with open(os.path.join(DATA_DIR, "ignore-symbols.txt"), "w") as f:
-        for symbol in symbols:
+        for symbol in merged:
             f.write(f"{symbol}\n")
-    print(f"Entering Ignore Symbol mode...currently ignoring {len(symbols)} symbols")
+    print(f"Entering Ignore Symbol mode...currently ignoring {len(merged)} symbols")
 
 
-def fetch_ignore_symbols_list():
+def fetch_ignore_symbols_list() -> list[str]:
     """Return the persisted ignore-symbols list.
 
     Returns
@@ -279,7 +287,30 @@ def fetch_ignore_symbols_list():
     return symbols
 
 
-def load_base_model_ckpt(strict=True, return_ckpt_path=False, file_name=None, time_version=True):
+@overload
+def load_base_model_ckpt(
+    strict: bool = ...,
+    return_ckpt_path: Literal[False] = ...,
+    file_name: str | None = ...,
+    time_version: bool = ...,
+) -> LightningOHLCPredictor: ...
+
+
+@overload
+def load_base_model_ckpt(
+    strict: bool,
+    return_ckpt_path: Literal[True],
+    file_name: str | None = ...,
+    time_version: bool = ...,
+) -> tuple[LightningOHLCPredictor, str]: ...
+
+
+def load_base_model_ckpt(
+    strict: bool = True,
+    return_ckpt_path: bool = False,
+    file_name: str | None = None,
+    time_version: bool = True,
+) -> LightningOHLCPredictor | tuple[LightningOHLCPredictor, str]:
     """Load the latest base checkpoint.
 
     Parameters
@@ -322,7 +353,24 @@ def load_base_model_ckpt(strict=True, return_ckpt_path=False, file_name=None, ti
     return LightningOHLCPredictor.load_from_checkpoint(last_ckpt, strict=strict), last_ckpt
 
 
-def load_fintuned_ckpt(strict=True, return_ckpt_path=False):
+@overload
+def load_fintuned_ckpt(
+    strict: bool = ...,
+    return_ckpt_path: Literal[False] = ...,
+) -> LightningOHLCPredictor: ...
+
+
+@overload
+def load_fintuned_ckpt(
+    strict: bool,
+    return_ckpt_path: Literal[True],
+) -> tuple[LightningOHLCPredictor, str]: ...
+
+
+def load_fintuned_ckpt(
+    strict: bool = True,
+    return_ckpt_path: bool = False,
+) -> LightningOHLCPredictor | tuple[LightningOHLCPredictor, str]:
     """Load the latest finetuned checkpoint.
 
     Parameters
@@ -350,7 +398,7 @@ def load_fintuned_ckpt(strict=True, return_ckpt_path=False):
     return LightningOHLCPredictor.load_from_checkpoint(last_ckpt, strict=strict), last_ckpt
 
 
-def predict_trainer():
+def predict_trainer() -> L.Trainer:
     """Build a minimal :class:`lightning.Trainer` for inference.
 
     Returns

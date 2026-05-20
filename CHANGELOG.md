@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-05-20
+
+### Changed
+
+- Type-annotate `ophir.model_data`, `ophir.register`, and
+  `ophir.training_models` and drop them from the coupled ruff `ANN`
+  per-file-ignores and the mypy `ignore_errors` overrides. No user-facing
+  behavior change. `models.py`, `ticker.py`, and `ui.py` remain suppressed.
+
 ## [0.1.4] - 2026-05-19
 
 ### Added
@@ -81,7 +90,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   value yields a rotation of π.
 - Model validation and minor fixes.
 
-[Unreleased]: https://github.com/kwcantrell/ophir/compare/v0.1.4...HEAD
+[Unreleased]: https://github.com/kwcantrell/ophir/compare/v0.1.5...HEAD
+[0.1.5]: https://github.com/kwcantrell/ophir/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/kwcantrell/ophir/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/kwcantrell/ophir/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/kwcantrell/ophir/compare/v0.1.1...v0.1.2
