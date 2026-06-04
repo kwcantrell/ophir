@@ -31,6 +31,28 @@ Option         Default   Description
    checkpoint onto a CUDA device. A GPU, a checkpoint, network access, and a
    local Ollama server are therefore required for this command to run.
 
+``ophir ingest``
+----------------
+
+Ingest a ticker's daily OHLC from Yahoo Finance into a model-ready dataset
+(:func:`ophir.agent.ingest.ingest`).
+
+.. code-block:: bash
+
+   ophir ingest <SYMBOL> [--days INTEGER]
+
+============== ========= ============================================
+Option         Default   Description
+============== ========= ============================================
+``SYMBOL``     --        Ticker symbol, e.g. ``AAPL`` (required).
+``--days``     ``730``   Calendar days of history to fetch.
+============== ========= ============================================
+
+Writes ``<DATA_DIR>/days/stocks/symbol=<SYMBOL>/data.parquet`` in the layout
+:class:`ophir.ticker.StockHanlder` reads, reusing
+:func:`ophir.ticker.extract_features`. The default ~2 years covers the model's
+365-day window plus rolling-feature warmup. No GPU required.
+
 ``ophir register massive-key``
 ------------------------------
 

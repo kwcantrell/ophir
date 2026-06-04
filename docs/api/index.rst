@@ -17,3 +17,6 @@ see :doc:`../architecture` for its design.
    ophir.training_models
    ophir.ticker
    ophir.register
+   ophir.agent
+   ophir.agent.ingest
+   ophir.agent.feed

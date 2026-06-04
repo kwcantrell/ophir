@@ -38,3 +38,27 @@ def serve(
     from ophir import ui
 
     ui.serve(port=port, share=share, debug=debug)
+
+
+@app.command()
+def ingest(
+    symbol: str,
+    days: int = typer.Option(730, help="Calendar days of Yahoo Finance history to fetch."),
+) -> None:
+    """Ingest a ticker's daily OHLC from Yahoo Finance into a model-ready dataset.
+
+    Pulls ``days`` of history (default ~2 years, enough for the model's 365-day
+    window plus rolling-feature warmup) and writes
+    ``<DATA_DIR>/days/stocks/symbol=<SYMBOL>/data.parquet``. Reuses
+    :func:`ophir.ticker.extract_features` downstream; no GPU required.
+
+    Parameters
+    ----------
+    symbol : str
+        Ticker symbol to ingest (e.g. ``AAPL``).
+    days : int, optional
+        Calendar days of history to fetch. Defaults to ``730``.
+    """
+    from ophir.agent.ingest import ingest as ingest_ticker
+
+    ingest_ticker(symbol, days=days)
