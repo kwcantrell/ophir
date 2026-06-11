@@ -390,8 +390,12 @@ class OHLCMulitClassPredictor(nn.Module):
         OHLCMulitClassPredictorInput
             The same object with ``model_output`` and ``stock_embeddings`` filled.
         """
-        # Feature projection
-        feature = input.feature_input
+        # Feature projection. Zero the response region first so the predicted
+        # days carry no answer: r_close/upside/downside are both input features
+        # and targets, so without this the model can copy them through the
+        # self-attending response tokens instead of forecasting.
+        feature = input.feature_input.clone()
+        feature[:, -input.response_size :, :] = 0.0
         x = cast("torch.Tensor", self.feature_mlp(feature))
 
         # Add positional encoding (safely slice to the actual length)
