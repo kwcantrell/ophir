@@ -30,7 +30,14 @@ cloud.
   return, and an Ollama-backed chat panel.
 - **Checkpoint / data-dir management** (`ophir.register`) — Lightning
   `Trainer` factories and checkpoint loaders.
-- **`ophir` CLI** (Typer) — `serve` and `register` subcommands.
+- **Data ingestion** (`ophir.agent.ingest`) — pull a ticker's daily OHLC from
+  Yahoo Finance into a model-ready dataset (`ophir ingest`), reusing the
+  `ophir.ticker` feature pipeline.
+- **Model prediction** (`ophir.agent.predict`) — load the trained checkpoint and
+  forecast a ticker's next 90 days, ranking candidates by predicted return
+  (`ophir predict` / `ophir rank`).
+- **`ophir` CLI** (Typer) — `serve`, `ingest`, `predict`, `rank`, and `register`
+  subcommands.
 
 ## Requirements
 
@@ -62,11 +69,19 @@ pip install .           # or: pip install -e .   (editable, for development)
 
 ```bash
 ophir serve [--port 7860] [--share/--no-share] [--debug/--no-debug]
+ophir ingest <SYMBOL> [--days 730]
+ophir predict <SYMBOL>
+ophir rank <SYMBOL> [<SYMBOL> ...] [--top-k 5]
 ophir register massive-key <KEY>
 ```
 
 - `ophir serve` launches the Gradio UI (`ophir.ui.serve`). `--share` exposes a
   public link; `--debug` (default on) launches Gradio in debug mode.
+- `ophir ingest <SYMBOL>` pulls ~2 years of daily OHLC from Yahoo Finance into
+  a model-ready parquet (no GPU required); `--days` overrides the lookback.
+- `ophir predict <SYMBOL>` forecasts the next 90 days with the trained model;
+  `ophir rank <SYMBOLS> [--top-k 5]` ranks several by predicted return (both need
+  a CUDA GPU + checkpoint).
 - `ophir register massive-key <KEY>` stores a [MASSIVE](https://pypi.org/project/massive/)
   API key (used for data fetching) under the package's `.ophir/` directory.
 
@@ -119,6 +134,7 @@ uv run --group docs sphinx-build -W -b html docs docs/_build/html
 | `src/ophir/ticker.py` | Stock data loading, splits, feature extraction, datasets. |
 | `src/ophir/register.py` | Trainer factories, checkpoint loaders, data dirs. |
 | `src/ophir/ui.py` | Gradio UI and local-LLM chat. |
+| `src/ophir/agent/` | Trading-agent layers (data ingestion, prediction) built on the model. |
 
 ## License
 

@@ -50,7 +50,7 @@ if not os.path.exists(MODEL_DIR):
     os.makedirs(MODEL_DIR)
 
 
-def fetch_base_trainer(file_name: str | None = None) -> L.Trainer:
+def fetch_base_trainer(file_name: str | None = None, max_steps: int = 100000) -> L.Trainer:
     """Build the :class:`lightning.Trainer` used for base pre-training.
 
     Configures mixed precision, CUDA acceleration, gradient clipping, a
@@ -61,6 +61,9 @@ def fetch_base_trainer(file_name: str | None = None) -> L.Trainer:
     ----------
     file_name : str, optional
         Base name for the checkpoint files. Defaults to :data:`BASE_NAME`.
+    max_steps : int, optional
+        Maximum number of optimizer steps to run. Defaults to ``100000``;
+        a smaller value shortens the run (e.g. a quick validation gate).
 
     Returns
     -------
@@ -96,7 +99,7 @@ def fetch_base_trainer(file_name: str | None = None) -> L.Trainer:
     )
 
     trainer = L.Trainer(
-        max_steps=100000,
+        max_steps=max_steps,
         precision="16-mixed",
         default_root_dir=MODEL_DIR,
         accelerator="cuda",
