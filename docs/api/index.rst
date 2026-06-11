@@ -18,5 +18,8 @@ see :doc:`../architecture` for its design.
    ophir.ticker
    ophir.register
    ophir.agent
+   ophir.agent.config
+   ophir.agent.audit
    ophir.agent.ingest
    ophir.agent.feed
+   ophir.agent.predict

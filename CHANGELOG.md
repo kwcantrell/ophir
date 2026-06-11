@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-06-10
+
+### Added
+
+- Trading-agent prediction layer under `ophir.agent`: `config` (pydantic-settings
+  with paper / dry-run / allow-live defaults and a live-mode guard), `audit`
+  (structlog append-only JSON audit trail), and `predict` (a `Forecast` dataclass
+  with `predict_ticker` / `predict_many` / `rank`). `ophir.agent.feed` gains
+  `forecast_window_tensors`, which builds a forward-looking window (real history
+  plus zeroed future rows) for genuine forecasts.
+- CLI commands `ophir predict <SYMBOL>`, `ophir rank <SYMBOLS> [--top-k]`, and
+  `ophir train` (full-US-market trainer, `<2024` train / `>=2024` validation
+  split, fine-tune or from-scratch via `--finetune-from` / `--max-steps`).
+  `register.fetch_base_trainer` gains a `max_steps` argument.
+
+### Changed
+
+- Add `pydantic-settings` and `structlog` dependencies. Source `torch` from the
+  PyTorch CUDA 13.0 index and pin `torch<2.11` (flex-attention compilation
+  regresses on 2.11+); refresh `uv.lock` accordingly.
+
 ## [0.2.1] - 2026-06-04
 
 ### Added
@@ -149,7 +170,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   value yields a rotation of π.
 - Model validation and minor fixes.
 
-[Unreleased]: https://github.com/kwcantrell/ophir/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/kwcantrell/ophir/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/kwcantrell/ophir/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/kwcantrell/ophir/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/kwcantrell/ophir/compare/v0.1.7...v0.2.0
 [0.1.7]: https://github.com/kwcantrell/ophir/compare/v0.1.6...v0.1.7

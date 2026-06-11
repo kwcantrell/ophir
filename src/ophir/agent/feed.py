@@ -109,3 +109,47 @@ def latest_window_tensors(
     features = extract_features(df)
     window = features.iloc[-seq_len:]
     return extract_model_data(window, response_size)
+
+
+def forecast_window_tensors(
+    symbol: str,
+    seq_len: int = 365,
+    response_size: int = 90,
+    *,
+    stocks_dir: str | None = None,
+) -> dict[str, Any]:
+    """Build a *forward-looking* model input for ``symbol``.
+
+    Takes the trailing ``seq_len - response_size`` real feature rows and appends
+    ``response_size`` zeroed placeholder rows (``trade_occured=False``), so the
+    model's predicted trailing block is a genuine forecast of the next
+    ``response_size`` days rather than a reconstruction of known days. Mirrors the
+    ``automated-paper-trading`` branch's ``build_forecast_input``.
+
+    Parameters
+    ----------
+    symbol : str
+        Ticker symbol (must have been ingested).
+    seq_len : int, optional
+        Total window length. Defaults to ``365``.
+    response_size : int, optional
+        Forecast horizon / number of zeroed future rows. Defaults to ``90``.
+    stocks_dir : str, optional
+        Override for the parquet root.
+
+    Returns
+    -------
+    dict
+        ``feature_input`` ``(S, 13)``, ``targets`` ``(S, 3)``,
+        ``trade_occured`` ``(S,)`` and ``response_size``.
+    """
+    from ophir.ticker import extract_features, extract_model_data
+
+    features = extract_features(load_daily_ohlcv(symbol, stocks_dir=stocks_dir))
+    history_size = seq_len - response_size
+    history = features.iloc[-history_size:].reset_index(drop=True)
+    future = pd.DataFrame(0.0, index=range(response_size), columns=history.columns)
+    future["trade_occured"] = False
+    future = future.astype(history.dtypes)
+    window = pd.concat([history, future], ignore_index=True)
+    return extract_model_data(window, response_size)

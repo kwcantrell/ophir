@@ -53,6 +53,40 @@ Writes ``<DATA_DIR>/days/stocks/symbol=<SYMBOL>/data.parquet`` in the layout
 :func:`ophir.ticker.extract_features`. The default ~2 years covers the model's
 365-day window plus rolling-feature warmup. No GPU required.
 
+``ophir predict``
+-----------------
+
+Forecast a ticker's next 90 days with the trained model
+(:func:`ophir.agent.predict.predict_ticker`); ingests the ticker first if
+needed. Requires a CUDA GPU and a trained checkpoint.
+
+.. code-block:: bash
+
+   ophir predict <SYMBOL>
+
+============== ============================================
+Argument       Description
+============== ============================================
+``SYMBOL``     Ticker symbol to forecast (e.g. ``AAPL``).
+============== ============================================
+
+``ophir rank``
+--------------
+
+Forecast several tickers and print the top picks by predicted cumulative return
+(:func:`ophir.agent.predict.rank`). Requires a CUDA GPU and a trained checkpoint.
+
+.. code-block:: bash
+
+   ophir rank <SYMBOL> [<SYMBOL> ...] [--top-k INTEGER]
+
+============== ========= ============================================
+Option         Default   Description
+============== ========= ============================================
+``SYMBOL``     --        One or more ticker symbols to rank.
+``--top-k``    ``5``     Number of top picks to print.
+============== ========= ============================================
+
 ``ophir register massive-key``
 ------------------------------
 
