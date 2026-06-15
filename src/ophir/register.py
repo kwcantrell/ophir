@@ -172,6 +172,42 @@ def get_massive_client() -> RESTClient:
     return RESTClient(key)
 
 
+def _latest_ckpt(prefix: str) -> str:
+    """Return the newest checkpoint whose filename contains ``prefix``.
+
+    Files carrying a Lightning ``-v<N>`` suffix are ordered by that version (highest
+    wins, preserving the time-check behavior). Otherwise -- e.g. the
+    ``basebest-epoch=NN-val_loss=X`` files, which have no ``-v<N>`` -- the most
+    recently modified file is chosen.
+
+    Parameters
+    ----------
+    prefix : str
+        Substring the checkpoint filename must contain.
+
+    Returns
+    -------
+    str
+        The selected checkpoint filename within :data:`MODEL_DIR`.
+
+    Raises
+    ------
+    FileNotFoundError
+        If no ``.ckpt`` file in :data:`MODEL_DIR` contains ``prefix``.
+    """
+    paths = sorted(p for p in os.listdir(MODEL_DIR) if prefix in p and p.endswith(".ckpt"))
+    if not paths:
+        raise FileNotFoundError(f"no checkpoint matching {prefix!r} in {MODEL_DIR}")
+    versioned: list[tuple[int, str]] = []
+    for path in paths:
+        suffix = path.removeprefix(f"{prefix}-v").removesuffix(".ckpt")
+        if f"{prefix}-v" in path and suffix.isdigit():
+            versioned.append((int(suffix), path))
+    if versioned:
+        return max(versioned)[1]
+    return max(paths, key=lambda p: os.path.getmtime(os.path.join(MODEL_DIR, p)))
+
+
 def _latest_base_ckpt(filename: str) -> str:
     """Return the filename of the most recent base checkpoint.
 
@@ -183,26 +219,10 @@ def _latest_base_ckpt(filename: str) -> str:
     Returns
     -------
     str
-        The latest matching checkpoint filename (highest ``-v<N>`` version, or
-        the sole match) within :data:`MODEL_DIR`.
+        The latest matching checkpoint filename (highest ``-v<N>`` version, else the
+        most recently modified) within :data:`MODEL_DIR`.
     """
-    base_paths = sorted([path for path in os.listdir(MODEL_DIR) if filename in path])
-    if len(base_paths) > 1:
-        base_versions = sorted(
-            [
-                (
-                    int(version.removeprefix(f"{filename}-v").removesuffix(".ckpt")),
-                    version,
-                )
-                for version in base_paths
-                if f"{filename}-v" in version
-            ]
-        )
-        latest_version = base_versions[-1][1]
-    else:
-        latest_version = base_paths[0]
-
-    return latest_version
+    return _latest_ckpt(filename)
 
 
 def _latest_finetuned_ckpt() -> str:
@@ -211,26 +231,10 @@ def _latest_finetuned_ckpt() -> str:
     Returns
     -------
     str
-        The latest :data:`FINETUNE_NAME` checkpoint filename (highest
-        ``-v<N>`` version, or the sole match) within :data:`MODEL_DIR`.
+        The latest :data:`FINETUNE_NAME` checkpoint filename (highest ``-v<N>``
+        version, else the most recently modified) within :data:`MODEL_DIR`.
     """
-    fintune_paths = sorted([path for path in os.listdir(MODEL_DIR) if FINETUNE_NAME in path])
-    if len(fintune_paths) > 1:
-        base_versions = sorted(
-            [
-                (
-                    int(version.removeprefix(f"{FINETUNE_NAME}-v").removesuffix(".ckpt")),
-                    version,
-                )
-                for version in fintune_paths
-                if f"{FINETUNE_NAME}-v" in version
-            ]
-        )
-        latest_version = base_versions[-1][1]
-    else:
-        latest_version = fintune_paths[0]
-
-    return latest_version
+    return _latest_ckpt(FINETUNE_NAME)
 
 
 def get_default_data_days_dir() -> str:

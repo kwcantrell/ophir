@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-06-14
+
+### Fixed
+
+- `_latest_base_ckpt` / `_latest_finetuned_ckpt` crashed with `IndexError` when
+  two or more matching checkpoints lacked a `-v<N>` suffix (the best-epoch
+  checkpoints, named `…basebest-epoch=NN-val_loss=X`). They now share a robust
+  `_latest_ckpt` helper that orders `-v<N>` versions, falls back to the most
+  recently modified file otherwise, and raises `FileNotFoundError` when nothing
+  matches — restoring `ophir predict`, `ophir rank`, and `ophir decide`.
+
 ## [0.3.1] - 2026-06-10
 
 ### Fixed
@@ -182,7 +193,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   value yields a rotation of π.
 - Model validation and minor fixes.
 
-[Unreleased]: https://github.com/kwcantrell/ophir/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/kwcantrell/ophir/compare/v0.3.2...HEAD
+[0.3.2]: https://github.com/kwcantrell/ophir/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/kwcantrell/ophir/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/kwcantrell/ophir/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/kwcantrell/ophir/compare/v0.2.0...v0.2.1
