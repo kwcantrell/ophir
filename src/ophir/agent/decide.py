@@ -277,6 +277,7 @@ def ollama_decision(
         llm = ChatOllama(
             model=settings.ollama_model,
             temperature=0,
+            format="json",
             base_url=settings.ollama_base_url,
         )
 
@@ -321,6 +322,7 @@ def compare_decisions(
         llm = ChatOllama(
             model=settings.ollama_model,
             temperature=0,
+            format="json",
             base_url=settings.ollama_base_url,
         )
 

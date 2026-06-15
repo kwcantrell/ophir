@@ -300,6 +300,7 @@ def research_ticker(
         llm = ChatOllama(
             model=settings.ollama_model,
             temperature=0,
+            format="json",
             base_url=settings.ollama_base_url,
         )
 
@@ -345,6 +346,7 @@ def research_many(
         llm = ChatOllama(
             model=settings.ollama_model,
             temperature=0,
+            format="json",
             base_url=settings.ollama_base_url,
         )
 

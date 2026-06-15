@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-06-15
+
+### Fixed
+
+- The decision and research LLM tracks now call Ollama with JSON-constrained
+  decoding (`format="json"`), so `ophir decide` and `ophir research` reliably
+  receive valid JSON instead of occasionally emitting unparseable output that
+  forced the fail-safe (a HOLD decision or a neutral brief).
+
 ## [0.5.0] - 2026-06-15
 
 ### Added
@@ -229,7 +238,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   value yields a rotation of π.
 - Model validation and minor fixes.
 
-[Unreleased]: https://github.com/kwcantrell/ophir/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/kwcantrell/ophir/compare/v0.5.1...HEAD
+[0.5.1]: https://github.com/kwcantrell/ophir/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/kwcantrell/ophir/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/kwcantrell/ophir/compare/v0.3.2...v0.4.0
 [0.3.2]: https://github.com/kwcantrell/ophir/compare/v0.3.1...v0.3.2
