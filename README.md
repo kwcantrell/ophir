@@ -42,8 +42,10 @@ cloud.
 - **Research layer** (`ophir.agent.research`) — per-ticker briefs across
   fundamentals, news, and technicals, with the LLM summarizing only grounded data
   (`ophir research`).
+- **Debate layer** (`ophir.agent.debate`) — a bull and a bear sub-agent argue
+  opposing theses from each ticker's research brief (`ophir debate`).
 - **`ophir` CLI** (Typer) — `serve`, `ingest`, `predict`, `rank`, `decide`,
-  `research`, and `register` subcommands.
+  `research`, `debate`, and `register` subcommands.
 
 ## Requirements
 
@@ -83,6 +85,7 @@ ophir predict <SYMBOL>
 ophir rank <SYMBOL> [<SYMBOL> ...] [--top-k 5]
 ophir decide <SYMBOL> [<SYMBOL> ...] [--track both] [--top-k 5]
 ophir research <SYMBOL> [<SYMBOL> ...] [--top-k 5]
+ophir debate <SYMBOL> [<SYMBOL> ...] [--top-k 5]
 ophir register massive-key <KEY>
 ```
 
@@ -99,6 +102,9 @@ ophir register massive-key <KEY>
 - `ophir research <SYMBOLS> [--top-k 5]` builds per-ticker briefs (fundamentals,
   news, technicals) with the LLM summarizing only grounded data (needs a GPU +
   checkpoint and network; Ollama for the summaries).
+- `ophir debate <SYMBOLS> [--top-k 5]` argues a bull and a bear thesis per ticker
+  from its research brief (needs a GPU + checkpoint and network; Ollama for the
+  theses).
 - `ophir register massive-key <KEY>` stores a [MASSIVE](https://pypi.org/project/massive/)
   API key (used for data fetching) under the package's `.ophir/` directory.
 

@@ -25,3 +25,4 @@ see :doc:`../architecture` for its design.
    ophir.agent.predict
    ophir.agent.decide
    ophir.agent.research
+   ophir.agent.debate

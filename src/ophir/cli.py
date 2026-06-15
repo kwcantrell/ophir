@@ -230,3 +230,46 @@ def research(
         typer.echo(f"  fundamentals: {brief.analysis.fundamentals_summary}")
         typer.echo(f"  news:         {brief.analysis.news_summary}")
         typer.echo(f"  technicals:   {brief.analysis.technicals_summary}")
+
+
+@app.command()
+def debate(
+    symbols: list[str],
+    top_k: int = typer.Option(5, help="Debate at most this many top-ranked tickers."),
+) -> None:
+    """Argue a bull and a bear thesis for each top-ranked ticker.
+
+    Ranks the symbols by model forecast, builds a research brief per top pick, then
+    has the local Ollama model argue the strongest bullish and bearish cases from
+    that brief. Requires a CUDA GPU and a trained checkpoint; the theses also need a
+    local Ollama server.
+
+    Parameters
+    ----------
+    symbols : list[str]
+        Ticker symbols to debate.
+    top_k : int, optional
+        Debate at most this many top-ranked tickers. Defaults to ``5``.
+    """
+    from ophir.agent.debate import debate_many
+    from ophir.agent.decide import ollama_reachable
+    from ophir.agent.predict import predict_many
+    from ophir.agent.predict import rank as rank_forecasts
+    from ophir.agent.research import research_many
+
+    if not ollama_reachable():
+        typer.echo(
+            "[warning] Ollama unreachable -- theses will be neutral/empty. Is the server "
+            "running with the model pulled? (docs: Setting up Ollama)"
+        )
+
+    forecasts = rank_forecasts(predict_many(symbols), top_k=top_k)
+    briefs = research_many([fc.symbol for fc in forecasts], forecasts=forecasts)
+    for d in debate_many(briefs):
+        typer.echo(f"\n=== {d.symbol}  asof {d.asof} ===")
+        typer.echo(f"  BULL ({d.bull.stance_strength:.0%}): {d.bull.summary}")
+        for point in d.bull.key_points:
+            typer.echo(f"    + {point}")
+        typer.echo(f"  BEAR ({d.bear.stance_strength:.0%}): {d.bear.summary}")
+        for point in d.bear.key_points:
+            typer.echo(f"    - {point}")

@@ -144,6 +144,30 @@ never invents figures. If Ollama is unreachable the command warns and returns th
 grounded data with a neutral, ``llm_ok=False`` analysis. Briefs are written to the
 audit trail.
 
+``ophir debate``
+----------------
+
+Argue a bull and a bear thesis for each top-ranked ticker
+(:func:`ophir.agent.debate.debate_many`). Each ticker is forecast and researched,
+then the local Ollama model argues the strongest bullish and bearish cases *from
+that research brief only*. Requires a CUDA GPU and a trained checkpoint; the
+theses also need a local Ollama server.
+
+.. code-block:: bash
+
+   ophir debate <SYMBOL> [<SYMBOL> ...] [--top-k INTEGER]
+
+============== ========= ============================================
+Option         Default   Description
+============== ========= ============================================
+``SYMBOL``     --        One or more ticker symbols to debate.
+``--top-k``    ``5``     Debate at most this many top-ranked tickers.
+============== ========= ============================================
+
+Each side reasons only over the grounded brief and never invents figures; if
+Ollama is unreachable the theses fall back to neutral (``llm_ok=False``). Weighing
+bull against bear is a later phase; debates are written to the audit trail.
+
 ``ophir register massive-key``
 ------------------------------
 
