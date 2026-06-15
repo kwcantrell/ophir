@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-06-15
+
+### Added
+
+- Paper-execution layer `ophir.agent.execute` and the `ophir trade` CLI command.
+  A `Broker` protocol with an in-process simulated `PaperBroker` (deterministic,
+  no network) and an `AlpacaPaperBroker` adapter (real Alpaca **paper** account,
+  dynamically imported, constructed only with credentials). `reconcile` deltas the
+  target portfolio against the broker's positions into orders (target =
+  `weight * equity`, **sells before buys**, `Decimal` money, a no-trade band, and a
+  deterministic `client_order_id` for idempotency); `place_orders` **defaults to a
+  dry run** (logs the plan, submits nothing) and only submits with an explicit
+  opt-in; `daily_report` is a reporting-only LLM summary that fails safe to a
+  template. `ophir trade <SYMBOLS> [--top-k] [--broker paper|alpaca]
+  [--execute/--dry-run]` chains predict → decide → research → debate → manage →
+  reconcile → place_orders, feeding the broker account's drawdown / daily loss into
+  the risk-gate kill-switch.
+
+### Changed
+
+- Add the `alpaca-py` dependency (paper-trading broker adapter) and refresh
+  `uv.lock`.
+
 ## [0.7.0] - 2026-06-15
 
 ### Added
@@ -265,7 +288,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   value yields a rotation of π.
 - Model validation and minor fixes.
 
-[Unreleased]: https://github.com/kwcantrell/ophir/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/kwcantrell/ophir/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/kwcantrell/ophir/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/kwcantrell/ophir/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/kwcantrell/ophir/compare/v0.5.1...v0.6.0
 [0.5.1]: https://github.com/kwcantrell/ophir/compare/v0.5.0...v0.5.1

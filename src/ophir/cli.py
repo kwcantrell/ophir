@@ -341,3 +341,97 @@ def manage(
         typer.echo(f"  manager: {portfolio.rationale}")
     for note in portfolio.gate_notes:
         typer.echo(f"  [gate] {note}")
+
+
+@app.command()
+def trade(
+    symbols: list[str],
+    top_k: int = typer.Option(5, help="Consider at most this many top-ranked tickers."),
+    broker: str = typer.Option(
+        "paper", help="Broker: 'paper' (in-process simulator) or 'alpaca' (paper account)."
+    ),
+    execute: bool = typer.Option(
+        False, "--execute/--dry-run", help="Submit orders. Default is dry-run (plan only)."
+    ),
+) -> None:
+    """Reconcile the target portfolio into paper orders and report (dry-run by default).
+
+    Builds the target portfolio from the full ensemble, reconciles it against the
+    chosen broker's account into delta orders, and -- unless ``--execute`` is passed
+    -- only prints the plan without submitting. The broker's account drawdown / daily
+    loss feed the risk-gate kill-switch. Requires a CUDA GPU and a trained checkpoint;
+    ``--broker alpaca`` needs ``AGENT_ALPACA_*`` credentials.
+
+    Parameters
+    ----------
+    symbols : list[str]
+        Ticker symbols to consider.
+    top_k : int, optional
+        Consider at most this many top-ranked tickers. Defaults to ``5``.
+    broker : str, optional
+        ``paper`` (default, in-process simulator) or ``alpaca`` (real paper account).
+    execute : bool, optional
+        Submit orders instead of only planning them. Defaults to ``False`` (dry-run).
+    """
+    from ophir.agent.debate import debate_many
+    from ophir.agent.decide import compare_decisions, ollama_reachable
+    from ophir.agent.execute import (
+        AlpacaPaperBroker,
+        PaperBroker,
+        daily_report,
+        place_orders,
+        reconcile,
+    )
+    from ophir.agent.manage import Candidate
+    from ophir.agent.manage import manage as run_manage
+    from ophir.agent.predict import predict_many
+    from ophir.agent.predict import rank as rank_forecasts
+    from ophir.agent.research import research_many
+
+    if broker not in {"paper", "alpaca"}:
+        raise typer.BadParameter("broker must be 'paper' or 'alpaca'")
+    if not ollama_reachable():
+        typer.echo(
+            "[warning] Ollama unreachable -- the manager will hold all cash and the report "
+            "will be templated. (docs: Setting up Ollama)"
+        )
+
+    account_broker = AlpacaPaperBroker() if broker == "alpaca" else PaperBroker()
+    account = account_broker.get_account()
+
+    forecasts = rank_forecasts(predict_many(symbols), top_k=top_k)
+    comparisons = {c.symbol: c for c in compare_decisions(forecasts)}
+    briefs = {
+        b.symbol: b for b in research_many([fc.symbol for fc in forecasts], forecasts=forecasts)
+    }
+    debates = {d.symbol: d for d in debate_many(list(briefs.values()))}
+    candidates = [
+        Candidate(
+            symbol=fc.symbol,
+            forecast=fc,
+            decision=comparisons[fc.symbol],
+            brief=briefs[fc.symbol],
+            debate=debates[fc.symbol],
+        )
+        for fc in forecasts
+        if fc.symbol in comparisons and fc.symbol in briefs and fc.symbol in debates
+    ]
+
+    portfolio = run_manage(
+        candidates, current_drawdown=account.drawdown, daily_loss=account.daily_loss
+    )
+    orders = reconcile(portfolio, account, account_broker.get_positions())
+    plan = place_orders(orders, account_broker, dry_run=not execute)
+
+    mode = "EXECUTE" if execute else "dry-run"
+    typer.echo(f"\n=== Target portfolio  asof {portfolio.asof}  ({broker} account, {mode}) ===")
+    if portfolio.halted:
+        typer.echo("  *** HALTED by risk gate -- all cash ***")
+    for pos in portfolio.positions:
+        typer.echo(f"  {pos.symbol:<6} {pos.weight:6.2%}  conv={pos.conviction:.2f}")
+    typer.echo(f"  cash {portfolio.cash_weight:.2%}  |  gross {portfolio.gross_exposure:.2%}")
+    typer.echo("  --- orders ---")
+    for line in plan or ["(no orders)"]:
+        typer.echo(f"  {line}")
+    typer.echo("  --- report ---")
+    typer.echo(f"  {daily_report(portfolio, orders)}")

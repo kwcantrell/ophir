@@ -74,6 +74,25 @@ To point ophir at a non-default host or port, set ``AGENT_OLLAMA_BASE_URL``
 (e.g. ``AGENT_OLLAMA_BASE_URL=http://192.168.1.10:11434``); the model name is
 likewise overridable via ``AGENT_OLLAMA_MODEL``.
 
+Alpaca paper trading (optional)
+-------------------------------
+
+``ophir trade`` defaults to an in-process simulated account and a dry run, so no
+broker is needed to try it. To reconcile against a real Alpaca **paper** account
+(``--broker alpaca``), create paper API keys at `Alpaca <https://alpaca.markets/>`_
+and provide them as environment variables:
+
+.. code-block:: bash
+
+   # macOS / Linux
+   export AGENT_ALPACA_KEY_ID=...
+   export AGENT_ALPACA_SECRET_KEY=...
+   # Windows PowerShell
+   $env:AGENT_ALPACA_KEY_ID = "..."; $env:AGENT_ALPACA_SECRET_KEY = "..."
+
+Orders are submitted only with the explicit ``--execute`` flag; the default is a
+dry run that prints the plan without trading.
+
 Building the documentation
 --------------------------
 

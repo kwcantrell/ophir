@@ -48,8 +48,11 @@ cloud.
   candidates by conviction; deterministic sizing + a risk gate (per-name/exposure
   caps, volatility targeting, kill-switch) produce the final target portfolio
   (`ophir manage`).
+- **Paper execution** (`ophir.agent.execute`) — reconcile the target portfolio
+  into idempotent delta orders against a simulated or Alpaca paper account
+  (dry-run by default) and write a daily report (`ophir trade`).
 - **`ophir` CLI** (Typer) — `serve`, `ingest`, `predict`, `rank`, `decide`,
-  `research`, `debate`, `manage`, and `register` subcommands.
+  `research`, `debate`, `manage`, `trade`, and `register` subcommands.
 
 ## Requirements
 
@@ -91,6 +94,7 @@ ophir decide <SYMBOL> [<SYMBOL> ...] [--track both] [--top-k 5]
 ophir research <SYMBOL> [<SYMBOL> ...] [--top-k 5]
 ophir debate <SYMBOL> [<SYMBOL> ...] [--top-k 5]
 ophir manage <SYMBOL> [<SYMBOL> ...] [--top-k 5]
+ophir trade <SYMBOL> [<SYMBOL> ...] [--broker paper] [--execute/--dry-run]
 ophir register massive-key <KEY>
 ```
 
@@ -113,6 +117,9 @@ ophir register massive-key <KEY>
 - `ophir manage <SYMBOLS> [--top-k 5]` runs the full ensemble into a manager pick
   plus a deterministic risk gate, printing the final target portfolio (needs a GPU
   + checkpoint and network; Ollama for the manager).
+- `ophir trade <SYMBOLS> [--execute]` reconciles the target portfolio into paper
+  orders (dry-run by default; `--broker alpaca` for a real paper account) and prints
+  a daily report.
 - `ophir register massive-key <KEY>` stores a [MASSIVE](https://pypi.org/project/massive/)
   API key (used for data fetching) under the package's `.ophir/` directory.
 

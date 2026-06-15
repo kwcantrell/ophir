@@ -196,6 +196,35 @@ and clamped by the risk gate, so no position can exceed the per-name cap and the
 book never exceeds the gross-exposure limit. If Ollama is unreachable the manager
 returns an all-cash portfolio. Portfolios and gate actions are audit-logged.
 
+``ophir trade``
+---------------
+
+Reconcile the target portfolio into paper orders and report
+(:func:`ophir.agent.execute.reconcile` / :func:`ophir.agent.execute.place_orders`).
+Builds the portfolio from the full ensemble, deltas it against the chosen broker's
+account into orders (sells before buys, ``Decimal`` notional, deterministic
+``client_order_id``), and -- unless ``--execute`` is given -- prints the plan
+without submitting. The account's drawdown / daily loss feed the risk-gate
+kill-switch. Requires a CUDA GPU and a trained checkpoint.
+
+.. code-block:: bash
+
+   ophir trade <SYMBOL> [...] [--top-k INTEGER] [--broker paper|alpaca] [--execute / --dry-run]
+
+============== ========= ============================================
+Option         Default   Description
+============== ========= ============================================
+``SYMBOL``     --        One or more ticker symbols to consider.
+``--top-k``    ``5``     Consider at most this many top-ranked tickers.
+``--broker``   ``paper`` ``paper`` (in-process sim) or ``alpaca`` (paper account).
+``--execute``  off       Submit orders. Default is a dry run (plan only).
+============== ========= ============================================
+
+The default is a **dry run** against an in-process simulator -- no orders are
+submitted. ``--broker alpaca`` targets a real Alpaca paper account (needs
+``AGENT_ALPACA_KEY_ID`` / ``AGENT_ALPACA_SECRET_KEY``); ``--execute`` is required to
+actually place orders. Plans, fills, and the daily report are audit-logged.
+
 ``ophir register massive-key``
 ------------------------------
 

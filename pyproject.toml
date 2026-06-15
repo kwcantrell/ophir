@@ -1,6 +1,6 @@
 [project]
 name = "ophir"
-version = "0.7.0"
+version = "0.8.0"
 description = "BERT-style masked transformer for stock OHLC prediction, with a Gradio UI and local-LLM chat."
 readme = "README.md"
 authors = [
@@ -8,6 +8,7 @@ authors = [
 ]
 requires-python = ">=3.10"
 dependencies = [
+    "alpaca-py>=0.43.4",
     "dotenv>=0.9.9",
     "gradio>=6.4.0",
     "ipywidgets>=8.1.8",
