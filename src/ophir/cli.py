@@ -435,3 +435,77 @@ def trade(
         typer.echo(f"  {line}")
     typer.echo("  --- report ---")
     typer.echo(f"  {daily_report(portfolio, orders)}")
+
+
+@app.command()
+def backtest(
+    symbols: list[str],
+    start: str = typer.Option("2024-01-01", help="Backtest start date (YYYY-MM-DD)."),
+    end: str = typer.Option("2025-12-31", help="Backtest end date (YYYY-MM-DD)."),
+    rebalance_days: int = typer.Option(21, help="Trading days between rebalances."),
+    cost_bps: float = typer.Option(5.0, help="Cost per unit turnover, in basis points."),
+    cv_splits: int = typer.Option(5, help="Purged-CV folds for the signal IC."),
+) -> None:
+    """Walk-forward backtest of the quant signal vs SPY, with a purged-CV signal IC.
+
+    Forecasts as-of each rebalance date (no look-ahead), builds a BUY book through the
+    live risk gate, marks it to the next bar with bps costs, and benchmarks vs SPY
+    buy-and-hold. Ingests any missing tickers (and SPY) first. Requires a CUDA GPU and
+    a trained checkpoint. NOTE: with the current degenerate model, expect flat /
+    ~zero-IC results -- this validates the plumbing, not signal quality.
+
+    Parameters
+    ----------
+    symbols : list[str]
+        Ticker universe to backtest.
+    start, end : str, optional
+        Backtest date range (ISO ``YYYY-MM-DD``).
+    rebalance_days : int, optional
+        Trading days between rebalances. Defaults to ``21`` (~monthly).
+    cost_bps : float, optional
+        Cost per unit turnover in basis points. Defaults to ``5``.
+    cv_splits : int, optional
+        Purged-CV folds for the signal information coefficient. Defaults to ``5``.
+    """
+    import datetime as _dt
+
+    from ophir.agent.backtest import walk_forward
+    from ophir.agent.feed import load_daily_ohlcv, parquet_path
+    from ophir.agent.ingest import ingest
+    from ophir.agent.predict import load_predictor
+
+    universe = [s.upper().strip() for s in symbols]
+    lookback = (_dt.date.today() - _dt.date.fromisoformat(start)).days + 500
+    for sym in [*universe, "SPY"]:
+        if not parquet_path(sym).exists():
+            typer.echo(f"ingesting {sym} ...")
+            ingest(sym, days=lookback)
+
+    benchmark = load_daily_ohlcv("SPY")["close"]
+    result = walk_forward(
+        universe,
+        model=load_predictor(),
+        benchmark=benchmark,
+        start=start,
+        end=end,
+        rebalance_days=rebalance_days,
+        cost_bps=cost_bps,
+        cv_splits=cv_splits,
+    )
+
+    m, b = result.metrics, result.benchmark_metrics
+    typer.echo(
+        f"\n=== Backtest {start} -> {end}  "
+        f"({result.n_rebalances} rebalances, {result.n_trades} trades) ==="
+    )
+    typer.echo(f"  total return   strat {m['total_return']:+.2%}   SPY {b['total_return']:+.2%}")
+    typer.echo(f"  ann return     strat {m['ann_return']:+.2%}   SPY {b['ann_return']:+.2%}")
+    typer.echo(f"  Sharpe         strat {m['sharpe']:+.2f}    SPY {b['sharpe']:+.2f}")
+    typer.echo(f"  Sortino        strat {m['sortino']:+.2f}    SPY {b['sortino']:+.2f}")
+    typer.echo(f"  max drawdown   strat {m['max_drawdown']:.2%}   SPY {b['max_drawdown']:.2%}")
+    typer.echo(f"  Calmar         strat {m['calmar']:+.2f}    SPY {b['calmar']:+.2f}")
+    typer.echo(f"  hit rate {m['hit_rate']:.2%}  |  mean turnover {m['mean_turnover']:.2f}")
+    typer.echo(
+        f"  signal IC (purged-CV, {result.ic['n_folds']} folds): "
+        f"mean {result.ic['mean_ic']:+.3f}  std {result.ic['std_ic']:.3f}"
+    )

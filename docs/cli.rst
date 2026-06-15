@@ -225,6 +225,30 @@ submitted. ``--broker alpaca`` targets a real Alpaca paper account (needs
 ``AGENT_ALPACA_KEY_ID`` / ``AGENT_ALPACA_SECRET_KEY``); ``--execute`` is required to
 actually place orders. Plans, fills, and the daily report are audit-logged.
 
+``ophir backtest``
+------------------
+
+Walk-forward backtest of the quant signal vs SPY, with a purged-CV signal
+information coefficient (:func:`ophir.agent.backtest.walk_forward`). Forecasts
+as-of each rebalance date (no look-ahead), builds a BUY book through the live risk
+gate, marks it to the next bar with per-turnover costs, and benchmarks against SPY
+buy-and-hold. Requires a CUDA GPU and a trained checkpoint; ingests any missing
+tickers (and SPY) first.
+
+.. code-block:: bash
+
+   ophir backtest <SYMBOL> [<SYMBOL> ...] [--start DATE] [--end DATE]
+                  [--rebalance-days N] [--cost-bps F] [--cv-splits N]
+
+Options: ``--start`` / ``--end`` (date range, default ``2024-01-01`` →
+``2025-12-31``), ``--rebalance-days`` (trading days between rebalances, default
+``21``), ``--cost-bps`` (cost per unit turnover, default ``5``), and
+``--cv-splits`` (purged-CV folds, default ``5``).
+
+The LLM layers are not backtested (non-deterministic); they are validated by paper
+track record. The backtest reuses the live decision / risk modules, so it matches
+production by construction. Results and the signal IC are audit-logged.
+
 ``ophir register massive-key``
 ------------------------------
 

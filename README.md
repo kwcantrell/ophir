@@ -51,8 +51,11 @@ cloud.
 - **Paper execution** (`ophir.agent.execute`) — reconcile the target portfolio
   into idempotent delta orders against a simulated or Alpaca paper account
   (dry-run by default) and write a daily report (`ophir trade`).
+- **Backtest & validation** (`ophir.agent.backtest`) — a walk-forward backtest of
+  the quant signal vs SPY with realistic costs plus a purged-CV information
+  coefficient (`ophir backtest`).
 - **`ophir` CLI** (Typer) — `serve`, `ingest`, `predict`, `rank`, `decide`,
-  `research`, `debate`, `manage`, `trade`, and `register` subcommands.
+  `research`, `debate`, `manage`, `trade`, `backtest`, and `register` subcommands.
 
 ## Requirements
 
@@ -95,6 +98,7 @@ ophir research <SYMBOL> [<SYMBOL> ...] [--top-k 5]
 ophir debate <SYMBOL> [<SYMBOL> ...] [--top-k 5]
 ophir manage <SYMBOL> [<SYMBOL> ...] [--top-k 5]
 ophir trade <SYMBOL> [<SYMBOL> ...] [--broker paper] [--execute/--dry-run]
+ophir backtest <SYMBOL> [<SYMBOL> ...] [--start 2024-01-01] [--end 2025-12-31]
 ophir register massive-key <KEY>
 ```
 
@@ -120,6 +124,8 @@ ophir register massive-key <KEY>
 - `ophir trade <SYMBOLS> [--execute]` reconciles the target portfolio into paper
   orders (dry-run by default; `--broker alpaca` for a real paper account) and prints
   a daily report.
+- `ophir backtest <SYMBOLS> [--start --end]` runs a walk-forward backtest of the
+  quant signal vs SPY (costs, drawdown, Sharpe) plus a purged-CV signal IC.
 - `ophir register massive-key <KEY>` stores a [MASSIVE](https://pypi.org/project/massive/)
   API key (used for data fetching) under the package's `.ophir/` directory.
 

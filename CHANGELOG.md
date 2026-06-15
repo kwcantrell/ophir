@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-06-15
+
+### Added
+
+- Backtest & validation for the quant signal: `ophir.agent.backtest` and the
+  `ophir backtest` CLI command. `compute_metrics` reports total / annualized
+  return, Sharpe, Sortino, max drawdown, Calmar, and hit rate. `walk_forward` is
+  an event-driven, **no-look-ahead** backtest — it forecasts as-of each rebalance
+  date, builds a BUY book through the same `apply_risk_gate` used live, marks it to
+  the next bar minus per-turnover basis-point costs, and benchmarks against SPY
+  buy-and-hold. `purged_kfold` (purge + embargo for overlapping forecast-horizon
+  labels) and `signal_cv` report the per-fold Spearman information coefficient
+  (constant/degenerate predictions are skipped safely). The LLM layers are not
+  backtested; they are validated by paper track record.
+
 ## [0.8.0] - 2026-06-15
 
 ### Added
@@ -288,7 +303,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   value yields a rotation of π.
 - Model validation and minor fixes.
 
-[Unreleased]: https://github.com/kwcantrell/ophir/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/kwcantrell/ophir/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/kwcantrell/ophir/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/kwcantrell/ophir/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/kwcantrell/ophir/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/kwcantrell/ophir/compare/v0.5.1...v0.6.0
