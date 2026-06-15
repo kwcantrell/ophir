@@ -273,3 +273,71 @@ def debate(
         typer.echo(f"  BEAR ({d.bear.stance_strength:.0%}): {d.bear.summary}")
         for point in d.bear.key_points:
             typer.echo(f"    - {point}")
+
+
+@app.command()
+def manage(
+    symbols: list[str],
+    top_k: int = typer.Option(5, help="Consider at most this many top-ranked tickers."),
+) -> None:
+    """Build a gated target portfolio from the full agent ensemble.
+
+    Ranks the symbols by model forecast, runs the decision, research, and debate
+    layers per top pick, then a manager LLM chooses and ranks the names (with a
+    conviction each). Deterministic code sizes the convictions and a risk gate
+    enforces the per-name / exposure caps and kill-switch. Requires a CUDA GPU and
+    a trained checkpoint; the manager also needs a local Ollama server.
+
+    Parameters
+    ----------
+    symbols : list[str]
+        Ticker symbols to consider.
+    top_k : int, optional
+        Consider at most this many top-ranked tickers. Defaults to ``5``.
+    """
+    from ophir.agent.debate import debate_many
+    from ophir.agent.decide import compare_decisions, ollama_reachable
+    from ophir.agent.manage import Candidate
+    from ophir.agent.manage import manage as run_manage
+    from ophir.agent.predict import predict_many
+    from ophir.agent.predict import rank as rank_forecasts
+    from ophir.agent.research import research_many
+
+    if not ollama_reachable():
+        typer.echo(
+            "[warning] Ollama unreachable -- the manager will return an all-cash portfolio. "
+            "Is the server running with the model pulled? (docs: Setting up Ollama)"
+        )
+
+    forecasts = rank_forecasts(predict_many(symbols), top_k=top_k)
+    comparisons = {c.symbol: c for c in compare_decisions(forecasts)}
+    briefs = {
+        b.symbol: b for b in research_many([fc.symbol for fc in forecasts], forecasts=forecasts)
+    }
+    debates = {d.symbol: d for d in debate_many(list(briefs.values()))}
+
+    candidates = [
+        Candidate(
+            symbol=fc.symbol,
+            forecast=fc,
+            decision=comparisons[fc.symbol],
+            brief=briefs[fc.symbol],
+            debate=debates[fc.symbol],
+        )
+        for fc in forecasts
+        if fc.symbol in comparisons and fc.symbol in briefs and fc.symbol in debates
+    ]
+    portfolio = run_manage(candidates)
+
+    typer.echo(f"\n=== Target portfolio  asof {portfolio.asof} ===")
+    if portfolio.halted:
+        typer.echo("  *** HALTED by risk gate -- all cash ***")
+    for pos in portfolio.positions:
+        typer.echo(
+            f"  {pos.symbol:<6} {pos.weight:6.2%}  conv={pos.conviction:.2f}  {pos.rationale}"
+        )
+    typer.echo(f"  cash {portfolio.cash_weight:.2%}  |  gross {portfolio.gross_exposure:.2%}")
+    if portfolio.rationale:
+        typer.echo(f"  manager: {portfolio.rationale}")
+    for note in portfolio.gate_notes:
+        typer.echo(f"  [gate] {note}")

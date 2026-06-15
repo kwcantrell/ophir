@@ -44,8 +44,12 @@ cloud.
   (`ophir research`).
 - **Debate layer** (`ophir.agent.debate`) — a bull and a bear sub-agent argue
   opposing theses from each ticker's research brief (`ophir debate`).
+- **Manager + risk gate** (`ophir.agent.manage`) — an LLM manager ranks the
+  candidates by conviction; deterministic sizing + a risk gate (per-name/exposure
+  caps, volatility targeting, kill-switch) produce the final target portfolio
+  (`ophir manage`).
 - **`ophir` CLI** (Typer) — `serve`, `ingest`, `predict`, `rank`, `decide`,
-  `research`, `debate`, and `register` subcommands.
+  `research`, `debate`, `manage`, and `register` subcommands.
 
 ## Requirements
 
@@ -86,6 +90,7 @@ ophir rank <SYMBOL> [<SYMBOL> ...] [--top-k 5]
 ophir decide <SYMBOL> [<SYMBOL> ...] [--track both] [--top-k 5]
 ophir research <SYMBOL> [<SYMBOL> ...] [--top-k 5]
 ophir debate <SYMBOL> [<SYMBOL> ...] [--top-k 5]
+ophir manage <SYMBOL> [<SYMBOL> ...] [--top-k 5]
 ophir register massive-key <KEY>
 ```
 
@@ -105,6 +110,9 @@ ophir register massive-key <KEY>
 - `ophir debate <SYMBOLS> [--top-k 5]` argues a bull and a bear thesis per ticker
   from its research brief (needs a GPU + checkpoint and network; Ollama for the
   theses).
+- `ophir manage <SYMBOLS> [--top-k 5]` runs the full ensemble into a manager pick
+  plus a deterministic risk gate, printing the final target portfolio (needs a GPU
+  + checkpoint and network; Ollama for the manager).
 - `ophir register massive-key <KEY>` stores a [MASSIVE](https://pypi.org/project/massive/)
   API key (used for data fetching) under the package's `.ophir/` directory.
 

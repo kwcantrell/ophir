@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-06-15
+
+### Added
+
+- Manager + deterministic risk gate `ophir.agent.manage` and the `ophir manage`
+  CLI command — the final portfolio decision. A manager LLM ingests each
+  candidate's full ensemble (forecast + quant/Ollama decisions + research brief +
+  bull/bear debate) and returns ranked picks each with a conviction and rationale
+  (never raw weights); deterministic code sizes the convictions by
+  inverse-volatility scaled toward `annual_vol_target`; and a risk gate enforces
+  the per-name cap and gross-exposure limit, drops unknown/stale/non-finite picks,
+  and halts to all-cash on a drawdown / daily-loss kill-switch. The manager fails
+  safe to an all-cash portfolio when Ollama is unreachable. `ophir manage` chains
+  predict → decide → research → debate → manage and prints the gated target
+  portfolio. Reuses the existing `AgentSettings` risk knobs.
+
 ## [0.6.0] - 2026-06-15
 
 ### Added
@@ -249,7 +265,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   value yields a rotation of π.
 - Model validation and minor fixes.
 
-[Unreleased]: https://github.com/kwcantrell/ophir/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/kwcantrell/ophir/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/kwcantrell/ophir/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/kwcantrell/ophir/compare/v0.5.1...v0.6.0
 [0.5.1]: https://github.com/kwcantrell/ophir/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/kwcantrell/ophir/compare/v0.4.0...v0.5.0

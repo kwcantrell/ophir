@@ -168,6 +168,34 @@ Each side reasons only over the grounded brief and never invents figures; if
 Ollama is unreachable the theses fall back to neutral (``llm_ok=False``). Weighing
 bull against bear is a later phase; debates are written to the audit trail.
 
+``ophir manage``
+----------------
+
+Build a gated target portfolio from the full agent ensemble
+(:func:`ophir.agent.manage.manage`). Each top-ranked ticker is run through the
+decision, research, and debate layers; a manager LLM then chooses and ranks the
+names with a conviction each, deterministic code sizes the convictions
+(inverse-volatility, scaled toward the target annual volatility), and a risk gate
+enforces the per-name cap, gross-exposure limit, and a drawdown / daily-loss
+kill-switch. Requires a CUDA GPU and a trained checkpoint; the manager also needs
+a local Ollama server.
+
+.. code-block:: bash
+
+   ophir manage <SYMBOL> [<SYMBOL> ...] [--top-k INTEGER]
+
+============== ========= ============================================
+Option         Default   Description
+============== ========= ============================================
+``SYMBOL``     --        One or more ticker symbols to consider.
+``--top-k``    ``5``     Consider at most this many top-ranked tickers.
+============== ========= ============================================
+
+The LLM only proposes picks and convictions; weights are derived deterministically
+and clamped by the risk gate, so no position can exceed the per-name cap and the
+book never exceeds the gross-exposure limit. If Ollama is unreachable the manager
+returns an all-cash portfolio. Portfolios and gate actions are audit-logged.
+
 ``ophir register massive-key``
 ------------------------------
 
