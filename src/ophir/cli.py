@@ -5,10 +5,21 @@ script (entry point ``ophir.cli:app``). It mounts the :mod:`ophir.register`
 sub-application under ``register`` and adds the top-level ``serve`` command.
 """
 
+import sys
+
 import typer
 
 from ophir import register
 from ophir import train as train_cmd
+
+# Model output can contain Unicode (curly quotes, non-breaking hyphens, ...) that a
+# console's default encoding (e.g. Windows cp1252) cannot represent. Reconfigure the
+# streams to UTF-8 with replacement so ``typer.echo`` never crashes with a
+# UnicodeEncodeError when printing LLM-generated text.
+for _stream in (sys.stdout, sys.stderr):
+    _reconfigure = getattr(_stream, "reconfigure", None)
+    if _reconfigure is not None:
+        _reconfigure(encoding="utf-8", errors="replace")
 
 app = typer.Typer(help="Ophir CLI")
 app.add_typer(register.app, name="register")
@@ -177,3 +188,45 @@ def decide(
                 f"{ollama.symbol:<6} {ollama.action:<4} ({ollama.confidence:.0%})  "
                 f"{ollama.rationale}"
             )
+
+
+@app.command()
+def research(
+    symbols: list[str],
+    top_k: int = typer.Option(5, help="Research at most this many top-ranked tickers."),
+) -> None:
+    """Build grounded research briefs for the top-ranked tickers.
+
+    Ranks the symbols by model forecast, then for each top pick gathers
+    fundamentals (Yahoo Finance), recent news, and technicals, and asks the local
+    Ollama model to summarize that data into a cited brief. Requires a CUDA GPU
+    and a trained checkpoint; the LLM summaries also need a local Ollama server
+    (without it the grounded data is still returned).
+
+    Parameters
+    ----------
+    symbols : list[str]
+        Ticker symbols to research.
+    top_k : int, optional
+        Research at most this many top-ranked tickers. Defaults to ``5``.
+    """
+    from ophir.agent.decide import ollama_reachable
+    from ophir.agent.predict import predict_many
+    from ophir.agent.predict import rank as rank_forecasts
+    from ophir.agent.research import research_many
+
+    if not ollama_reachable():
+        typer.echo(
+            "[warning] Ollama unreachable -- briefs will return grounded data with no LLM "
+            "summary. Is the server running with the model pulled? (docs: Setting up Ollama)"
+        )
+
+    forecasts = rank_forecasts(predict_many(symbols), top_k=top_k)
+    for brief in research_many([fc.symbol for fc in forecasts], forecasts=forecasts):
+        typer.echo(
+            f"\n=== {brief.symbol}  [{brief.analysis.overall_stance}]  asof {brief.asof} ==="
+        )
+        typer.echo(f"  {brief.analysis.overall_summary}")
+        typer.echo(f"  fundamentals: {brief.analysis.fundamentals_summary}")
+        typer.echo(f"  news:         {brief.analysis.news_summary}")
+        typer.echo(f"  technicals:   {brief.analysis.technicals_summary}")

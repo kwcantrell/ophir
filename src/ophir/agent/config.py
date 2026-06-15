@@ -36,6 +36,9 @@ class AgentSettings(BaseSettings):
     ollama_model: str = "gpt-oss:20b"
     ollama_base_url: str | None = None
 
+    # research layer (Phase 4)
+    research_news_limit: int = 8
+
     # risk knobs (consumed by later phases; safe defaults now)
     max_position_weight: float = 0.05
     target_gross_exposure: float = 0.95

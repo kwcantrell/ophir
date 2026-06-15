@@ -117,6 +117,33 @@ If the Ollama track is selected and no server answers at the configured URL
 (``AGENT_OLLAMA_BASE_URL``, default ``http://localhost:11434``), the command
 prints a one-line warning before running and every Ollama decision is ``HOLD``.
 
+``ophir research``
+------------------
+
+Build grounded research briefs for the top-ranked tickers
+(:func:`ophir.agent.research.research_many`). For each top pick the command
+gathers fundamentals (Yahoo Finance ``.info``), recent news (Yahoo Finance
+``.news``), and technicals (ophir features plus the model forecast), then asks the
+local Ollama model to summarize *only that data* into a cited brief. Requires a
+CUDA GPU and a trained checkpoint; the LLM summaries also need a local Ollama
+server.
+
+.. code-block:: bash
+
+   ophir research <SYMBOL> [<SYMBOL> ...] [--top-k INTEGER]
+
+============== ========= ============================================
+Option         Default   Description
+============== ========= ============================================
+``SYMBOL``     --        One or more ticker symbols to research.
+``--top-k``    ``5``     Research at most this many top-ranked tickers.
+============== ========= ============================================
+
+The data is fetched deterministically and the model only summarizes it -- it
+never invents figures. If Ollama is unreachable the command warns and returns the
+grounded data with a neutral, ``llm_ok=False`` analysis. Briefs are written to the
+audit trail.
+
 ``ophir register massive-key``
 ------------------------------
 

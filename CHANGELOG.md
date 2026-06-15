@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-06-15
+
+### Added
+
+- Research layer `ophir.agent.research` and the `ophir research` CLI command:
+  for each top-ranked ticker, gather grounded fundamentals (Yahoo Finance
+  `.info`), recent news (Yahoo Finance `.news`), and technicals (ophir features
+  plus the model forecast), then have the local `gpt-oss:20b` model summarize
+  *only that data* into a cited `ResearchBrief` (validated; fail-safe to a
+  neutral brief with the grounded data intact when Ollama is unreachable). Adds
+  a `research_news_limit` setting to `AgentSettings`.
+
+### Fixed
+
+- The CLI now reconfigures stdout / stderr to UTF-8 at startup, so
+  `ophir research` and `ophir decide` no longer crash with `UnicodeEncodeError`
+  when printing LLM-generated Unicode (curly quotes, non-breaking hyphens) on a
+  Windows cp1252 console.
+
 ## [0.4.0] - 2026-06-14
 
 ### Added
@@ -210,7 +229,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   value yields a rotation of π.
 - Model validation and minor fixes.
 
-[Unreleased]: https://github.com/kwcantrell/ophir/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/kwcantrell/ophir/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/kwcantrell/ophir/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/kwcantrell/ophir/compare/v0.3.2...v0.4.0
 [0.3.2]: https://github.com/kwcantrell/ophir/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/kwcantrell/ophir/compare/v0.3.0...v0.3.1

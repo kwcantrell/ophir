@@ -39,8 +39,11 @@ cloud.
 - **Decision layer** (`ophir.agent.decide`) — turn a forecast into a buy/sell/hold
   decision via a deterministic quant rule and the local Ollama model, compared
   side by side (`ophir decide`).
-- **`ophir` CLI** (Typer) — `serve`, `ingest`, `predict`, `rank`, `decide`, and
-  `register` subcommands.
+- **Research layer** (`ophir.agent.research`) — per-ticker briefs across
+  fundamentals, news, and technicals, with the LLM summarizing only grounded data
+  (`ophir research`).
+- **`ophir` CLI** (Typer) — `serve`, `ingest`, `predict`, `rank`, `decide`,
+  `research`, and `register` subcommands.
 
 ## Requirements
 
@@ -79,6 +82,7 @@ ophir ingest <SYMBOL> [--days 730]
 ophir predict <SYMBOL>
 ophir rank <SYMBOL> [<SYMBOL> ...] [--top-k 5]
 ophir decide <SYMBOL> [<SYMBOL> ...] [--track both] [--top-k 5]
+ophir research <SYMBOL> [<SYMBOL> ...] [--top-k 5]
 ophir register massive-key <KEY>
 ```
 
@@ -92,6 +96,9 @@ ophir register massive-key <KEY>
 - `ophir decide <SYMBOLS> [--track both]` turns each forecast into a buy/sell/hold
   call from a quant rule and the local Ollama model and compares them — paper-only
   and advisory (needs a GPU + checkpoint, plus Ollama for the LLM track).
+- `ophir research <SYMBOLS> [--top-k 5]` builds per-ticker briefs (fundamentals,
+  news, technicals) with the LLM summarizing only grounded data (needs a GPU +
+  checkpoint and network; Ollama for the summaries).
 - `ophir register massive-key <KEY>` stores a [MASSIVE](https://pypi.org/project/massive/)
   API key (used for data fetching) under the package's `.ophir/` directory.
 
