@@ -23,3 +23,4 @@ see :doc:`../architecture` for its design.
    ophir.agent.ingest
    ophir.agent.feed
    ophir.agent.predict
+   ophir.agent.decide

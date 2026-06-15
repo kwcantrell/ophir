@@ -36,8 +36,11 @@ cloud.
 - **Model prediction** (`ophir.agent.predict`) — load the trained checkpoint and
   forecast a ticker's next 90 days, ranking candidates by predicted return
   (`ophir predict` / `ophir rank`).
-- **`ophir` CLI** (Typer) — `serve`, `ingest`, `predict`, `rank`, and `register`
-  subcommands.
+- **Decision layer** (`ophir.agent.decide`) — turn a forecast into a buy/sell/hold
+  decision via a deterministic quant rule and the local Ollama model, compared
+  side by side (`ophir decide`).
+- **`ophir` CLI** (Typer) — `serve`, `ingest`, `predict`, `rank`, `decide`, and
+  `register` subcommands.
 
 ## Requirements
 
@@ -47,7 +50,10 @@ cloud.
 - **A trained base checkpoint.** `ophir serve` loads the latest base checkpoint
   from the package data directory at startup; without one it will not start.
 - **Ollama running locally**, serving the `gpt-oss:20b` model, for the chat
-  panel.
+  panel and the `ophir decide` Ollama track. Install Ollama, then
+  `ollama pull gpt-oss:20b` and `ollama serve` (see the docs' "Setting up
+  Ollama"). Override the endpoint with `AGENT_OLLAMA_BASE_URL` if it is not on
+  `localhost:11434`.
 - **Network access at UI startup** — the S&P 500 constituent list is fetched
   from Wikipedia and split history from Yahoo Finance (results are cached).
 
@@ -72,6 +78,7 @@ ophir serve [--port 7860] [--share/--no-share] [--debug/--no-debug]
 ophir ingest <SYMBOL> [--days 730]
 ophir predict <SYMBOL>
 ophir rank <SYMBOL> [<SYMBOL> ...] [--top-k 5]
+ophir decide <SYMBOL> [<SYMBOL> ...] [--track both] [--top-k 5]
 ophir register massive-key <KEY>
 ```
 
@@ -82,6 +89,9 @@ ophir register massive-key <KEY>
 - `ophir predict <SYMBOL>` forecasts the next 90 days with the trained model;
   `ophir rank <SYMBOLS> [--top-k 5]` ranks several by predicted return (both need
   a CUDA GPU + checkpoint).
+- `ophir decide <SYMBOLS> [--track both]` turns each forecast into a buy/sell/hold
+  call from a quant rule and the local Ollama model and compares them — paper-only
+  and advisory (needs a GPU + checkpoint, plus Ollama for the LLM track).
 - `ophir register massive-key <KEY>` stores a [MASSIVE](https://pypi.org/project/massive/)
   API key (used for data fetching) under the package's `.ophir/` directory.
 

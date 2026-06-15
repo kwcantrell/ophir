@@ -87,6 +87,36 @@ Option         Default   Description
 ``--top-k``    ``5``     Number of top picks to print.
 ============== ========= ============================================
 
+``ophir decide``
+----------------
+
+Turn each ticker's forecast into a buy / sell / hold decision via two tracks — a
+deterministic quant rule and the local Ollama model — and compare them
+(:func:`ophir.agent.decide.compare_decisions`). Requires a CUDA GPU and a trained
+checkpoint; the Ollama track additionally needs a local Ollama server serving the
+configured model.
+
+.. code-block:: bash
+
+   ophir decide <SYMBOL> [<SYMBOL> ...] [--track both|quant|ollama] [--top-k INTEGER]
+
+============== ========= ============================================
+Option         Default   Description
+============== ========= ============================================
+``SYMBOL``     --        One or more ticker symbols to decide on.
+``--track``    ``both``  Which decision track(s) to run.
+``--top-k``    ``5``     Decide on at most this many forecasts.
+============== ========= ============================================
+
+Decisions are advisory and paper-only: the LLM is grounded in the model's forecast
+numbers, its output is validated, and any ambiguity (an unreachable server, a
+malformed reply, an unknown action) falls back to ``HOLD``. Every decision is
+written to the audit trail.
+
+If the Ollama track is selected and no server answers at the configured URL
+(``AGENT_OLLAMA_BASE_URL``, default ``http://localhost:11434``), the command
+prints a one-line warning before running and every Ollama decision is ``HOLD``.
+
 ``ophir register massive-key``
 ------------------------------
 

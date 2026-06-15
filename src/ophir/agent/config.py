@@ -29,6 +29,13 @@ class AgentSettings(BaseSettings):
     top_k: int = 5
     horizon_days: int = 90
 
+    # decision layer (Phase 3)
+    buy_threshold: float = 0.02
+    sell_threshold: float = -0.02
+    decision_downside_penalty: float = 0.0
+    ollama_model: str = "gpt-oss:20b"
+    ollama_base_url: str | None = None
+
     # risk knobs (consumed by later phases; safe defaults now)
     max_position_weight: float = 0.05
     target_gross_exposure: float = 0.95
@@ -48,6 +55,13 @@ class AgentSettings(BaseSettings):
                 "Refusing live mode without allow_live=True. "
                 "Paper trading only until explicitly opted in."
             )
+        return self
+
+    @model_validator(mode="after")
+    def _check_thresholds(self) -> AgentSettings:
+        """Reject an inverted buy/sell band that would fire both signals at once."""
+        if self.buy_threshold < self.sell_threshold:
+            raise ValueError("buy_threshold must be >= sell_threshold")
         return self
 
 

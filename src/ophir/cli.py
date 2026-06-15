@@ -109,3 +109,71 @@ def rank(
     picks = rank_forecasts(predict_many(symbols), top_k=top_k)
     for i, fc in enumerate(picks, start=1):
         typer.echo(f"{i}. {fc.symbol}  {fc.horizon}d {fc.cum_return:+.2%}")
+
+
+@app.command()
+def decide(
+    symbols: list[str],
+    track: str = typer.Option(
+        "both", help="Which decision track(s) to run: 'both', 'quant', or 'ollama'."
+    ),
+    top_k: int = typer.Option(5, help="Decide on at most this many forecasts."),
+) -> None:
+    """Turn ticker forecasts into buy/sell/hold decisions and compare two tracks.
+
+    Forecasts each symbol, then runs a deterministic quant rule and the local
+    Ollama model over each forecast. ``--track both`` (default) prints them side
+    by side with an agreement flag; ``quant`` / ``ollama`` print a single track
+    with its rationale. Requires a CUDA GPU and a trained checkpoint; the Ollama
+    track also needs a local Ollama server.
+
+    Parameters
+    ----------
+    symbols : list[str]
+        Ticker symbols to decide on.
+    track : str, optional
+        ``both``, ``quant``, or ``ollama``. Defaults to ``both``.
+    top_k : int, optional
+        Decide on at most this many forecasts. Defaults to ``5``.
+    """
+    from ophir.agent.decide import (
+        compare_decisions,
+        ollama_decision,
+        ollama_reachable,
+        quant_decision,
+    )
+    from ophir.agent.predict import predict_many
+    from ophir.agent.predict import rank as rank_forecasts
+
+    if track not in {"both", "quant", "ollama"}:
+        raise typer.BadParameter("track must be one of: both, quant, ollama")
+
+    if track in {"both", "ollama"} and not ollama_reachable():
+        typer.echo(
+            "[warning] Ollama unreachable -- the LLM track will HOLD every ticker. "
+            "Is the server running with the model pulled? (docs: Setting up Ollama)"
+        )
+
+    forecasts = rank_forecasts(predict_many(symbols), top_k=top_k)
+
+    if track == "both":
+        for comp in compare_decisions(forecasts):
+            flag = "agree" if comp.agree else "DIFFER"
+            typer.echo(
+                f"{comp.symbol:<6} "
+                f"quant={comp.quant.action:<4} ({comp.quant.confidence:.0%})  "
+                f"ollama={comp.ollama.action:<4} ({comp.ollama.confidence:.0%})  [{flag}]"
+            )
+    elif track == "quant":
+        for fc in forecasts:
+            quant = quant_decision(fc)
+            typer.echo(
+                f"{quant.symbol:<6} {quant.action:<4} ({quant.confidence:.0%})  {quant.rationale}"
+            )
+    else:
+        for fc in forecasts:
+            ollama = ollama_decision(fc)
+            typer.echo(
+                f"{ollama.symbol:<6} {ollama.action:<4} ({ollama.confidence:.0%})  "
+                f"{ollama.rationale}"
+            )

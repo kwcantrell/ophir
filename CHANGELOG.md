@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-06-14
+
+### Added
+
+- Trading-agent decision layer `ophir.agent.decide` and the `ophir decide` CLI
+  command: turn each model `Forecast` into a buy/sell/hold `Decision` via two
+  tracks — a deterministic quant rule (`buy_threshold` / `sell_threshold` with an
+  optional downside penalty) and a local `gpt-oss:20b` Ollama verdict (grounded
+  in the forecast numbers, validated against a JSON schema, fail-safe to `HOLD`)
+  — compared side by side with an agreement flag. Every decision is written to
+  the audit trail.
+- `AgentSettings` gains the decision thresholds plus `ollama_model` and
+  `ollama_base_url` (env `AGENT_OLLAMA_BASE_URL`); `ophir decide` prints a
+  preflight warning when the Ollama track is selected but the server is
+  unreachable. Adds a "Setting up Ollama" installation runbook and API / CLI /
+  README documentation.
+
 ## [0.3.2] - 2026-06-14
 
 ### Fixed
@@ -193,7 +210,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   value yields a rotation of π.
 - Model validation and minor fixes.
 
-[Unreleased]: https://github.com/kwcantrell/ophir/compare/v0.3.2...HEAD
+[Unreleased]: https://github.com/kwcantrell/ophir/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/kwcantrell/ophir/compare/v0.3.2...v0.4.0
 [0.3.2]: https://github.com/kwcantrell/ophir/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/kwcantrell/ophir/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/kwcantrell/ophir/compare/v0.2.1...v0.3.0
