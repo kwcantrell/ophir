@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-06-17
+
+### Fixed
+
+- Base training no longer dies on a NaN-poison batch: `training_step` /
+  `validation_step` skip any batch whose loss is non-finite (a single bad bar — e.g.
+  a `low` of `0.00`, making `downside = log(close/low) = +inf` — used to propagate to
+  NaN weights and corrupt the entire run). `_masked_mean` also guards the empty-mask
+  case defensively.
+
+### Added
+
+- `ophir.training_callbacks.GradNormMonitor` logs the pre-clip gradient norm each
+  step, wired in through a new optional `extra_callbacks` parameter on
+  `register.fetch_base_trainer`.
+
+### Changed
+
+- `fetch_base_trainer` now also saves a stable `*-last.ckpt` (the most-trained
+  weights); near-random out-of-sample validation loss makes best-val checkpoint
+  selection unreliable for this model.
+- Training `DataLoader`s run in-process on Windows (the streaming dataset holds an
+  un-picklable generator) and keep their parallel workers on Linux.
+
 ## [0.9.0] - 2026-06-15
 
 ### Added
@@ -303,7 +327,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   value yields a rotation of π.
 - Model validation and minor fixes.
 
-[Unreleased]: https://github.com/kwcantrell/ophir/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/kwcantrell/ophir/compare/v0.9.1...HEAD
+[0.9.1]: https://github.com/kwcantrell/ophir/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/kwcantrell/ophir/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/kwcantrell/ophir/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/kwcantrell/ophir/compare/v0.6.0...v0.7.0

@@ -56,6 +56,7 @@ def train(
 
     from ophir import register
     from ophir.ticker import StockHandlerDataset, StockHanlder, StockStreamerDataset
+    from ophir.training_callbacks import GradNormMonitor
     from ophir.training_models import LightningOHLCPredictor
 
     base_path = os.path.join(register.DATA_DIR, "days", "stocks")
@@ -76,7 +77,13 @@ def train(
         response_size=RESPONSE_SIZE,
         cache_size=len(train_handler.stocks),
     )
-    train_loader = DataLoader(train_dataset, batch_size=64, pin_memory=True, num_workers=6)
+    # Windows spawns DataLoader workers by pickling the dataset, but the streaming
+    # dataset holds an un-picklable generator; run in-process there. Linux (fork) keeps
+    # the parallel workers.
+    train_workers = 0 if os.name == "nt" else 6
+    train_loader = DataLoader(
+        train_dataset, batch_size=64, pin_memory=True, num_workers=train_workers
+    )
 
     val_handler = StockHanlder(
         seq_len=SEQ_LEN,
@@ -92,8 +99,13 @@ def train(
     streamers = [cast("StockStreamer", val_handler[stock]) for stock in val_handler.stocks]
     streamers = [s for s in streamers if s.size > 0]
     val_dataset = StockStreamerDataset(streamers, response_size=RESPONSE_SIZE)
+    val_workers = 0 if os.name == "nt" else 2
     val_loader = DataLoader(
-        val_dataset, batch_size=64, pin_memory=True, num_workers=2, prefetch_factor=10
+        val_dataset,
+        batch_size=64,
+        pin_memory=True,
+        num_workers=val_workers,
+        prefetch_factor=10 if val_workers else None,
     )
 
     if finetune_from == "":
@@ -106,5 +118,8 @@ def train(
         typer.echo(f"Fine-tuning from {finetune_from}...")
         model = LightningOHLCPredictor.load_from_checkpoint(finetune_from)
 
-    trainer = register.fetch_base_trainer(max_steps=max_steps if max_steps > 0 else 100000)
+    trainer = register.fetch_base_trainer(
+        max_steps=max_steps if max_steps > 0 else 100000,
+        extra_callbacks=[GradNormMonitor()],
+    )
     trainer.fit(model=model, train_dataloaders=train_loader, val_dataloaders=val_loader)

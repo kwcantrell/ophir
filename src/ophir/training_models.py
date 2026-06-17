@@ -89,6 +89,21 @@ class LightningOHLCPredictor(L.LightningModule):
         prepared = self._input_obj(input)
         return cast("OHLCMulitClassPredictorInput", self.ohlc_predictor(prepared))
 
+    @staticmethod
+    def _masked_mean(loss: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+        """Mean of ``loss`` over ``mask``-selected elements, safe when none match.
+
+        Boolean-indexing an all-``False`` mask yields an empty tensor whose
+        ``.mean()`` is NaN; a single such batch backpropagates NaN and poisons
+        every weight. Returning a graph-connected zero instead makes the batch a
+        no-op (no trades occurred in its response window, so there is nothing to
+        learn from it).
+        """
+        selected = loss[mask]
+        if selected.numel() == 0:
+            return loss.sum() * 0.0
+        return selected.mean()
+
     def compute_loss(self, model_output: OHLCMulitClassPredictorInput) -> torch.Tensor:
         """Compute the masked, weighted multi-target training loss.
 
@@ -113,7 +128,7 @@ class LightningOHLCPredictor(L.LightningModule):
             predicted_r_close, target_r_close, beta=0.01, reduction="none"
         )
 
-        close_loss = close_loss[mask].mean()
+        close_loss = self._masked_mean(close_loss, mask)
         self.log(
             f"{self.loss_state}_r_close_loss",
             close_loss,
@@ -125,9 +140,10 @@ class LightningOHLCPredictor(L.LightningModule):
 
         target_upside = model_output.target_upside
         predicted_upside = model_output.predicted_upside
-        upside_loss = F.smooth_l1_loss(
-            predicted_upside, target_upside, beta=0.02, reduction="none"
-        )[mask].mean()
+        upside_loss = self._masked_mean(
+            F.smooth_l1_loss(predicted_upside, target_upside, beta=0.02, reduction="none"),
+            mask,
+        )
         self.log(
             f"{self.loss_state}_upside_loss",
             upside_loss,
@@ -139,9 +155,10 @@ class LightningOHLCPredictor(L.LightningModule):
 
         target_downside = model_output.target_downside
         predicted_downside = model_output.predicted_downside
-        downside_loss = F.smooth_l1_loss(
-            predicted_downside, target_downside, beta=0.02, reduction="none"
-        )[mask].mean()
+        downside_loss = self._masked_mean(
+            F.smooth_l1_loss(predicted_downside, target_downside, beta=0.02, reduction="none"),
+            mask,
+        )
         self.log(
             f"{self.loss_state}_downside_loss",
             downside_loss,
@@ -153,11 +170,42 @@ class LightningOHLCPredictor(L.LightningModule):
 
         return close_loss + 0.5 * upside_loss + 0.5 * downside_loss
 
+    def _dump_nonfinite_batch(self, model_output: OHLCMulitClassPredictorInput) -> None:
+        """Print a one-line diagnostic for a skipped non-finite training batch.
+
+        Names the likely cause — empty response mask vs. NaN/Inf input feature
+        vs. non-finite prediction — at the exact step, so a future divergence is
+        labelled rather than reconstructed forensically. Capped to 20 prints.
+        """
+        count = getattr(self, "_nonfinite_dumps", 0)
+        if count >= 20:
+            return
+        self._nonfinite_dumps = count + 1
+
+        rs = int(model_output.response_size)
+        mask_sums = model_output.trade_occured[:, -rs:].sum(dim=1)
+        feat = model_output.feature_input
+
+        def _finite(t: torch.Tensor) -> bool:
+            return bool(torch.isfinite(t).all())
+
+        print(
+            f"[nan-guard] step={self.global_step} non-finite train loss; batch skipped. "
+            f"batch={mask_sums.shape[0]} empty_mask_samples={int((mask_sums == 0).sum())} "
+            f"min_mask={int(mask_sums.min())} "
+            f"feat_nan={int(torch.isnan(feat).sum())} feat_inf={int(torch.isinf(feat).sum())} "
+            f"target_finite[r,u,d]=[{_finite(model_output.target_r_close)},"
+            f"{_finite(model_output.target_upside)},{_finite(model_output.target_downside)}] "
+            f"pred_finite[r,u,d]=[{_finite(model_output.predicted_r_close)},"
+            f"{_finite(model_output.predicted_upside)},{_finite(model_output.predicted_downside)}]",
+            flush=True,
+        )
+
     def training_step(
         self,
         batch: dict[str, Any] | OHLCMulitClassPredictorInput,
         batch_indx: int,
-    ) -> torch.Tensor:
+    ) -> torch.Tensor | None:
         """Run one training step and log ``train_loss``.
 
         Parameters
@@ -169,13 +217,19 @@ class LightningOHLCPredictor(L.LightningModule):
 
         Returns
         -------
-        torch.Tensor
-            The training loss for this batch.
+        torch.Tensor or None
+            The training loss for this batch, or ``None`` to skip a batch whose
+            loss is non-finite (Lightning then performs no backward/optimizer
+            step), so one bad batch cannot poison the weights.
         """
         self.loss_state = "train"
         prepared = self._input_obj(batch)
         model_output = self.forward(prepared)
         loss = self.compute_loss(model_output)
+
+        if not torch.isfinite(loss):
+            self._dump_nonfinite_batch(model_output)
+            return None
 
         self.log("train_loss", loss, prog_bar=False, on_epoch=True, on_step=True, logger=True)
 
@@ -185,7 +239,7 @@ class LightningOHLCPredictor(L.LightningModule):
         self,
         batch: dict[str, Any] | OHLCMulitClassPredictorInput,
         batch_indx: int,
-    ) -> torch.Tensor:
+    ) -> torch.Tensor | None:
         """Run one validation step and log ``val_loss``.
 
         Parameters
@@ -197,13 +251,19 @@ class LightningOHLCPredictor(L.LightningModule):
 
         Returns
         -------
-        torch.Tensor
-            The validation loss for this batch.
+        torch.Tensor or None
+            The validation loss for this batch, or ``None`` to drop a non-finite
+            batch from the epoch aggregate so ``val_loss`` stays finite and the
+            best-checkpoint monitor keeps working.
         """
         self.loss_state = "val"
         prepared = self._input_obj(batch)
         model_output = self.forward(prepared)
         loss = self.compute_loss(model_output)
+
+        if not torch.isfinite(loss):
+            return None
+
         self.log("val_loss", loss, prog_bar=False, on_epoch=True, on_step=True, logger=True)
 
         return loss
