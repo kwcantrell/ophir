@@ -279,6 +279,7 @@ def ollama_decision(
             temperature=0,
             format="json",
             base_url=settings.ollama_base_url,
+            num_ctx=settings.ollama_num_ctx,
         )
 
     system, human = _build_messages(forecast)
@@ -324,6 +325,7 @@ def compare_decisions(
             temperature=0,
             format="json",
             base_url=settings.ollama_base_url,
+            num_ctx=settings.ollama_num_ctx,
         )
 
     comparisons: list[DecisionComparison] = []

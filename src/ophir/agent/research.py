@@ -24,7 +24,7 @@ from pydantic import BaseModel
 from ophir.agent import audit
 from ophir.agent.config import get_settings
 from ophir.agent.decide import _extract_json_object
-from ophir.agent.feed import load_daily_ohlcv
+from ophir.agent.feed import load_history
 
 if TYPE_CHECKING:
     from ophir.agent.config import AgentSettings
@@ -158,7 +158,7 @@ def gather_technicals(
     """Compute grounded technical indicators from ingested OHLC (+ the forecast)."""
     from ophir.ticker import extract_features
 
-    df = load_daily_ohlcv(symbol, stocks_dir=stocks_dir)
+    df = load_history(symbol, stocks_dir=stocks_dir)
     feats = extract_features(df)
     real = feats[feats["trade_occured"]]
     last = real.iloc[-1]
@@ -291,7 +291,7 @@ def research_ticker(
     asof = (
         forecast.asof
         if forecast is not None
-        else str(load_daily_ohlcv(symbol, stocks_dir=stocks_dir).index.max().date())
+        else str(load_history(symbol, stocks_dir=stocks_dir).index.max().date())
     )
 
     if llm is None:
@@ -302,6 +302,7 @@ def research_ticker(
             temperature=0,
             format="json",
             base_url=settings.ollama_base_url,
+            num_ctx=settings.ollama_num_ctx,
         )
 
     analysis, llm_ok = _synthesize(symbol, asof, fundamentals, news, technicals, llm)
@@ -348,6 +349,7 @@ def research_many(
             temperature=0,
             format="json",
             base_url=settings.ollama_base_url,
+            num_ctx=settings.ollama_num_ctx,
         )
 
     briefs: list[ResearchBrief] = []

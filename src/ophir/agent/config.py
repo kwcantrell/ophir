@@ -35,9 +35,19 @@ class AgentSettings(BaseSettings):
     decision_downside_penalty: float = 0.0
     ollama_model: str = "gpt-oss:20b"
     ollama_base_url: str | None = None
+    # Context window for every Ollama call. The manager aggregates all candidate
+    # dossiers into one large prompt; at Ollama's small default the prompt plus the
+    # reasoning model's thinking fill the window before any JSON is emitted, so the
+    # manager returns empty and the book collapses to all-cash. Keep this uniform
+    # across stages so Ollama does not reload the model between calls.
+    ollama_num_ctx: int = 16384
 
     # research layer (Phase 4)
     research_news_limit: int = 8
+
+    # reporting layer: directory for per-stock dossier files (one dated subdir per run).
+    # None -> <DATA_DIR>/reports, resolved lazily so config has no register import.
+    report_dir: str | None = None
 
     # risk knobs (consumed by later phases; safe defaults now)
     max_position_weight: float = 0.05

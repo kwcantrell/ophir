@@ -15,7 +15,7 @@ from __future__ import annotations
 import importlib
 import json
 from dataclasses import dataclass
-from decimal import Decimal
+from decimal import ROUND_DOWN, Decimal
 from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 from ophir.agent import audit
@@ -26,16 +26,34 @@ if TYPE_CHECKING:
     from ophir.agent.manage import Portfolio
 
 OrderSide = Literal["buy", "sell"]
+_CENTS = Decimal("0.01")
+
+
+def _money(amount: Decimal) -> Decimal:
+    """Quantize a dollar amount to cents (Alpaca rejects notionals past 2 dp).
+
+    Rounds down so a buy never overshoots available buying power.
+    """
+    return amount.quantize(_CENTS, rounding=ROUND_DOWN)
 
 
 @dataclass(frozen=True, slots=True)
 class Order:
-    """A market order in dollar (notional) terms with an idempotency key."""
+    """A market order in dollar (notional) terms with an idempotency key.
+
+    ``close`` marks a full-position exit: it is filled by liquidating the entire
+    held quantity (the broker's native close), not by a notional order. A notional
+    sell of the whole position converts back to a hair more shares than are held
+    (price rounding) and Alpaca rejects it with "insufficient qty"; closing by
+    quantity avoids that. ``notional`` is still the position's market value, used
+    for reporting and the no-trade band.
+    """
 
     symbol: str
     side: OrderSide
     notional: Decimal
     client_order_id: str
+    close: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,7 +106,7 @@ class PaperBroker:
             self._cash -= order.notional
         else:
             held = self._positions.get(order.symbol, Decimal(0))
-            sold = min(held, order.notional)
+            sold = held if order.close else min(held, order.notional)
             self._positions[order.symbol] = held - sold
             if self._positions[order.symbol] <= 0:
                 self._positions.pop(order.symbol, None)
@@ -137,6 +155,18 @@ class AlpacaPaperBroker:
         }
 
     def submit_order(self, order: Order) -> None:
+        if order.close:
+            # Full exit: liquidate the exact held quantity (a notional sell of the
+            # whole position rounds to slightly more shares than held and is rejected).
+            self._client.close_position(order.symbol)
+            audit.log_event(
+                "order_submitted",
+                symbol=order.symbol,
+                side="sell",
+                notional=float(order.notional),
+                close=True,
+            )
+            return
         requests_mod = importlib.import_module("alpaca.trading.requests")
         enums_mod = importlib.import_module("alpaca.trading.enums")
         side = enums_mod.OrderSide.BUY if order.side == "buy" else enums_mod.OrderSide.SELL
@@ -178,14 +208,16 @@ def reconcile(
 
     sells: list[Order] = []
     for symbol, current in positions.items():
-        delta = targets.get(symbol, Decimal(0)) - current
+        target = targets.get(symbol, Decimal(0))
+        delta = target - current
         if delta < 0 and -delta >= band:
             sells.append(
                 Order(
                     symbol,
                     "sell",
-                    min(current, -delta),
+                    _money(min(current, -delta)),
                     _client_order_id(portfolio.asof, symbol, "sell"),
+                    close=target == 0,  # exiting the name entirely -> liquidate by quantity
                 )
             )
 
@@ -194,7 +226,7 @@ def reconcile(
         delta = target - positions.get(symbol, Decimal(0))
         if delta > 0 and delta >= band:
             buys.append(
-                Order(symbol, "buy", delta, _client_order_id(portfolio.asof, symbol, "buy"))
+                Order(symbol, "buy", _money(delta), _client_order_id(portfolio.asof, symbol, "buy"))
             )
 
     return sells + buys
@@ -220,8 +252,20 @@ def place_orders(orders: list[Order], broker: Broker, *, dry_run: bool = True) -
             )
             plan.append(f"DRY-RUN  {line}")
         else:
-            broker.submit_order(order)
-            plan.append(f"SUBMITTED {line}")
+            try:
+                broker.submit_order(order)
+                plan.append(f"SUBMITTED {line}")
+            except Exception as exc:
+                # Fail safe: a single rejected order must not abort the rebalance
+                # (e.g. an already-filled idempotent order, or a liquidity reject).
+                audit.log_event(
+                    "order_failed",
+                    symbol=order.symbol,
+                    side=order.side,
+                    notional=float(order.notional),
+                    error=str(exc),
+                )
+                plan.append(f"FAILED   {line} -- {type(exc).__name__}")
     return plan
 
 
@@ -271,7 +315,10 @@ def daily_report(
         from langchain_ollama import ChatOllama
 
         llm = ChatOllama(
-            model=settings.ollama_model, temperature=0, base_url=settings.ollama_base_url
+            model=settings.ollama_model,
+            temperature=0,
+            base_url=settings.ollama_base_url,
+            num_ctx=settings.ollama_num_ctx,
         )
     try:
         from langchain_core.messages import HumanMessage, SystemMessage

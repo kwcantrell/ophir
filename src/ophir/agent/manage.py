@@ -309,6 +309,7 @@ def manage(
             temperature=0,
             format="json",
             base_url=settings.ollama_base_url,
+            num_ctx=settings.ollama_num_ctx,
         )
 
     output, llm_ok = _propose([_dossier(c) for c in candidates], llm)

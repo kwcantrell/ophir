@@ -115,7 +115,7 @@ def test_gather_news_flat_shape(monkeypatch):
 
 
 def test_gather_technicals_with_forecast(monkeypatch, make_ohlcv):
-    monkeypatch.setattr(research_mod, "load_daily_ohlcv", lambda *a, **k: make_ohlcv(n_days=300))
+    monkeypatch.setattr(research_mod, "load_history", lambda *a, **k: make_ohlcv(n_days=300))
     tech = gather_technicals("AAPL", _forecast(cum_return=0.07))
     assert tech["last_close"] > 0
     assert tech["vol_20d"] is not None
@@ -125,7 +125,7 @@ def test_gather_technicals_with_forecast(monkeypatch, make_ohlcv):
 
 def test_research_ticker_builds_brief(monkeypatch, make_ohlcv):
     monkeypatch.setattr("yfinance.Ticker", _fake_ticker(_FAKE_NEWS_NESTED))
-    monkeypatch.setattr(research_mod, "load_daily_ohlcv", lambda *a, **k: make_ohlcv(n_days=300))
+    monkeypatch.setattr(research_mod, "load_history", lambda *a, **k: make_ohlcv(n_days=300))
     monkeypatch.setattr(research_mod.audit, "log_event", lambda *a, **k: None)
     llm = _FakeLLM(
         '{"fundamentals_summary": "solid margins", "news_summary": "positive",'
@@ -146,7 +146,7 @@ def test_research_ticker_builds_brief(monkeypatch, make_ohlcv):
 
 def test_research_ticker_failsafe_on_bad_llm(monkeypatch, make_ohlcv):
     monkeypatch.setattr("yfinance.Ticker", _fake_ticker(_FAKE_NEWS_NESTED))
-    monkeypatch.setattr(research_mod, "load_daily_ohlcv", lambda *a, **k: make_ohlcv(n_days=300))
+    monkeypatch.setattr(research_mod, "load_history", lambda *a, **k: make_ohlcv(n_days=300))
     monkeypatch.setattr(research_mod.audit, "log_event", lambda *a, **k: None)
     brief = research_ticker("AAPL", forecast=_forecast(), llm=_FakeLLM("I cannot answer"))
     assert brief.llm_ok is False

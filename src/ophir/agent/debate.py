@@ -144,6 +144,7 @@ def debate_ticker(
             temperature=0,
             format="json",
             base_url=settings.ollama_base_url,
+            num_ctx=settings.ollama_num_ctx,
         )
 
     bull, bull_ok = _argue(brief, "bull", llm)
@@ -174,6 +175,7 @@ def debate_many(
             temperature=0,
             format="json",
             base_url=settings.ollama_base_url,
+            num_ctx=settings.ollama_num_ctx,
         )
 
     debates: list[Debate] = []

@@ -1,6 +1,6 @@
 [project]
 name = "ophir"
-version = "0.9.1"
+version = "0.10.0"
 description = "BERT-style masked transformer for stock OHLC prediction, with a Gradio UI and local-LLM chat."
 readme = "README.md"
 authors = [
@@ -19,6 +19,7 @@ dependencies = [
     "massive>=2.0.3",
     "numpy>=2.2.6",
     "pandas>=2.3.3",
+    "pandas-market-calendars>=4.4",
     "plotly>=6.5.2",
     "pyarrow>=23.0.0",
     "pydantic-settings>=2.14.1",
@@ -112,6 +113,7 @@ warn_unused_ignores = true
 # Third-party deps that ship no stubs / no py.typed marker.
 module = [
     "massive.*",
+    "pandas_market_calendars.*",
     "plotly.*",
     "tqdm.*",
     "yfinance.*",

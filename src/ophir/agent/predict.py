@@ -14,10 +14,10 @@ import os
 import sys
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from ophir.agent import audit
-from ophir.agent.feed import forecast_window_tensors, load_daily_ohlcv, parquet_path
+from ophir.agent.feed import forecast_window_tensors, load_history, parquet_path
 from ophir.agent.ingest import ingest
 
 # flex_attention compiles its kernel via Triton, which has no working backend on
@@ -83,6 +83,7 @@ def predict_ticker(
     stocks_dir: str | None = None,
     seq_len: int = 365,
     response_size: int = 90,
+    as_of: Any = None,
 ) -> Forecast:
     """Forecast one ticker's next ``response_size`` days.
 
@@ -98,6 +99,10 @@ def predict_ticker(
         Override for the parquet root.
     seq_len, response_size : int, optional
         Input window length and forecast horizon (defaults ``365`` / ``90``).
+    as_of : timestamp-like, optional
+        Condition the forecast on bars through this session, dropping today's
+        forming bar (see :func:`ophir.agent.feed.load_history`). Defaults to the
+        last closed NYSE session.
 
     Returns
     -------
@@ -113,7 +118,7 @@ def predict_ticker(
         model = load_predictor()
 
     md = forecast_window_tensors(
-        symbol, seq_len=seq_len, response_size=response_size, stocks_dir=stocks_dir
+        symbol, seq_len=seq_len, response_size=response_size, as_of=as_of, stocks_dir=stocks_dir
     )
     with torch.no_grad():
         out = model(md)
@@ -122,7 +127,7 @@ def predict_ticker(
     upside = out.predicted_upside.detach().cpu().reshape(-1).tolist()
     downside = out.predicted_downside.detach().cpu().reshape(-1).tolist()
     cum_return = math.expm1(float(sum(r_close)))
-    asof = str(load_daily_ohlcv(symbol, stocks_dir=stocks_dir).index.max().date())
+    asof = str(load_history(symbol, as_of=as_of, stocks_dir=stocks_dir).index.max().date())
 
     forecast = Forecast(
         symbol=symbol,
@@ -147,8 +152,9 @@ def predict_many(
     ensure_data: bool = True,
     stocks_dir: str | None = None,
     response_size: int = 90,
+    as_of: Any = None,
 ) -> list[Forecast]:
-    """Forecast several tickers; failures are logged and skipped."""
+    """Forecast several tickers; failures (including a stale feed) are logged and skipped."""
     if model is None:
         model = load_predictor()
     forecasts: list[Forecast] = []
@@ -161,6 +167,7 @@ def predict_many(
                     ensure_data=ensure_data,
                     stocks_dir=stocks_dir,
                     response_size=response_size,
+                    as_of=as_of,
                 )
             )
         except (ValueError, FileNotFoundError, OSError) as exc:

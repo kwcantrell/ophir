@@ -301,6 +301,7 @@ def manage(
     from ophir.agent.manage import manage as run_manage
     from ophir.agent.predict import predict_many
     from ophir.agent.predict import rank as rank_forecasts
+    from ophir.agent.report import write_reports
     from ophir.agent.research import research_many
 
     if not ollama_reachable():
@@ -328,6 +329,7 @@ def manage(
         if fc.symbol in comparisons and fc.symbol in briefs and fc.symbol in debates
     ]
     portfolio = run_manage(candidates)
+    report_path = write_reports(candidates, portfolio, [], [])
 
     typer.echo(f"\n=== Target portfolio  asof {portfolio.asof} ===")
     if portfolio.halted:
@@ -341,6 +343,7 @@ def manage(
         typer.echo(f"  manager: {portfolio.rationale}")
     for note in portfolio.gate_notes:
         typer.echo(f"  [gate] {note}")
+    typer.echo(f"  per-stock dossiers written to {report_path}")
 
 
 @app.command()
@@ -373,6 +376,7 @@ def trade(
     execute : bool, optional
         Submit orders instead of only planning them. Defaults to ``False`` (dry-run).
     """
+    from ophir.agent import audit
     from ophir.agent.debate import debate_many
     from ophir.agent.decide import compare_decisions, ollama_reachable
     from ophir.agent.execute import (
@@ -384,12 +388,18 @@ def trade(
     )
     from ophir.agent.manage import Candidate
     from ophir.agent.manage import manage as run_manage
+    from ophir.agent.market_calendar import is_trading_day
     from ophir.agent.predict import predict_many
     from ophir.agent.predict import rank as rank_forecasts
+    from ophir.agent.report import write_reports
     from ophir.agent.research import research_many
 
     if broker not in {"paper", "alpaca"}:
         raise typer.BadParameter("broker must be 'paper' or 'alpaca'")
+    if not is_trading_day():
+        audit.log_event("cycle_skipped", reason="not_a_trading_day")
+        typer.echo("NYSE is closed today -- skipping the cycle, no orders placed.")
+        return
     if not ollama_reachable():
         typer.echo(
             "[warning] Ollama unreachable -- the manager will hold all cash and the report "
@@ -422,6 +432,7 @@ def trade(
     )
     orders = reconcile(portfolio, account, account_broker.get_positions())
     plan = place_orders(orders, account_broker, dry_run=not execute)
+    report_path = write_reports(candidates, portfolio, orders, plan)
 
     mode = "EXECUTE" if execute else "dry-run"
     typer.echo(f"\n=== Target portfolio  asof {portfolio.asof}  ({broker} account, {mode}) ===")
@@ -435,6 +446,7 @@ def trade(
         typer.echo(f"  {line}")
     typer.echo("  --- report ---")
     typer.echo(f"  {daily_report(portfolio, orders)}")
+    typer.echo(f"  --- per-stock dossiers written to {report_path} ---")
 
 
 @app.command()

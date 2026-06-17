@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-06-17
+
+### Added
+
+- `ophir.agent.market_calendar` (`last_closed_session`, `is_trading_day`) backed by the
+  NYSE calendar (new `pandas-market-calendars` dependency). The live run forecasts off the
+  last *closed* session and the `ophir trade` / `ophir manage` cycle no-ops on non-trading
+  days (weekends, holidays) instead of trading on stale data.
+- Per-stock dossiers: `ophir.agent.report.write_reports` writes one `<SYMBOL>.md` per
+  considered ticker — model forecast, quant/Ollama decisions, research stance, the bull and
+  bear theses, and the manager's accept/reject decision with risk-gate notes — plus an
+  `INDEX.md` roll-up, under `AGENT_REPORT_DIR` (new `report_dir` setting, default
+  `<DATA_DIR>/reports`). Both `ophir trade` and `ophir manage` emit them.
+
+### Fixed
+
+- Forecast differentiation: the forecast (and backtest) response block is now marked
+  `trade_occured=True` so its tokens attend to the ticker's history; the padding mask had
+  blanked them out, collapsing every ticker to an identical constant.
+- The manager no longer fails safe to all-cash on a large book: every Ollama call sets
+  `num_ctx=ollama_num_ctx` (16384) so the aggregated dossier prompt no longer fills the
+  context window before any JSON is emitted.
+- Execution: full-position exits liquidate by quantity (`close_position`) rather than a
+  notional that rounds to more shares than held; order notionals are quantized to cents
+  (Alpaca rejects more than two decimal places); and `place_orders` logs and continues past
+  a single rejected order instead of aborting the whole rebalance.
+
+### Changed
+
+- The live forecast conditions on the last completed NYSE session — today's still-forming
+  bar is dropped — via the new `feed.load_history`, which also refuses a stale feed;
+  `predict` and `research` both route through it.
+
 ## [0.9.1] - 2026-06-17
 
 ### Fixed
@@ -327,7 +360,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   value yields a rotation of π.
 - Model validation and minor fixes.
 
-[Unreleased]: https://github.com/kwcantrell/ophir/compare/v0.9.1...HEAD
+[Unreleased]: https://github.com/kwcantrell/ophir/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/kwcantrell/ophir/compare/v0.9.1...v0.10.0
 [0.9.1]: https://github.com/kwcantrell/ophir/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/kwcantrell/ophir/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/kwcantrell/ophir/compare/v0.7.0...v0.8.0

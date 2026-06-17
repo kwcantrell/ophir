@@ -184,7 +184,10 @@ def _as_of_input(
     feats = extract_features(history)
     window = feats.iloc[-(seq_len - response_size) :].reset_index(drop=True)
     future = pd.DataFrame(0.0, index=range(response_size), columns=window.columns)
-    future["trade_occured"] = False
+    # trade_occured=True so the forecast tokens participate in attention and can
+    # see history, matching training; False padding-masks them out and collapses
+    # every ticker to one constant. (Same fix as feed.forecast_window_tensors.)
+    future["trade_occured"] = True
     future = future.astype(window.dtypes)
     full = pd.concat([window, future], ignore_index=True)
     return extract_model_data(full, response_size)

@@ -75,6 +75,51 @@ def test_paper_broker_sell_clears_position(monkeypatch):
     assert "AAPL" not in broker.get_positions()
 
 
+def test_reconcile_quantizes_notional_to_cents():
+    account = Account(equity=Decimal("99973.43"), cash=Decimal("99973.43"))
+    pf = _portfolio([("AAPL", 0.05)])  # 0.05 * 99973.43 = 4998.6715 -> 4998.67 (Alpaca needs <=2dp)
+    orders = reconcile(pf, account, {})
+    assert orders[0].notional == Decimal("4998.67")
+    assert orders[0].notional.as_tuple().exponent == -2
+
+
+def test_reconcile_marks_full_exit_as_close():
+    account = Account(equity=Decimal("100000"), cash=Decimal("100000"))
+    positions = {"OLD": Decimal("5000"), "AAPL": Decimal("8000")}  # OLD exits, AAPL trims
+    pf = _portfolio([("AAPL", 0.04)])  # AAPL target 4000
+    by_sym = {o.symbol: o for o in reconcile(pf, account, positions)}
+    assert by_sym["OLD"].close is True  # full exit -> liquidate by quantity
+    assert by_sym["AAPL"].close is False  # partial reduce -> notional sell is safe
+
+
+def test_paper_broker_close_liquidates_full_position(monkeypatch):
+    monkeypatch.setattr(execute_mod.audit, "log_event", lambda *a, **k: None)
+    broker = PaperBroker(equity=Decimal("100000"), positions={"AAPL": Decimal("590.94")})
+    # close ignores the (rounding-imprecise) notional and clears the whole position.
+    broker.submit_order(Order("AAPL", "sell", Decimal("590.93"), "x", close=True))
+    assert "AAPL" not in broker.get_positions()
+
+
+class _FlakyBroker(PaperBroker):
+    def submit_order(self, order):
+        if order.symbol == "BAD":
+            raise RuntimeError("insufficient qty available for order")
+        super().submit_order(order)
+
+
+def test_place_orders_continues_after_a_failed_order(monkeypatch):
+    monkeypatch.setattr(execute_mod.audit, "log_event", lambda *a, **k: None)
+    broker = _FlakyBroker(equity=Decimal("100000"))
+    orders = [
+        Order("BAD", "sell", Decimal("500"), "x1", close=True),
+        Order("AAPL", "buy", Decimal("4000"), "x2"),
+    ]
+    plan = place_orders(orders, broker, dry_run=False)
+    assert plan[0].startswith("FAILED")
+    assert plan[1].startswith("SUBMITTED")
+    assert broker.get_positions()["AAPL"] == Decimal("4000")  # the good order still went through
+
+
 def test_daily_report_with_llm(monkeypatch):
     monkeypatch.setattr(execute_mod.audit, "log_event", lambda *a, **k: None)
     text = daily_report(_portfolio([("AAPL", 0.04)]), [], llm=_FakeLLM("Holding AAPL at 4%."))

@@ -32,7 +32,7 @@ def test_predict_ticker_builds_forecast(monkeypatch, tmp_path):
         index=idx,
     )
     df.index.name = "utc_time"
-    monkeypatch.setattr(predict_mod, "load_daily_ohlcv", lambda *a, **k: df)
+    monkeypatch.setattr(predict_mod, "load_history", lambda *a, **k: df)
 
     fc = predict_ticker("aapl", model=_FakeModel(), ensure_data=False, stocks_dir=str(tmp_path))
 
