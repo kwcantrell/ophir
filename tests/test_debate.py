@@ -1,9 +1,10 @@
 """Tests for the bull/bear debate (LLM mocked, no network/GPU)."""
 
+import json
 import types
 
 from ophir.agent import debate as debate_mod
-from ophir.agent.debate import Debate, debate_ticker
+from ophir.agent.debate import Debate, Thesis, debate_ticker
 from ophir.agent.research import ResearchAnalysis, ResearchBrief
 
 _BULL_JSON = (
@@ -63,3 +64,44 @@ def test_debate_ticker_failsafe(monkeypatch):
     assert d.bear.stance_strength == 0.0
     assert "unavailable" in d.bull.summary
     assert "unavailable" in d.bear.summary
+
+
+def test_thesis_splits_blob_key_points():
+    # The model returns one string with several bullets instead of an array.
+    t = Thesis(key_points="- alpha\n- beta")
+    assert t.key_points == ["alpha", "beta"]
+
+
+def test_thesis_drops_leaked_field_fragment():
+    # Observed GOOGL failure: bullets crammed into one string with a leaked key_risks tail.
+    blob = "- Near 52-week high\n- Elevated P/E\nkey_risks':['Forward P/E may improve']"
+    t = Thesis(key_points=blob, key_risks=[])
+    assert t.key_points == ["Near 52-week high", "Elevated P/E"]
+    assert all("key_risks" not in p for p in t.key_points)
+    assert t.key_risks == []
+
+
+def test_thesis_valid_array_unchanged():
+    t = Thesis(key_points=["revenue growth", "margin expansion"], key_risks=["rich valuation"])
+    assert t.key_points == ["revenue growth", "margin expansion"]
+    assert t.key_risks == ["rich valuation"]
+
+
+def test_debate_ticker_sanitizes_malformed_thesis(monkeypatch):
+    monkeypatch.setattr(debate_mod.audit, "log_event", lambda *a, **k: None)
+    payload = json.dumps(
+        {
+            "summary": "bearish",
+            "key_points": "- Near high\n- Elevated P/E\nkey_risks':['leaked risk']",
+            "key_risks": [],
+            "stance_strength": 0.5,
+        }
+    )
+
+    class _MalformedLLM:
+        def invoke(self, _messages):
+            return types.SimpleNamespace(content=payload)
+
+    d = debate_ticker(_brief(), llm=_MalformedLLM())
+    assert d.bull.key_points == ["Near high", "Elevated P/E"]
+    assert all("key_risks" not in p for p in d.bull.key_points)

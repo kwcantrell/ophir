@@ -195,15 +195,34 @@ def _build_messages(forecast: Forecast) -> tuple[Any, Any]:
 
 
 def _extract_json_object(text: str) -> str:
-    """Return the first brace-balanced ``{...}`` substring of ``text``."""
+    """Return the first brace-balanced ``{...}`` substring of ``text``.
+
+    Brace counting is string-aware: ``{`` / ``}`` inside a JSON string value (and
+    escaped quotes) are ignored, so a brace in a summary cannot close the object
+    early. Markdown `````json`` fences are skipped implicitly by seeking the
+    first ``{``.
+    """
     start = text.find("{")
     if start == -1:
         raise ValueError("no JSON object in LLM response")
     depth = 0
+    in_string = False
+    escaped = False
     for i in range(start, len(text)):
-        if text[i] == "{":
+        ch = text[i]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+        elif ch == "{":
             depth += 1
-        elif text[i] == "}":
+        elif ch == "}":
             depth -= 1
             if depth == 0:
                 return text[start : i + 1]

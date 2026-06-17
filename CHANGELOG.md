@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-06-17
+
+### Fixed
+
+- Hardened bull/bear thesis JSON parsing. A `Thesis` field validator coerces a
+  `key_points` / `key_risks` value that the model returns as a single bulleted string
+  into a clean list and drops a leaked `key_risks':[...]` fragment, and
+  `_extract_json_object` is now string-aware so a `}` inside a value (e.g. in a summary)
+  no longer truncates the object early.
+
 ## [0.10.0] - 2026-06-17
 
 ### Added
@@ -360,7 +370,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   value yields a rotation of π.
 - Model validation and minor fixes.
 
-[Unreleased]: https://github.com/kwcantrell/ophir/compare/v0.10.0...HEAD
+[Unreleased]: https://github.com/kwcantrell/ophir/compare/v0.10.1...HEAD
+[0.10.1]: https://github.com/kwcantrell/ophir/compare/v0.10.0...v0.10.1
 [0.10.0]: https://github.com/kwcantrell/ophir/compare/v0.9.1...v0.10.0
 [0.9.1]: https://github.com/kwcantrell/ophir/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/kwcantrell/ophir/compare/v0.8.0...v0.9.0

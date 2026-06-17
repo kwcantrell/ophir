@@ -1,5 +1,6 @@
 """Tests for the decision layer (quant pure; Ollama LLM mocked, no server)."""
 
+import json
 import types
 
 from ophir.agent import decide as decide_mod
@@ -7,11 +8,25 @@ from ophir.agent.config import AgentSettings
 from ophir.agent.decide import (
     Decision,
     DecisionComparison,
+    _extract_json_object,
     compare_decisions,
     ollama_decision,
     quant_decision,
 )
 from ophir.agent.predict import Forecast
+
+
+def test_extract_json_object_ignores_braces_in_strings():
+    # A '}' inside a string value must not close the object early.
+    raw = 'prefix {"summary": "use } and { with care", "x": 1} trailing text'
+    data = json.loads(_extract_json_object(raw))
+    assert data["x"] == 1
+    assert data["summary"] == "use } and { with care"
+
+
+def test_extract_json_object_handles_fenced_json():
+    raw = '```json\n{"action": "BUY", "confidence": 0.9}\n```'
+    assert json.loads(_extract_json_object(raw))["action"] == "BUY"
 
 
 def _forecast(symbol="AAPL", cum_return=0.0, n=90):

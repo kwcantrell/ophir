@@ -13,10 +13,11 @@ figures, fail safe (a neutral thesis when the model is unreachable), and audit.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from ophir.agent import audit
 from ophir.agent.config import get_settings
@@ -28,6 +29,45 @@ if TYPE_CHECKING:
 
 Side = Literal["bull", "bear"]
 
+# A leading bullet glyph / numbering on one extracted point.
+_BULLET_RE = re.compile(r"^[\s•*\-]*(?:\d+[.)])?\s*")
+# A key name the model leaked into a string value (e.g. a stray ``key_risks':[`` tail).
+_LEAK_RE = re.compile(r"""['"]?\s*key_(?:risks|points)['"]?\s*[:=]""", re.IGNORECASE)
+
+
+def _clean_point(text: str) -> str:
+    """Strip a leading bullet/numbering and any surrounding quotes or brackets."""
+    return _BULLET_RE.sub("", text).strip().strip("'\"[]").strip()
+
+
+def _split_blob(text: str) -> list[str]:
+    """Split one string holding several bullets into separate points.
+
+    Truncates at a leaked field marker first, so a spilled ``key_risks':[...]``
+    fragment cannot pollute the list.
+    """
+    leak = _LEAK_RE.search(text)
+    if leak:
+        text = text[: leak.start()]
+    return [seg for seg in re.split(r"[\r\n]+|\s•\s", text) if seg.strip()]
+
+
+def _as_str_list(value: Any) -> list[str]:
+    """Coerce an LLM ``key_points`` / ``key_risks`` value into a clean list of strings.
+
+    Accepts a real list, a single string holding several bullets, or ``None``; the
+    LLM occasionally returns the latter two instead of the requested array.
+    """
+    if value is None:
+        return []
+    raw = value if isinstance(value, list) else _split_blob(str(value))
+    out: list[str] = []
+    for item in raw:
+        point = _clean_point(str(item))
+        if point:
+            out.append(point)
+    return out
+
 
 class Thesis(BaseModel):
     """One side's validated argument over a research brief."""
@@ -36,6 +76,12 @@ class Thesis(BaseModel):
     key_points: list[str] = Field(default_factory=list)
     key_risks: list[str] = Field(default_factory=list)
     stance_strength: float = 0.5
+
+    @field_validator("key_points", "key_risks", mode="before")
+    @classmethod
+    def _coerce_points(cls, value: Any) -> list[str]:
+        """Normalize a messy LLM value into a clean list (see :func:`_as_str_list`)."""
+        return _as_str_list(value)
 
 
 @dataclass(frozen=True, slots=True)
