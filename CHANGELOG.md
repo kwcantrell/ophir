@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `skill_score_vs_baseline` (`ophir.evaluate`): pure, CPU-safe RMSE skill
+  score against an arbitrary baseline tensor —
+  `1 - rmse(pred, target) / rmse(baseline, target)`. Returns `nan` for empty
+  input or a zero-RMSE baseline. Lets the non-negative `upside`/`downside`
+  channels be scored against a persistence/EWMA forecast rather than having no
+  reference point. Covered by two new unit tests in `tests/test_evaluate.py`.
 - `rank_ic` / `_spearman` (`ophir.evaluate`): pure, CPU-safe daily
   cross-sectional rank-IC metric. `rank_ic(pred, target, dates)` groups
   predictions and targets by day label, computes the Spearman rank correlation

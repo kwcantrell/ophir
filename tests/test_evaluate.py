@@ -14,6 +14,7 @@ from ophir.evaluate import (
     format_report,
     rank_ic,
     skill_score,
+    skill_score_vs_baseline,
     target_metrics,
 )
 
@@ -142,3 +143,18 @@ def test_rank_ic_inverted_ranking_is_negative() -> None:
     result = rank_ic(pred, target, dates)
 
     assert abs(result["ic_mean"] + 1.0) < 1e-6
+
+
+def test_skill_vs_baseline_positive_when_model_beats_baseline() -> None:
+    target = torch.tensor([1.0, 2.0, 3.0, 4.0])
+    pred = target.clone()  # perfect
+    baseline = torch.tensor([0.0, 0.0, 0.0, 0.0])  # naive
+
+    assert abs(skill_score_vs_baseline(pred, target, baseline) - 1.0) < 1e-6
+
+
+def test_skill_vs_baseline_is_nan_when_baseline_is_perfect() -> None:
+    target = torch.tensor([1.0, 2.0, 3.0])
+    assert skill_score_vs_baseline(target, target, target) != skill_score_vs_baseline(
+        target, target, target
+    )  # nan != nan

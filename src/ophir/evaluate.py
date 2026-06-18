@@ -117,6 +117,35 @@ def skill_score(pred: torch.Tensor, target: torch.Tensor) -> float:
     return float(1.0 - rmse_model / rmse_baseline)
 
 
+def skill_score_vs_baseline(
+    pred: torch.Tensor, target: torch.Tensor, baseline: torch.Tensor
+) -> float:
+    """RMSE skill score of ``pred`` against an arbitrary ``baseline`` forecast.
+
+    ``1 - rmse(pred) / rmse(baseline)``: positive means the model beats the
+    baseline, ``0`` ties it, negative is worse. ``nan`` for empty input or a
+    zero-RMSE baseline. Lets the non-negative ``upside``/``downside`` channels be
+    scored against a persistence/EWMA forecast instead of having no reference.
+
+    Parameters
+    ----------
+    pred, target, baseline : torch.Tensor
+        1-D tensors of equal length.
+
+    Returns
+    -------
+    float
+        The skill score; ``nan`` when there are no samples or baseline RMSE is zero.
+    """
+    if pred.numel() == 0:
+        return float("nan")
+    rmse_model = (pred - target).pow(2).mean().sqrt().item()
+    rmse_baseline = (baseline - target).pow(2).mean().sqrt().item()
+    if rmse_baseline == 0:
+        return float("nan")
+    return float(1.0 - rmse_model / rmse_baseline)
+
+
 def _spearman(pred: torch.Tensor, target: torch.Tensor) -> float:
     """Spearman rank correlation of two 1-D tensors (nan if < 2 points)."""
     if pred.numel() < 2:
