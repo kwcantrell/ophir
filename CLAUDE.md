@@ -40,6 +40,8 @@ across S&P 500 tickers.
 > randomly (overlapping `offset` windows otherwise straddle the boundary), and
 > leave an embargo gap ≥ `seq_len` between train-end and val-start. Rolling
 > features are trailing/self-normalizing, so there is no global-stat leak.
+| `train.py` | `ophir train` / `ophir finetune` entry points; `run_training` is the shared engine used by both the CLI and the sweep harness. |
+| `sweep.py` | Optuna hyperparameter sweep: TPE + ASHA proxy search over optimizer/loss-weight/arch-tier knobs scored by `val_rank_ic`, then full-budget confirm phase via `confirm_top`. |
 | `training_models.py` | PyTorch-Lightning wrapper: AdamW + cosine warmup, per-group LRs, weighted smooth-L1 over the three targets. |
 | `model_data.py` | `OHLCMulitClassPredictorInput` dataclass; converts features/targets/predictions back into candles and PCA projections. |
 | `ticker.py` | Parquet ingest, stock-split adjustment, 13-feature extraction (log returns, rolling vol, normalized volume, upside/downside), streaming datasets. |
@@ -73,9 +75,11 @@ uv run --group docs sphinx-build -W -b html docs docs/_build/html
 
 `tests/` now covers `ticker` (handler, helpers, features, datasets, streamer,
 network), `evaluate`, `curation`, `dashboard`, `leakage`, `optimizer`,
-`models` (leakage + output activations), `model_data`, and `training_models`
-(loss decay + the wrapper). Still untested: `register.py`, `ui.py`, `cli.py` —
-add tests for new code in those areas where reasonable.
+`models` (leakage + output activations), `model_data`, `training_models`
+(loss decay + the wrapper), `sweep` (pure helpers + monkeypatched fit), `train`
+(run_training), and `cli` (command registration + help smoke tests). Still
+untested: `register.py`, `ui.py` — add tests for new code in those areas where
+reasonable.
 
 **Established test convention:** deterministic, seeded, **CPU-safe and
 network-free**. Shared fixtures live in `tests/conftest.py` (`make_ohlcv`,

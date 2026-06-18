@@ -75,3 +75,89 @@ def dashboard(
     from ophir import dashboard as dashboard_ui
 
     dashboard_ui.launch(port=port, share=share, debug=debug, model_dir=model_dir)
+
+
+@app.command()
+def sweep(
+    trials: int = typer.Option(50, help="Number of proxy trials to run"),
+    study: str = typer.Option("ophir-sweep", help="Optuna study name (resumed if it exists)"),
+    storage: str | None = typer.Option(
+        None, help="Optuna storage URL; defaults to a SQLite db under the model dir"
+    ),
+    confirm_top: int = typer.Option(
+        5, help="Retrain and eval the top-K configs at full budget (0 to skip)"
+    ),
+    proxy_steps: int = typer.Option(2000, help="max_steps per proxy trial"),
+    proxy_val_batches: int = typer.Option(20, help="Validation batches per proxy validation pass"),
+    full_steps: int = typer.Option(20000, help="max_steps for the confirm-phase full runs"),
+    val_batches: int = typer.Option(50, help="Validation batches for the confirm-phase eval"),
+    base_seed: int = typer.Option(0, help="Base seed; trial N uses base_seed + N"),
+    seq_len: int = typer.Option(365, help="Window length (fixed across the sweep)"),
+    offset: int = typer.Option(90, help="Window stride"),
+    response_size: int = typer.Option(90, help="Forecast horizon"),
+    batch_size: int = typer.Option(32, help="Batch size"),
+    use_sp500: bool = typer.Option(False, help="Restrict to S&P 500 symbols"),
+    data_dir: str | None = typer.Option(None, help="Override the data directory"),
+) -> None:
+    """Run an Optuna hyperparameter sweep, then confirm the best configs.
+
+    Each proxy trial runs a reduced-budget training scored on ``val_rank_ic``;
+    Optuna's ASHA pruner kills unpromising trials early. The study is persisted
+    to SQLite and resumed if ``--study`` already exists. After the search, the
+    top ``--confirm-top`` configs are retrained at full budget and scored with
+    the offline eval report. Requires CUDA.
+    """
+    import os
+
+    from ophir import register
+    from ophir import sweep as sweep_mod
+
+    if storage is None:
+        storage = f"sqlite:///{os.path.join(register.MODEL_DIR, study + '.db')}"
+
+    shared = {
+        "seq_len": seq_len,
+        "offset": offset,
+        "response_size": response_size,
+        "batch_size": batch_size,
+        "use_sp500": use_sp500,
+        "data_dir": data_dir,
+    }
+    proxy_kwargs = {**shared, "max_steps": proxy_steps, "val_batches": proxy_val_batches}
+
+    study_obj = sweep_mod.run_sweep(
+        n_trials=trials,
+        study_name=study,
+        storage=storage,
+        base_seed=base_seed,
+        proxy_kwargs=proxy_kwargs,
+    )
+    typer.echo(f"Best proxy val_rank_ic: {study_obj.best_value:.5f}")
+    typer.echo(f"Best params: {study_obj.best_params}")
+
+    if confirm_top > 0:
+        from ophir.evaluate import format_report
+
+        full_kwargs = {
+            **shared,
+            "max_steps": full_steps,
+            "num_workers": 4,
+            "cache_size": 8,
+            "min_volume": 1000.0,
+            "train_min_year": None,
+            "train_max_year": 2023,
+            "val_min_year": 2024,
+            "val_max_year": None,
+            "use_quality_allowlist": False,
+            "clean_rows": False,
+            "max_abs_r_close": 0.75,
+            "epochs": 10,
+            "window_sample": 256,
+            "val_every_steps": 500,
+        }
+        results = sweep_mod.confirm_top(
+            study_obj, k=confirm_top, full_kwargs=full_kwargs, val_batches=val_batches
+        )
+        for rank, record in enumerate(results, start=1):
+            typer.echo(f"\n## Rank {rank}: {record['config']}")
+            typer.echo(format_report({"confirm": record["report"]}))

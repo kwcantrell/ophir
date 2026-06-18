@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Add `ophir sweep`: an Optuna hyperparameter sweep harness that searches
+  optimizer, loss-weight, and architecture-tier hyperparameters by mean
+  cross-sectional rank-IC on `r_close`, with proxy-budget search (ASHA pruning,
+  resumable SQLite study) and a full-budget confirm phase. Exposes the
+  previously-buried `rezero_lr`, `betas`, and loss-weight knobs on `ophir train`
+  and adds an opt-in `val_rank_ic` validation metric.
 - Cross-sectional rank-IC in the validation report (`ophir.evaluate`):
   `accumulate_targets` now also collects per-`r_close`-prediction `(stock_id,
   date)` identity (when the loader carries it), exposed as `r_close_ids` /
