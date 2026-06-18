@@ -8,9 +8,11 @@ sub-application under ``register`` and adds the top-level ``serve`` command.
 import typer
 
 from ophir import curation, evaluate, register, train
+from ophir.trading import cli as trading_cli
 
 app = typer.Typer(help="Ophir CLI")
 app.add_typer(register.app, name="register")
+app.add_typer(trading_cli.app, name="trade")
 app.command()(train.train)
 app.command()(train.finetune)
 app.command()(evaluate.evaluate)
