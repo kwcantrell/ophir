@@ -133,3 +133,60 @@ def build_sqlite_store(parquet_base: str, db_path: str, *, overwrite: bool = Fal
 
         conn.commit()
     return written
+
+
+def get_stock_tables(db_path: str) -> dict[str, str]:
+    """Map each ticker symbol to its table name in the SQLite store.
+
+    The SQLite analog of :func:`ophir.ticker.get_stock_parquets`.
+
+    Parameters
+    ----------
+    db_path : str
+        Path to the SQLite store.
+
+    Returns
+    -------
+    dict[str, str]
+        Mapping of true ticker symbol to its (sanitized) table name.
+    """
+    with closing(sqlite3.connect(db_path)) as conn:
+        rows = conn.execute("SELECT ticker, table_name FROM _tickers").fetchall()
+    return {ticker: table for ticker, table in rows}
+
+
+def read_stock_table(db_path: str, table_name: str) -> pd.DataFrame:
+    """Read one ticker table, restoring the original parquet dtypes.
+
+    Datetime columns (stored as int64 epoch-ns) are returned as
+    ``datetime64[ns]``; every other column is cast back to the pandas dtype
+    recorded at write time, in the original column order.
+
+    Parameters
+    ----------
+    db_path : str
+        Path to the SQLite store.
+    table_name : str
+        The sanitized table name (from :func:`get_stock_tables`).
+
+    Returns
+    -------
+    pandas.DataFrame
+        A frame identical to ``pandas.read_parquet`` of the source partition
+        (minus the redundant ``ticker`` column).
+    """
+    with closing(sqlite3.connect(db_path)) as conn:
+        row = conn.execute(
+            "SELECT dtypes FROM _tickers WHERE table_name = ?", (table_name,)
+        ).fetchone()
+        if row is None:
+            raise KeyError(f"no manifest entry for table {table_name!r}")
+        dtypes: dict[str, str] = json.loads(row[0])
+        df = pd.read_sql(f'SELECT * FROM "{table_name}"', conn)
+
+    for col, dtype in dtypes.items():
+        if dtype.startswith("datetime"):
+            df[col] = pd.to_datetime(df[col], unit="ns")
+        else:
+            df[col] = df[col].astype(dtype)
+    return df[list(dtypes)]

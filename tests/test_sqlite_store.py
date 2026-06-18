@@ -4,8 +4,14 @@ import json
 import sqlite3
 
 import pandas as pd
+from pandas.testing import assert_frame_equal
 
-from ophir.sqlite_store import build_sqlite_store, sanitize_table_name
+from ophir.sqlite_store import (
+    build_sqlite_store,
+    get_stock_tables,
+    read_stock_table,
+    sanitize_table_name,
+)
 
 
 def test_sanitize_basic():
@@ -72,3 +78,27 @@ def test_build_sqlite_store_is_idempotent(parquet_dir, tmp_path):
     assert build_sqlite_store(base_path, db_path) == 0
     # overwrite rewrites every table
     assert build_sqlite_store(base_path, db_path, overwrite=True) == len(paths)
+
+
+def test_get_stock_tables_maps_every_symbol(parquet_dir, tmp_path):
+    base_path, paths = parquet_dir
+    db_path = str(tmp_path / "stocks.db")
+    build_sqlite_store(base_path, db_path)
+
+    tables = get_stock_tables(db_path)
+    assert set(tables) == set(paths)
+    assert tables["AAA"] == "t_AAA"
+
+
+def test_read_stock_table_round_trips_parquet(parquet_dir, tmp_path):
+    base_path, paths = parquet_dir
+    db_path = str(tmp_path / "stocks.db")
+    build_sqlite_store(base_path, db_path)
+    tables = get_stock_tables(db_path)
+
+    for sym, parquet_path in paths.items():
+        expected = pd.read_parquet(parquet_path)
+        if "ticker" in expected.columns:
+            expected = expected.drop(columns=["ticker"])
+        actual = read_stock_table(db_path, tables[sym])
+        assert_frame_equal(actual, expected)
