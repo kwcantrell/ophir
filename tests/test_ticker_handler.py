@@ -147,6 +147,45 @@ def test_stock_df_all_nan_returns_empty(tmp_path):
 
 
 # --------------------------------------------------------------------------- #
+# clean_rows row-level cleaning
+# --------------------------------------------------------------------------- #
+
+
+def _glitch_parquet(tmp_path):
+    part = tmp_path / "symbol=GLT"
+    part.mkdir()
+    idx = pd.date_range("2020-01-01", periods=10, freq="B")
+    close = np.full(10, 100.0)
+    close[5] = 1000.0  # spike up at idx5, snap-back down at idx6
+    volume = np.full(10, 500.0)
+    volume[3] = 0.0  # zero-volume day
+    pd.DataFrame(
+        {
+            "utc_time": idx,
+            "high": close * 1.01,
+            "low": close * 0.99,
+            "close": close,
+            "volume": volume,
+        }
+    ).to_parquet(part / "data.parquet")
+    return str(tmp_path)
+
+
+def test_clean_rows_disabled_by_default(tmp_path):
+    base = _glitch_parquet(tmp_path)
+    assert len(_handler(base).stock_df("GLT")) == 10
+
+
+def test_clean_rows_drops_zero_volume_and_spikes(tmp_path):
+    base = _glitch_parquet(tmp_path)
+    df = _handler(base, clean_rows=True).stock_df("GLT")
+
+    # zero-volume day (1) + spike-up + snap-back (2) removed.
+    assert len(df) == 7
+    assert (df["volume"] > 0).all()
+
+
+# --------------------------------------------------------------------------- #
 # keep_stocks (the fixed bug)
 # --------------------------------------------------------------------------- #
 

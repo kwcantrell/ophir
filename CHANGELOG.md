@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-06-18
+
+### Added
+
+- `ophir curate` (`ophir.curation`): scan the per-stock parquet tree and write a
+  high-quality **symbol allowlist** (`<DATA_DIR>/quality-symbols.txt`) plus a
+  per-symbol metrics file (`<DATA_DIR>/quality-stats.json`). Each symbol is
+  scored on four dimensions — liquidity (median dollar-volume), history length &
+  continuity (cleaned trading days and a business-day-denominated gap fraction),
+  price sanity (penny-stock floor and split-error return spikes), and
+  staleness/flatlines (identical-close runs and zero-volume days) — with
+  per-criterion thresholds exposed as CLI options. `ophir train` /
+  `ophir finetune` gained `--use-quality-allowlist` to restrict training to the
+  allowlist via `StockHanlder.keep_stocks` (intersecting with `--use-sp500`).
+- `clean_daily_ohlcv` (`ophir.ticker`): a deterministic, lookahead-free
+  row-level cleaner that drops zero-volume and return-spike days from a daily
+  OHLCV frame. It runs during curation (so metrics match training-time data) and
+  at load time via the new `StockHanlder.clean_rows` field, exposed on
+  `ophir train` / `ophir finetune` as `--clean-rows` / `--max-abs-r-close`.
+
 ## [0.4.1] - 2026-06-18
 
 ### Fixed
@@ -231,7 +251,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   value yields a rotation of π.
 - Model validation and minor fixes.
 
-[Unreleased]: https://github.com/kwcantrell/ophir/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/kwcantrell/ophir/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/kwcantrell/ophir/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/kwcantrell/ophir/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/kwcantrell/ophir/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/kwcantrell/ophir/compare/v0.2.0...v0.3.0

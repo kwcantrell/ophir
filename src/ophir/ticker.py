@@ -263,6 +263,63 @@ class StockSplit:
         return df
 
 
+def clean_daily_ohlcv(
+    df: pd.DataFrame,
+    *,
+    max_abs_r_close: float = 0.75,
+    drop_zero_volume: bool = True,
+) -> pd.DataFrame:
+    """Drop point-in-time-safe bad rows from a daily OHLCV frame.
+
+    Operates on the date-indexed daily frame produced by aggregation, *before*
+    split-adjustment and :func:`extract_features`. Deterministic and
+    lookahead-free: every decision uses only the row itself and its immediate
+    *retained* predecessor close, consistent with the forecast-masking contract
+    in ``CLAUDE.md``.
+
+    Rows are dropped (never repaired) in two passes:
+
+    1. Zero/negative-volume days (when ``drop_zero_volume``) — non-trading
+       artifacts.
+    2. Return-spike days where
+       ``abs(log(close / prev_close)) > max_abs_r_close`` — split errors or
+       data glitches. ``prev_close`` is the prior *surviving* close (the return
+       is recomputed after the volume drop), so the check chains correctly. The
+       first row, whose return is undefined, is always kept.
+
+    Repairing spikes (e.g. interpolation) would invent prices and is hard to
+    keep lookahead-safe, so this function only drops.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        Date-indexed daily OHLCV frame (``high`` / ``low`` / ``close`` /
+        ``volume``), as produced by :meth:`StockHanlder.stock_df`.
+    max_abs_r_close : float, optional
+        Maximum allowed absolute single-day log return. Defaults to ``0.75``
+        (just above a 2:1 split's ``0.69``).
+    drop_zero_volume : bool, optional
+        Drop days with non-positive volume. Defaults to ``True``.
+
+    Returns
+    -------
+    pandas.DataFrame
+        ``df`` with the offending rows removed (empty in, empty out).
+    """
+    if df.empty:
+        return df
+
+    if drop_zero_volume:
+        df = df.loc[df["volume"] > 0]
+
+    if df.empty:
+        return df
+
+    r_close = np.log(df["close"] / df["close"].shift(1))
+    keep = r_close.isna() | (r_close.abs() <= max_abs_r_close)
+    return df.loc[keep]
+
+
 def extract_features(df: pd.DataFrame) -> pd.DataFrame:
     """Compute the 13-feature model representation from an OHLCV frame.
 
@@ -498,6 +555,13 @@ class StockHanlder:
         Drop stocks whose mean volume is below this threshold.
     min_ticker_history : int, optional
         Drop stocks spanning fewer than this many days.
+    clean_rows : bool, optional
+        If ``True``, run :func:`clean_daily_ohlcv` on each stock's daily frame
+        (dropping zero-volume and return-spike rows) before slicing windows.
+        Defaults to ``False``.
+    max_abs_r_close : float, optional
+        Return-spike threshold forwarded to :func:`clean_daily_ohlcv` when
+        ``clean_rows`` is set. Defaults to ``0.75``.
     """
 
     seq_len: int
@@ -511,6 +575,8 @@ class StockHanlder:
     max_year: int | None = None
     min_volume: float | None = None
     min_ticker_history: int | None = None
+    clean_rows: bool = False
+    max_abs_r_close: float = 0.75
     stocks: list[str] = field(init=False)
     stock_dict: dict[str, str] = field(init=False)
 
@@ -602,6 +668,11 @@ class StockHanlder:
 
         if len(df) < 1:
             return df
+
+        if self.clean_rows:
+            df = clean_daily_ohlcv(df, max_abs_r_close=self.max_abs_r_close)
+            if len(df) < 1:
+                return df
 
         if self.min_year is not None:
             df = df.loc[df.index.to_series().dt.year >= self.min_year]

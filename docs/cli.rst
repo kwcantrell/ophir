@@ -85,6 +85,40 @@ trainer and the cosine schedule.
 - ``--val-batches`` (``50``) — max validation batches per validation pass.
 - ``--lr`` (``2e-4``) — AdamW learning rate.
 - ``--use-sp500`` (``False``) — restrict to S&P 500 symbols (network fetch).
+- ``--use-quality-allowlist`` (``False``) — restrict to the curated allowlist written by ``ophir curate`` (intersects with ``--use-sp500`` when both are set).
+- ``--clean-rows`` (``False``) — drop zero-volume and return-spike rows per stock via :func:`ophir.ticker.clean_daily_ohlcv`.
+- ``--max-abs-r-close`` (``0.75``) — single-day log-return magnitude treated as a glitch when ``--clean-rows`` is set.
+
+``ophir curate``
+----------------
+
+Scan the per-stock parquet tree and write a high-quality **symbol allowlist**
+(:func:`ophir.curation.curate`). Each symbol is scored on liquidity, history
+length & continuity, price sanity, and staleness/flatlines; passing symbols are
+written to ``<DATA_DIR>/quality-symbols.txt`` (consumed by ``ophir train
+--use-quality-allowlist``) and every symbol's metrics to
+``<DATA_DIR>/quality-stats.json``. Row-level cleaning
+(:func:`ophir.ticker.clean_daily_ohlcv`) is applied during scoring so the
+metrics match what ``--clean-rows`` training sees.
+
+.. code-block:: bash
+
+   ophir curate [--data-dir TEXT] [--min-dollar-volume FLOAT]
+                [--min-trading-days INT] [--max-missing-day-fraction FLOAT]
+                [--min-median-close FLOAT] [--max-return-spikes INT]
+                [--max-abs-r-close FLOAT] [--max-flat-run INT]
+                [--max-zero-volume-fraction FLOAT]
+                [--use-sp500 / --no-use-sp500]
+
+- ``--min-dollar-volume`` (``1_000_000``) — liquidity floor on median ``close × volume``.
+- ``--min-trading-days`` (``252``) — minimum cleaned trading days (~1 year).
+- ``--max-missing-day-fraction`` (``0.10``) — max fraction of *business* days with no trade.
+- ``--min-median-close`` (``5.0``) — penny-stock floor on the median close.
+- ``--max-return-spikes`` (``0``) — max pre-clean ``|r_close| > max_abs_r_close`` days.
+- ``--max-abs-r-close`` (``0.75``) — single-day log return treated as a split error / glitch.
+- ``--max-flat-run`` (``10``) — max run of identical consecutive closes.
+- ``--max-zero-volume-fraction`` (``0.05``) — max fraction of zero-volume days.
+- ``--use-sp500`` (``False``) — score only S&P 500 symbols (network fetch).
 
 ``ophir finetune``
 ------------------

@@ -73,6 +73,9 @@ def build_split_handlers(
     val_min_year: int,
     val_max_year: int | None,
     use_sp500: bool,
+    use_quality_allowlist: bool = False,
+    clean_rows: bool = False,
+    max_abs_r_close: float = 0.75,
 ) -> tuple[StockHanlder, StockHanlder]:
     """Build disjoint train/val handlers separated by an embargo gap.
 
@@ -96,6 +99,16 @@ def build_split_handlers(
     use_sp500 : bool
         If ``True``, fetch the S&P 500 list (Wikipedia) and split history
         (Yahoo) and restrict both handlers to those symbols.
+    use_quality_allowlist : bool, optional
+        If ``True``, restrict both handlers to the curated allowlist written by
+        ``ophir curate`` (see :func:`ophir.register.fetch_quality_symbols_list`).
+        Composes with ``use_sp500`` as an intersection. Defaults to ``False``.
+    clean_rows : bool, optional
+        If ``True``, drop zero-volume and return-spike rows from each stock via
+        :func:`ophir.ticker.clean_daily_ohlcv`. Defaults to ``False``.
+    max_abs_r_close : float, optional
+        Return-spike threshold forwarded to the handlers when ``clean_rows`` is
+        set. Defaults to ``0.75``.
 
     Returns
     -------
@@ -135,9 +148,15 @@ def build_split_handlers(
             min_year=min_year,
             max_year=max_year,
             min_volume=min_volume,
+            clean_rows=clean_rows,
+            max_abs_r_close=max_abs_r_close,
         )
         if symbols is not None:
             handler.keep_stocks(symbols)
+        if use_quality_allowlist:
+            from ophir import register
+
+            handler.keep_stocks(register.fetch_quality_symbols_list())
         return handler
 
     return _handler(train_min_year, train_max_year), _handler(val_min_year, val_max_year)
@@ -273,6 +292,9 @@ def train(
     val_max_year: int | None = None,
     data_dir: str | None = None,
     use_sp500: bool = False,
+    use_quality_allowlist: bool = False,
+    clean_rows: bool = False,
+    max_abs_r_close: float = 0.75,
     epochs: int = 10,
     max_steps: int | None = None,
     window_sample: int = 256,
@@ -315,6 +337,14 @@ def train(
         Override the data directory (defaults to the package ``.ophir/data/days``).
     use_sp500 : bool
         Restrict to S&P 500 symbols (network fetch). Defaults to ``False``.
+    use_quality_allowlist : bool
+        Restrict to the curated allowlist from ``ophir curate``. Defaults to
+        ``False``.
+    clean_rows : bool
+        Drop zero-volume and return-spike rows per stock. Defaults to ``False``.
+    max_abs_r_close : float
+        Return-spike threshold used when ``clean_rows`` is set. Defaults to
+        ``0.75``.
     epochs : int
         Number of passes over the data, used to derive ``max_steps`` when it is
         not given. Defaults to ``10``.
@@ -347,6 +377,9 @@ def train(
         val_min_year=val_min_year,
         val_max_year=val_max_year,
         use_sp500=use_sp500,
+        use_quality_allowlist=use_quality_allowlist,
+        clean_rows=clean_rows,
+        max_abs_r_close=max_abs_r_close,
     )
 
     if max_steps is None:
@@ -398,6 +431,9 @@ def finetune(
     val_max_year: int | None = None,
     data_dir: str | None = None,
     use_sp500: bool = False,
+    use_quality_allowlist: bool = False,
+    clean_rows: bool = False,
+    max_abs_r_close: float = 0.75,
     strict: bool = False,
     time_version: bool = True,
 ) -> None:
@@ -422,6 +458,14 @@ def finetune(
         Override the data directory.
     use_sp500 : bool
         Restrict to S&P 500 symbols (network fetch). Defaults to ``False``.
+    use_quality_allowlist : bool
+        Restrict to the curated allowlist from ``ophir curate``. Defaults to
+        ``False``.
+    clean_rows : bool
+        Drop zero-volume and return-spike rows per stock. Defaults to ``False``.
+    max_abs_r_close : float
+        Return-spike threshold used when ``clean_rows`` is set. Defaults to
+        ``0.75``.
     strict : bool
         Passed to the checkpoint loader. Defaults to ``False`` (older
         checkpoints may predate the ``mask_token``).
@@ -446,6 +490,9 @@ def finetune(
         val_min_year=val_min_year,
         val_max_year=val_max_year,
         use_sp500=use_sp500,
+        use_quality_allowlist=use_quality_allowlist,
+        clean_rows=clean_rows,
+        max_abs_r_close=max_abs_r_close,
     )
     train_dl = build_dataloader(train_handler, response_size, batch_size, num_workers, cache_size)
     val_dl = build_dataloader(val_handler, response_size, batch_size, num_workers, cache_size)

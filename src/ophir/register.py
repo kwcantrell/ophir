@@ -314,6 +314,59 @@ def fetch_ignore_symbols_list() -> list[str]:
     return symbols
 
 
+def set_quality_symbols(symbols: Iterable[str]) -> None:
+    """Write the curated quality allowlist, replacing any existing list.
+
+    Unlike the ignore list (which unions), each curation run produces a complete
+    allowlist, so the file is overwritten with the sorted, de-duplicated symbols.
+
+    Parameters
+    ----------
+    symbols : Iterable[str]
+        Ticker symbols that passed curation.
+    """
+    merged = sorted(set(symbols))
+    with open(os.path.join(DATA_DIR, "quality-symbols.txt"), "w") as f:
+        for symbol in merged:
+            f.write(f"{symbol}\n")
+    print(f"Wrote quality allowlist with {len(merged)} symbols")
+
+
+def fetch_quality_symbols_list() -> list[str]:
+    """Return the persisted quality allowlist.
+
+    Returns
+    -------
+    list[str]
+        Symbols read from ``<DATA_DIR>/quality-symbols.txt``, or an empty list
+        if the file does not exist.
+    """
+    if not os.path.exists(os.path.join(DATA_DIR, "quality-symbols.txt")):
+        return []
+
+    with open(os.path.join(DATA_DIR, "quality-symbols.txt")) as f:
+        symbols = [symbol.strip() for symbol in f.readlines()]
+    return symbols
+
+
+def clear_quality_symbols() -> None:
+    """Delete the quality allowlist if it exists; a no-op otherwise."""
+    path = os.path.join(DATA_DIR, "quality-symbols.txt")
+    if os.path.exists(path):
+        os.remove(path)
+
+
+def quality_stats_path() -> str:
+    """Return the path of the curation stats JSON.
+
+    Returns
+    -------
+    str
+        ``<DATA_DIR>/quality-stats.json``.
+    """
+    return os.path.join(DATA_DIR, "quality-stats.json")
+
+
 @overload
 def load_base_model_ckpt(
     strict: bool = ...,
