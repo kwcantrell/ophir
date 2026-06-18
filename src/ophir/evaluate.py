@@ -190,7 +190,7 @@ def prefix_last_observed(
 
 def _spearman(pred: torch.Tensor, target: torch.Tensor) -> float:
     """Spearman rank correlation of two 1-D tensors (nan if < 2 points)."""
-    if pred.numel() < 2:
+    if pred.numel() < 2 or pred.std() == 0 or target.std() == 0:
         return float("nan")
     pr = pred.argsort().argsort().float()
     tr = target.argsort().argsort().float()

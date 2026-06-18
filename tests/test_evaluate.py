@@ -10,6 +10,7 @@ import math
 import torch
 
 from ophir.evaluate import (
+    _spearman,
     accumulate_targets,
     dedupe_by_ticker_date,
     directional_accuracy,
@@ -265,3 +266,34 @@ def test_prefix_last_observed_falls_back_to_position_zero() -> None:
     trade = torch.tensor([[False, False, False, True]])  # no traded prefix day (S-rs=2)
     out = prefix_last_observed(values, trade, response_size=2)
     torch.testing.assert_close(out, torch.tensor([5.0]))
+
+
+def test_spearman_constant_pred_is_nan() -> None:
+    pred = torch.full((5,), 0.5)
+    target = torch.tensor([0.1, 0.3, -0.2, 0.4, 0.0])
+    assert math.isnan(_spearman(pred, target))
+
+
+def test_spearman_constant_target_is_nan() -> None:
+    pred = torch.tensor([1.0, 2.0, 3.0, 4.0, 5.0])
+    target = torch.full((5,), 0.0)
+    assert math.isnan(_spearman(pred, target))
+
+
+def test_spearman_perfect_ranking_still_finite() -> None:
+    pred = torch.tensor([1.0, 2.0, 3.0])
+    target = torch.tensor([0.1, 0.5, 0.9])
+    assert abs(_spearman(pred, target) - 1.0) < 1e-6
+
+
+def test_rank_ic_skips_constant_pred_day() -> None:
+    # Day "bad" has all-constant predictions (zero variance); day "good" has a
+    # clean monotonic relationship.  Only the good day must be counted.
+    dates = ["good", "good", "good", "bad", "bad", "bad"]
+    target = torch.tensor([0.03, 0.01, -0.02, 0.05, -0.01, 0.02])
+    pred = torch.tensor([3.0, 2.0, 1.0, 0.5, 0.5, 0.5])  # bad day is flat
+
+    result = rank_ic(pred, target, dates)
+
+    assert result["n_days"] == 1.0
+    assert abs(result["ic_mean"] - 1.0) < 1e-6
