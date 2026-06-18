@@ -46,6 +46,7 @@ across S&P 500 tickers.
 | `model_data.py` | `OHLCMulitClassPredictorInput` dataclass; converts features/targets/predictions back into candles and PCA projections. |
 | `ticker.py` | Parquet ingest, stock-split adjustment, 13-feature extraction (log returns, rolling vol, normalized volume, upside/downside), streaming datasets. |
 | `ui.py` | Gradio dashboard + LangChain–Ollama chat. Heavy import — fetches S&P 500 list, loads a CUDA checkpoint. Docs build mocks it. |
+| `trading/` | Deterministic core for the `alpaca-trader` skill: safety gate, ledger, metrics, signals, memory, exposure join, outcome scoring; CLI under `ophir trade`. |
 
 ## Entry points
 
@@ -77,9 +78,10 @@ uv run --group docs sphinx-build -W -b html docs docs/_build/html
 network), `evaluate`, `curation`, `dashboard`, `leakage`, `optimizer`,
 `models` (leakage + output activations), `model_data`, `training_models`
 (loss decay + the wrapper), `sweep` (pure helpers + monkeypatched fit), `train`
-(run_training), and `cli` (command registration + help smoke tests). Still
-untested: `register.py`, `ui.py` — add tests for new code in those areas where
-reasonable.
+(run_training), `cli` (command registration + help smoke tests), and `trading`
+(types, config, safety, ledger, metrics, signals, memory, exposure, outcomes,
+forecast, cli). Still untested: `register.py`, `ui.py` — add tests for new code
+in those areas where reasonable.
 
 **Established test convention:** deterministic, seeded, **CPU-safe and
 network-free**. Shared fixtures live in `tests/conftest.py` (`make_ohlcv`,

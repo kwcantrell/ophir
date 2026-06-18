@@ -15,6 +15,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   resumable SQLite study) and a full-budget confirm phase. Exposes the
   previously-buried `rezero_lr`, `betas`, and loss-weight knobs on `ophir train`
   and adds an opt-in `val_rank_ic` validation metric.
+- `alpaca-trader` Claude Code skill (`.claude/skills/alpaca-trader/`) and
+  `ophir.trading` deterministic core. The skill provides morning/evening
+  workflow automation (proposal → safety gate → paper order → outcome scoring)
+  driven by Alpaca MCP. The trading core covers: typed domain models
+  (`types.py`), config loading (`config.py`), a position-sizing and
+  order-validity safety gate (`safety.py`), an append-only JSON-Lines ledger
+  (`ledger.py`), portfolio performance metrics (`metrics.py`), multi-factor
+  signal blending with graceful ophir-absent fallback (`signals.py`),
+  per-entity section-upsert memory (`memory.py`), exposure aggregation
+  (`exposure.py`), end-of-day outcome scoring (`outcomes.py`), an ophir
+  forecast adapter (`forecast.py`), and a `trade` CLI subcommand group
+  (`cli.py`). The memories knowledge-base tree (`memories/tickers/`,
+  `memories/sectors/`, `memories/ledger/`) is seeded at repo root. Unit tests
+  cover all trading-core modules (full suite: 231 passing).
 - Cross-sectional rank-IC in the validation report (`ophir.evaluate`):
   `accumulate_targets` now also collects per-`r_close`-prediction `(stock_id,
   date)` identity (when the loader carries it), exposed as `r_close_ids` /
