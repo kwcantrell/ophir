@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Removed the broken `use_cache` property/setter from `LightningOHLCPredictor`;
+  calling it raised `AttributeError` because the underlying predictor has no
+  `ohlc_percentage_change` or `volume_percentage_change` attributes.
 - `pca_projection()` was applying a redundant `.mean(1)` on stock embeddings
   already pooled by the model, collapsing the embedding dimension to a scalar
   and making the UI PCA projection degenerate. Removed the double-mean.

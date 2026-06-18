@@ -93,7 +93,6 @@ class LightningOHLCPredictor(L.LightningModule):
         self.loss_decay = loss_decay
 
         self.save_hyperparameters()
-        self._use_cache = False
         self.loss_state = "train"
 
     def _input_obj(
@@ -391,20 +390,6 @@ class LightningOHLCPredictor(L.LightningModule):
                 "frequency": 1,
             },
         }
-
-    @property
-    def use_cache(self) -> bool:
-        """Whether the predictor's percentage-change modules cache results."""
-        return self._use_cache
-
-    @use_cache.setter
-    def use_cache(self, value: bool) -> None:
-        # TODO: ohlc_percentage_change / volume_percentage_change attrs do not
-        # exist on OHLCMulitClassPredictor; calling this setter would raise.
-        # Tracked in memory `[[project-use-cache-setter-bug]]`.
-        assert isinstance(value, bool)
-        self.ohlc_predictor.ohlc_percentage_change.use_cache = value  # type: ignore[union-attr]
-        self.ohlc_predictor.volume_percentage_change.use_cache = value  # type: ignore[union-attr]
 
     def reset_rezero(self) -> None:
         """Re-zero every ReZero scalar in the predictor, in place."""
