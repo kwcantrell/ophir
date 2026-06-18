@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `prefix_last_observed` + `AccumulatedEval` (`ophir.evaluate`): the validation
+  report now scores `upside`/`downside` against a persistence baseline. The new
+  pure helper `prefix_last_observed(values, trade_occured, response_size)`
+  returns each row's value at its last traded prefix position (falling back to
+  prefix position 0); `accumulate_targets` carries that value flat across the
+  horizon as a baseline and now returns an `AccumulatedEval` (masked
+  `channels` + per-channel `baselines`) instead of a bare dict. `evaluate_model`
+  reports `skill_vs_persistence` for the two magnitude channels. Covered by new
+  unit tests in `tests/test_evaluate.py`.
 - `skill_score_vs_baseline` (`ophir.evaluate`): pure, CPU-safe RMSE skill
   score against an arbitrary baseline tensor —
   `1 - rmse(pred, target) / rmse(baseline, target)`. Returns `nan` for empty

@@ -21,6 +21,7 @@ trade occurred, mirroring the masking in
 from __future__ import annotations
 
 import os
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 import torch
@@ -39,7 +40,23 @@ if TYPE_CHECKING:
 _TARGETS = ("r_close", "upside", "downside")
 
 #: Metric columns, in report order. Not every target reports every metric.
-_METRIC_ORDER = ("n", "mae", "rmse", "bias", "directional_accuracy", "skill_score")
+_METRIC_ORDER = (
+    "n",
+    "mae",
+    "rmse",
+    "bias",
+    "directional_accuracy",
+    "skill_score",
+    "skill_vs_persistence",
+)
+
+
+@dataclass
+class AccumulatedEval:
+    """Masked predictions/targets and per-channel persistence baselines."""
+
+    channels: dict[str, tuple[torch.Tensor, torch.Tensor]]
+    baselines: dict[str, torch.Tensor] = field(default_factory=dict)
 
 
 def target_metrics(pred: torch.Tensor, target: torch.Tensor) -> dict[str, float]:
@@ -146,6 +163,27 @@ def skill_score_vs_baseline(
     return float(1.0 - rmse_model / rmse_baseline)
 
 
+def prefix_last_observed(
+    values: torch.Tensor, trade_occured: torch.Tensor, response_size: int
+) -> torch.Tensor:
+    """Each row's channel value at its last traded prefix position.
+
+    The persistence baseline carries the last *observed* (pre-horizon) value
+    forward across the forecast block. ``values``/``trade_occured`` are ``(B, S)``;
+    only the first ``S - response_size`` columns (the prefix) are considered.
+    Rows with no traded prefix day fall back to prefix position 0.
+    """
+    _b, seq_len = values.shape
+    prefix_len = seq_len - response_size
+    prefix_trade = trade_occured[:, :prefix_len].to(values.dtype)
+    positions = torch.arange(prefix_len, device=values.device, dtype=values.dtype)
+    # argmax over trade*position selects the largest column index that traded;
+    # all-False rows yield argmax 0 (the fallback).
+    last_idx = (prefix_trade * positions).argmax(dim=1)
+    rows = torch.arange(values.shape[0], device=values.device)
+    return values[:, :prefix_len][rows, last_idx]
+
+
 def _spearman(pred: torch.Tensor, target: torch.Tensor) -> float:
     """Spearman rank correlation of two 1-D tensors (nan if < 2 points)."""
     if pred.numel() < 2:
@@ -212,15 +250,18 @@ def accumulate_targets(
     model: LightningOHLCPredictor,
     dataloader: DataLoader[dict[str, object]],
     max_batches: int,
-) -> dict[str, tuple[torch.Tensor, torch.Tensor]]:
-    """Collect masked predictions and targets per channel over the loader.
+) -> AccumulatedEval:
+    """Collect masked predictions, targets, and baselines per channel.
 
     Moves ``model`` to CUDA and runs its forward pass on up to ``max_batches``
     batches under :func:`torch.no_grad`. For each channel the response-block
     predictions and targets are restricted to days where a trade occurred (the
     same mask as
     :meth:`~ophir.training_models.LightningOHLCPredictor.compute_loss`),
-    flattened, and gathered onto the CPU.
+    flattened, and gathered onto the CPU. For the non-negative
+    ``upside``/``downside`` magnitude channels a persistence baseline (each
+    example's last traded prefix value, carried flat across the horizon) is
+    collected in parallel so the report can score them against it.
 
     Requires CUDA — the model's flex-attention forward is CUDA-only.
 
@@ -235,20 +276,24 @@ def accumulate_targets(
 
     Returns
     -------
-    dict[str, tuple[torch.Tensor, torch.Tensor]]
-        ``{channel: (pred, target)}`` of 1-D CPU tensors, keyed by ``r_close`` /
-        ``upside`` / ``downside``.
+    AccumulatedEval
+        ``channels`` maps each of ``r_close`` / ``upside`` / ``downside`` to a
+        ``(pred, target)`` pair of 1-D CPU tensors; ``baselines`` maps
+        ``upside`` / ``downside`` to their persistence-baseline tensors aligned
+        row-for-row with the predictions.
     """
     model = model.cuda().eval()
     collected: dict[str, tuple[list[torch.Tensor], list[torch.Tensor]]] = {
         name: ([], []) for name in _TARGETS
     }
+    baseline_lists: dict[str, list[torch.Tensor]] = {"upside": [], "downside": []}
     with torch.no_grad():
         for index, batch in enumerate(dataloader):
             if index >= max_batches:
                 break
             output = model(batch)
-            mask = output.trade_occured[:, -output.response_size :]
+            rs = int(output.response_size)
+            mask = output.trade_occured[:, -rs:]
             channels = {
                 "r_close": (output.predicted_r_close, output.target_r_close),
                 "upside": (output.predicted_upside, output.target_upside),
@@ -257,9 +302,19 @@ def accumulate_targets(
             for name, (pred, target) in channels.items():
                 collected[name][0].append(pred[mask].reshape(-1).cpu())
                 collected[name][1].append(target[mask].reshape(-1).cpu())
-    return {
-        name: (torch.cat(preds), torch.cat(targets)) for name, (preds, targets) in collected.items()
-    }
+            # upside is target channel 1, downside is channel 2.
+            for name, idx in (("upside", 1), ("downside", 2)):
+                channel_values = output.targets[..., idx]  # (B, S)
+                base = prefix_last_observed(channel_values, output.trade_occured, rs)  # (B,)
+                base = base.unsqueeze(1).expand(-1, rs)  # (B, R)
+                baseline_lists[name].append(base[mask].reshape(-1).cpu())
+    return AccumulatedEval(
+        channels={
+            name: (torch.cat(preds), torch.cat(targets))
+            for name, (preds, targets) in collected.items()
+        },
+        baselines={name: torch.cat(b) for name, b in baseline_lists.items()},
+    )
 
 
 def evaluate_model(
@@ -282,15 +337,21 @@ def evaluate_model(
     -------
     dict[str, dict[str, float]]
         ``{channel: metrics}``; the ``r_close`` entry additionally carries
-        ``directional_accuracy`` and ``skill_score``.
+        ``directional_accuracy`` and ``skill_score``, and the
+        ``upside``/``downside`` entries carry ``skill_vs_persistence`` (the
+        skill score against the persistence baseline).
     """
-    collected = accumulate_targets(model, dataloader, max_batches)
+    acc = accumulate_targets(model, dataloader, max_batches)
     results: dict[str, dict[str, float]] = {}
-    for name, (pred, target) in collected.items():
+    for name, (pred, target) in acc.channels.items():
         metrics = target_metrics(pred, target)
         if name == "r_close":
             metrics["directional_accuracy"] = directional_accuracy(pred, target)
             metrics["skill_score"] = skill_score(pred, target)
+        if name in acc.baselines:
+            metrics["skill_vs_persistence"] = skill_score_vs_baseline(
+                pred, target, acc.baselines[name]
+            )
         results[name] = metrics
     return results
 

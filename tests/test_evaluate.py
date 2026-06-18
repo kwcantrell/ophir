@@ -10,13 +10,57 @@ import math
 import torch
 
 from ophir.evaluate import (
+    accumulate_targets,
     directional_accuracy,
     format_report,
+    prefix_last_observed,
     rank_ic,
     skill_score,
     skill_score_vs_baseline,
     target_metrics,
 )
+from ophir.model_data import OHLCMulitClassPredictorInput
+
+
+class _FakeModel:
+    """Returns its batch as a populated forward output, ignoring device moves."""
+
+    def cuda(self) -> "_FakeModel":
+        return self
+
+    def eval(self) -> "_FakeModel":
+        return self
+
+    def __call__(self, batch: dict[str, object]) -> OHLCMulitClassPredictorInput:
+        obj = OHLCMulitClassPredictorInput(
+            feature_input=batch["feature_input"],  # type: ignore[arg-type]
+            response_size=batch["response_size"],  # type: ignore[arg-type]
+            trade_occured=batch["trade_occured"],  # type: ignore[arg-type]
+            targets=batch["targets"],  # type: ignore[arg-type]
+        )
+        # Perfect predictions so error metrics are trivially checkable.
+        obj.model_output = obj.targets.clone()
+        return obj
+
+
+def _toy_batch(response_size: int = 2) -> dict[str, object]:
+    # B=1, S=4, 3 channels; prefix cols 0..1, response cols 2..3, all traded.
+    targets = torch.tensor([[[0.0, 0.1, 0.2], [0.0, 0.3, 0.4], [0.0, 0.5, 0.6], [0.0, 0.7, 0.8]]])
+    return {
+        "feature_input": torch.zeros(1, 4, 13),
+        "targets": targets,
+        "trade_occured": torch.ones(1, 4, dtype=torch.bool),
+        "response_size": torch.tensor(response_size),
+    }
+
+
+def test_accumulate_targets_reports_persistence_baseline() -> None:
+    model = _FakeModel()
+    acc = accumulate_targets(model, [_toy_batch()], max_batches=1)  # type: ignore[arg-type]
+
+    assert "upside" in acc.baselines
+    # Last traded prefix upside value is col 1 -> 0.3, broadcast over the horizon.
+    torch.testing.assert_close(acc.baselines["upside"], torch.tensor([0.3, 0.3]))
 
 
 def test_target_metrics_perfect_prediction_is_zero() -> None:
@@ -158,3 +202,19 @@ def test_skill_vs_baseline_is_nan_when_baseline_is_perfect() -> None:
     assert skill_score_vs_baseline(target, target, target) != skill_score_vs_baseline(
         target, target, target
     )  # nan != nan
+
+
+def test_prefix_last_observed_picks_last_traded_prefix_day() -> None:
+    # B=1, S=5, response_size=2 -> prefix is columns 0..2.
+    values = torch.tensor([[10.0, 20.0, 30.0, 99.0, 99.0]])
+    trade = torch.tensor([[True, True, False, True, True]])  # col 2 is a pad day
+    out = prefix_last_observed(values, trade, response_size=2)
+    # Last traded prefix column is 1 (col 2 did not trade), so value 20.0.
+    torch.testing.assert_close(out, torch.tensor([20.0]))
+
+
+def test_prefix_last_observed_falls_back_to_position_zero() -> None:
+    values = torch.tensor([[5.0, 6.0, 7.0, 8.0]])
+    trade = torch.tensor([[False, False, False, True]])  # no traded prefix day (S-rs=2)
+    out = prefix_last_observed(values, trade, response_size=2)
+    torch.testing.assert_close(out, torch.tensor([5.0]))
