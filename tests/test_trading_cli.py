@@ -81,3 +81,16 @@ def test_gate_rejects_nonzero_exit(tmp_path: Path) -> None:
     assert result.exit_code != 0
     payload = json.loads(result.stdout)
     assert payload["action"] == "reject"
+
+
+def test_gate_rejects_malformed_order(tmp_path: Path) -> None:
+    malformed = {k: v for k, v in ORDER.items() if k != "side"}
+    c, o, s = _files(tmp_path)
+    o.write_text(json.dumps(malformed))
+    result = runner.invoke(
+        app, ["gate", "--config", str(c), "--order", str(o), "--snapshot", str(s)]
+    )
+    assert result.exit_code != 0
+    payload = json.loads(result.stdout)
+    assert payload["action"] == "reject"
+    assert any("malformed" in r for r in payload["reasons"])

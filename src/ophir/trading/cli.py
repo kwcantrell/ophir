@@ -78,11 +78,21 @@ def gate(
 ) -> None:
     """Run a proposed order through the safety gate; exit non-zero on reject."""
     cfg = load_config(config)
-    decision = evaluate_order(
-        _order_from(json.loads(order.read_text())),
-        _snapshot_from(json.loads(snapshot.read_text())),
-        cfg,
-    )
+    try:
+        order_obj = _order_from(json.loads(order.read_text()))
+        snap = _snapshot_from(json.loads(snapshot.read_text()))
+    except (KeyError, ValueError, TypeError) as exc:
+        typer.echo(
+            json.dumps(
+                {
+                    "action": "reject",
+                    "approved_notional": 0.0,
+                    "reasons": [f"malformed input: {exc}"],
+                }
+            )
+        )
+        raise typer.Exit(code=1) from exc
+    decision = evaluate_order(order_obj, snap, cfg)
     typer.echo(
         json.dumps(
             {

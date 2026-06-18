@@ -24,6 +24,14 @@ through two `Workflow` scripts in `workflows/`.
 3. **No order placement inside Workflow agents.** Workflows return proposals;
    only the main agent (you) places orders via the Alpaca MCP.
 4. Read `lib/safety.md` and `lib/signals.md` before acting.
+5. **Account-mode interlock uses only the live connection, never config.**
+   `account_mode` passed to `build_snapshot` MUST reflect the ACTUAL connected
+   Alpaca account as returned by `get_account_info`. Do NOT copy it from
+   `config.json`. If you cannot positively confirm the connected account matches
+   `config.account_mode`, STOP and ask the operator rather than trading.
+6. **SELL orders must not exceed the currently held quantity for that symbol.**
+   Phase 1 is long-only; do not open shorts. The gate auto-approves SELLs and
+   does not check this — the agent is responsible for the size cap.
 
 ## Arguments
 
@@ -35,8 +43,15 @@ If neither is given, ask which pass to run.
 1. **Confirm trading day:** `get_clock`. If the market is closed today, stop.
 2. **Account + positions:** `get_account_info` (equity, cash, day P&L),
    `get_all_positions`. Resolve each position's sector (use `get_asset` or a
-   cached map).
-3. **Load ledger sleeve tags:** read this month's ledger via
+   cached map). Read the account type from `get_account_info` directly — this
+   is the `account_mode` you MUST pass to `build_snapshot` (see Invariant 5).
+3. **Tactical flatten guardrail:** compute the day's loss fraction:
+   `day_loss_frac = -day_pl / equity` (positive when losing). If
+   `day_loss_frac >= config.limits.flatten_tactical_day_loss_pct` (default 4%),
+   place SELL orders to close every tactical-sleeve position (SELLs at current
+   held quantity are auto-approved by the gate — see `lib/safety.md`), then skip
+   all new entries for the day and go directly to step 9 (summarize).
+4. **Load ledger sleeve tags:** read this month's ledger via
    `python -m ophir.trading.ledger`-style load, or just pass records to the
    snapshot builder:
    ```bash
@@ -46,16 +61,16 @@ If neither is given, ask which pass to run.
    ```
    In practice: construct a `snapshot.json` (matching `AccountSnapshot` fields)
    using `build_snapshot` so the gate can consume it.
-4. **ophir forecasts:** attempt `load_forecasts(symbols, model_dir)`; if it
+5. **ophir forecasts:** attempt `load_forecasts(symbols, model_dir)`; if it
    returns `{}` (no checkpoint), proceed without the ophir component.
-5. **Screen → seed candidates:** core = top/bottom ophir names if available else
+6. **Screen → seed candidates:** core = top/bottom ophir names if available else
    liquid S&P 500 names of interest; tactical = `get_most_active_stocks` /
    `get_market_movers` / `get_news`. Trim to `shortlist_size`.
-6. **Run analysis workflow:** call the `Workflow` tool with
+7. **Run analysis workflow:** call the `Workflow` tool with
    `scriptPath: ".claude/skills/alpaca-trader/workflows/morning.js"` and `args`
    per its contract (date, depth knobs, sleeves, ophirForecasts, seedCandidates,
    memoryNotes). It returns `{ proposals }`.
-7. **Gate + place each proposal:** for every proposal, write `order.json` and the
+8. **Gate + place each proposal:** for every proposal, write `order.json` and the
    current `snapshot.json`, then:
    ```bash
    uv run ophir trade gate --config .claude/skills/alpaca-trader/config.json \
@@ -65,14 +80,14 @@ If neither is given, ask which pass to run.
    - APPROVE/RESIZE → place via `place_stock_order` / `place_option_order` using
      `approved_notional` (convert to qty/contracts via latest price). Update the
      running snapshot's exposures so the next proposal is gated against the new
-     state.
-8. **Record:** for each placed order, append a `DecisionRecord` to the ledger:
+     state. SELL orders must not exceed the currently held quantity (Invariant 6).
+9. **Record:** for each placed order, append a `DecisionRecord` to the ledger:
    ```bash
    uv run ophir trade record --ledger-dir memories/ledger --month <YYYY-MM> \
      --decision decision.json
    ```
-9. **Summarize** what was placed, skipped (with gate reasons), and current
-   exposure vs. the caps.
+10. **Summarize** what was placed, skipped (with gate reasons), and current
+    exposure vs. the caps.
 
 ## Evening pass (learn)
 
@@ -80,8 +95,9 @@ If neither is given, ask which pass to run.
    `get_portfolio_history`, `get_account_activities`.
 2. **Score open/closed theses:** for each open ledger record, get a mark price
    (`get_stock_snapshot`) and compute the outcome with `score_record`
-   (`ophir.trading.outcomes`). Build the `openTheses` array (include
-   `realized_return`, `predicted_ophir`, `correct`).
+   (`ophir.trading.outcomes`). Skip any record whose `entry_price` is None —
+   it cannot be scored and `score_record` raises on it. Build the `openTheses`
+   array (include `realized_return`, `predicted_ophir`, `correct`).
 3. **Run reflection workflow:** call `Workflow` with
    `scriptPath: ".claude/skills/alpaca-trader/workflows/evening.js"` and
    `args.openTheses`. It returns `{ updates }`.
