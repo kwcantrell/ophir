@@ -382,7 +382,11 @@ class LightningOHLCPredictor(L.LightningModule):
         loss = self.compute_loss(model_output)
         self.log("val_loss", loss, prog_bar=False, on_epoch=True, on_step=True, logger=True)
 
-        if model_output.stock_id is not None and model_output.date_ordinal is not None:
+        if (
+            not self.trainer.sanity_checking
+            and model_output.stock_id is not None
+            and model_output.date_ordinal is not None
+        ):
             rs = int(model_output.response_size)
             mask = model_output.trade_occured[:, -rs:]
             resp_dates = model_output.date_ordinal[:, -rs:]

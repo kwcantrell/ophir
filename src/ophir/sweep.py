@@ -167,6 +167,9 @@ def confirm_top(
             val_min_year=full_kwargs["val_min_year"],
             val_max_year=full_kwargs["val_max_year"],
             use_sp500=full_kwargs["use_sp500"],
+            use_quality_allowlist=full_kwargs.get("use_quality_allowlist", False),
+            clean_rows=full_kwargs.get("clean_rows", False),
+            max_abs_r_close=full_kwargs.get("max_abs_r_close", 0.75),
         )
         val_dl = build_dataloader(
             val_handler,

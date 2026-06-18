@@ -125,6 +125,8 @@ def sweep(
     }
     proxy_kwargs = {**shared, "max_steps": proxy_steps, "val_batches": proxy_val_batches}
 
+    import optuna
+
     study_obj = sweep_mod.run_sweep(
         n_trials=trials,
         study_name=study,
@@ -132,8 +134,12 @@ def sweep(
         base_seed=base_seed,
         proxy_kwargs=proxy_kwargs,
     )
-    typer.echo(f"Best proxy val_rank_ic: {study_obj.best_value:.5f}")
-    typer.echo(f"Best params: {study_obj.best_params}")
+    completed = [t for t in study_obj.trials if t.state == optuna.trial.TrialState.COMPLETE]
+    if completed:
+        typer.echo(f"Best proxy val_rank_ic: {study_obj.best_value:.5f}")
+        typer.echo(f"Best params: {study_obj.best_params}")
+    else:
+        typer.echo("No trials completed (all pruned); inspect the study for details.")
 
     if confirm_top > 0:
         from ophir.evaluate import format_report
