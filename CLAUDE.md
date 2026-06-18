@@ -71,25 +71,64 @@ uv run --group docs sphinx-build -W -b html docs docs/_build/html
 
 ## Tests
 
-`tests/` only covers `ticker` (6 files: handler, helpers, features, datasets,
-streamer, network). `models.py`, `training_models.py`, `register.py`, `ui.py`,
-`cli.py` are untested — add tests for new code in those areas where reasonable.
+`tests/` now covers `ticker` (handler, helpers, features, datasets, streamer,
+network), `evaluate`, `curation`, `dashboard`, `leakage`, `optimizer`,
+`models` (leakage + output activations), `model_data`, and `training_models`
+(loss decay + the wrapper). Still untested: `register.py`, `ui.py`, `cli.py` —
+add tests for new code in those areas where reasonable.
 
-## Type-checking tech debt (biggest gotcha)
+**Established test convention:** deterministic, seeded, **CPU-safe and
+network-free**. Shared fixtures live in `tests/conftest.py` (`make_ohlcv`,
+`ohlcv_df`, `parquet_dir`, `stock_split`, …). The metric/loss/feature cores are
+pure module-level functions tested directly; see "Pipeline & testing gotchas"
+below for testing the CUDA-only forward path.
 
-Two coupled suppression blocks in `pyproject.toml`:
+## Type-checking (all strict — the old tech-debt suppressions are gone)
 
-- `[tool.ruff.lint.per-file-ignores]` (lines 73–77) suppresses `ANN` on five
-  legacy files: `models.py`, `ticker.py`, `register.py`, `training_models.py`,
-  `model_data.py`.
-- `[[tool.mypy.overrides]]` (lines 111–120) sets `ignore_errors = true` on
-  those five **plus `ophir.ui`** (which has real strict violations and a latent
-  bug). A scoped `gradio.*` `ignore_missing_imports` override (lines 122–124)
-  exists because gradio ships no stubs.
+`pyproject.toml` is fully strict now (the per-file `ANN` ignores and the
+`ignore_errors` legacy block were dropped in commits 39941a6 / 4816d0d /
+eb9f0ae):
 
-These blocks are meant to be removed together. **New files (`cli.py`,
-`__init__.py`) stay strict** — do not extend the suppression list to make new
-code type-check.
+- `[tool.mypy] strict = true` over `files = ["src/ophir"]`, with
+  `warn_unused_ignores = true` — so a stray/unneeded `# type: ignore` **fails**
+  mypy. Only override is `ignore_missing_imports` for stubless third-party
+  packages (`massive`, `plotly`, `tqdm`, `yfinance`).
+- `[tool.ruff.lint.per-file-ignores]` only exempts `"tests/**"` from `ANN`.
+- pytest runs with `filterwarnings = ["error", …]` and `--strict-config`, so
+  **all of `src/ophir` and every test must type-check and run warning-clean.**
+- Ruff `target-version = "py312"` and mypy `python_version = "3.10"` stay split
+  (lowest supported runtime vs. lint target) — don't unify them.
+
+## Pipeline & testing gotchas (non-obvious; learned the hard way)
+
+- **Batch dict → model input is a `slots=True` dataclass splat.**
+  `LightningOHLCPredictor._input_obj` does `OHLCMulitClassPredictorInput(**batch)`
+  (`training_models.py`), so **every key a dataset puts in the batch dict must be a
+  declared field** on `OHLCMulitClassPredictorInput`. To add data through the
+  pipeline (e.g. `time`, `stock_id`, `date_ordinal`), add it as an *optional*
+  field (`= None`), mirroring the existing `time` field — an undeclared key
+  raises `TypeError`.
+- **The default `DataLoader` collate is shared by training and eval.** It can't
+  stack `datetime64`/`str` fields. Thread any new per-window identity as
+  **integer / int64 tensors**, not strings — adding a custom `collate_fn` would
+  also touch the training path. Keep such additions **opt-in** (off by default)
+  so training is byte-for-byte unaffected.
+- **Testing the CUDA-only forward path without a GPU:** the model forward uses
+  flex-attention (CUDA-only), but its consumers can be unit-tested with a fake.
+  Extract behavior into pure module-level helpers (e.g. `apply_output_activations`,
+  `pool_prefix_embedding`, `rank_ic`, `robust_scale`) and test those on CPU; to
+  test `accumulate_targets` / `evaluate_model`, pass a fake model whose
+  `cuda()`/`eval()` return `self` and whose `__call__` returns a populated
+  `OHLCMulitClassPredictorInput`. (Strict mypy + `warn_unused_ignores` means such
+  test doubles may need a *precise* `# type: ignore[arg-type]` on the call — only
+  where the error actually fires.)
+- **Response-block positions are individually conditioned — not a single repeated
+  mean.** Although `_apply_response_mask` fills the whole horizon with the *same*
+  `mask_token`, each position then gets its own positional encoding (`self.pe`)
+  **plus** ALiBi distance bias before the transformer, and `out_ff` decodes each
+  position independently. So the model forecasts a position-varying curve over the
+  horizon; do **not** reason about it as "one masked token ⇒ the unconditional
+  mean" (a tempting but wrong read when reviewing the architecture).
 
 ## Runtime requirements (often a surprise)
 
