@@ -55,6 +55,8 @@ class LightningOHLCPredictor(L.LightningModule):
         warmup_ratio: float = 0.03,
         max_steps: int = 100000,
         loss_decay: float = 0.6,
+        upside_weight: float = 0.5,
+        downside_weight: float = 0.5,
     ) -> None:
         """Build the wrapped predictor and save hyper-parameters.
 
@@ -91,6 +93,12 @@ class LightningOHLCPredictor(L.LightningModule):
             across the response block, so errors on nearer-term days are punished
             more. ``1.0`` recovers a uniform (unweighted) loss. Defaults to
             ``0.6``.
+        upside_weight : float, optional
+            Weight of the upside channel in the combined loss. Defaults to
+            ``0.5``.
+        downside_weight : float, optional
+            Weight of the downside channel in the combined loss. Defaults to
+            ``0.5``.
         """
         super().__init__()
         hparams: OHLCMulitClassParameters = OHLCMulitClassParameters(
@@ -105,6 +113,8 @@ class LightningOHLCPredictor(L.LightningModule):
         self.warmup_ratio = warmup_ratio
         self.max_steps = max_steps
         self.loss_decay = loss_decay
+        self.upside_weight = upside_weight
+        self.downside_weight = downside_weight
 
         self.save_hyperparameters()
         self.loss_state = "train"
@@ -212,7 +222,7 @@ class LightningOHLCPredictor(L.LightningModule):
         Each target uses a smooth-L1 loss restricted to days where a trade
         occurred and weighted by a geometric time-decay over the forecast
         horizon (see :meth:`_response_weights`); the components are logged and
-        combined as ``close + 0.5·upside + 0.5·downside``.
+        combined as ``close + upside_weight·upside + downside_weight·downside``.
 
         Parameters
         ----------
@@ -290,7 +300,7 @@ class LightningOHLCPredictor(L.LightningModule):
             logger=True,
         )
 
-        return close_loss + 0.5 * upside_loss + 0.5 * downside_loss
+        return close_loss + self.upside_weight * upside_loss + self.downside_weight * downside_loss
 
     def training_step(
         self,

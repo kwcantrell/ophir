@@ -2,6 +2,7 @@
 
 import torch
 
+from ophir.model_data import OHLCMulitClassPredictorInput
 from ophir.training_models import LightningOHLCPredictor, robust_scale
 
 
@@ -20,3 +21,48 @@ def test_robust_scale_recovers_gaussian_std() -> None:
 def test_robust_scale_floors_on_empty_or_constant() -> None:
     assert robust_scale(torch.tensor([])) == 1e-4
     assert robust_scale(torch.zeros(100)) == 1e-4
+
+
+def _toy_model_output() -> object:
+    """A populated OHLCMulitClassPredictorInput with known targets/predictions."""
+    # 2 examples, seq 4, response 2, 3 channels. Predictions deliberately offset
+    # from targets so each channel has a non-zero loss.
+    targets = torch.zeros(2, 4, 3)
+    targets[..., 0] = 0.10  # r_close
+    targets[..., 1] = 0.20  # upside
+    targets[..., 2] = 0.30  # downside
+    model_output = torch.zeros(2, 4, 3)  # all-zero predictions
+    trade = torch.ones(2, 4, dtype=torch.bool)
+    return OHLCMulitClassPredictorInput(
+        feature_input=torch.zeros(2, 4, 13),
+        response_size=torch.tensor(2),
+        trade_occured=trade,
+        targets=targets,
+        model_output=model_output,
+    )
+
+
+def _build_predictor(**kwargs: float) -> LightningOHLCPredictor:
+    return LightningOHLCPredictor(emb_dim=16, num_layers=1, num_heads=2, **kwargs)
+
+
+def test_loss_weights_combine_components() -> None:
+    logged: dict[str, float] = {}
+    model = _build_predictor(upside_weight=0.4, downside_weight=0.7)
+    model.loss_state = "val"
+    model.log = lambda name, value, **kw: logged.__setitem__(name, float(value))  # type: ignore[method-assign]
+
+    loss = model.compute_loss(_toy_model_output())  # type: ignore[arg-type]
+
+    expected = (
+        logged["val_r_close_loss"]
+        + 0.4 * logged["val_upside_loss"]
+        + 0.7 * logged["val_downside_loss"]
+    )
+    assert abs(float(loss) - expected) < 1e-6
+
+
+def test_loss_weights_default_to_half() -> None:
+    model = _build_predictor()
+    assert model.upside_weight == 0.5
+    assert model.downside_weight == 0.5
