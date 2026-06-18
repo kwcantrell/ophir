@@ -32,7 +32,8 @@ def record_to_dict(record: DecisionRecord) -> dict[str, object]:
 def record_from_dict(data: Mapping[str, object]) -> DecisionRecord:
     """Inverse of :func:`record_to_dict`."""
     signals_raw = data["signals"]
-    assert isinstance(signals_raw, dict)
+    if not isinstance(signals_raw, dict):
+        raise TypeError("ledger record 'signals' must be a JSON object")
     return DecisionRecord(
         date=str(data["date"]),
         symbol=str(data["symbol"]),

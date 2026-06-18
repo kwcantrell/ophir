@@ -37,3 +37,25 @@ def test_append_then_load(tmp_path: Path) -> None:
 
 def test_load_missing_returns_empty(tmp_path: Path) -> None:
     assert load_decisions(tmp_path, "1999-01") == []
+
+
+def test_roundtrip_none_optionals() -> None:
+    sparse = DecisionRecord(
+        date="2026-01-01",
+        symbol="SPY",
+        sleeve=Sleeve.TACTICAL,
+        side=Side.SELL,
+        asset_class=AssetClass.OPTION,
+        notional=500.0,
+        sector=None,
+        thesis="hedge",
+        signals={},
+        entry_price=None,
+        target=None,
+        stop=None,
+        order_id=None,
+        status="closed",
+        realized_pl=None,
+        scored=True,
+    )
+    assert record_from_dict(record_to_dict(sparse)) == sparse
