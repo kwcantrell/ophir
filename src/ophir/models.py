@@ -385,10 +385,11 @@ class OHLCMulitClassPredictor(nn.Module):
     """
     OHLC multi-class predictor that outputs:
 
-    * ``model_output`` - raw logits for the 3 target classes
-      (r_return, upside, downside) for the *response* tokens.
+    * ``model_output`` - three forward regression targets for the *response*
+      tokens: relative close return (r_close), plus softplus-constrained
+      non-negative log-magnitudes for upside and downside.
     * ``stock_embeddings`` - a single embedding per example obtained by
-      averaging the response embeddings.
+      mean-pooling the prefix (observed-history) embeddings.
     """
 
     def __init__(self, hparams: OHLCMulitClassParameters) -> None:
