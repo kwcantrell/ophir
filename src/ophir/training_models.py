@@ -32,6 +32,27 @@ def robust_scale(x: torch.Tensor, floor: float = 1e-4) -> float:
     return max(floor, float(1.4826 * mad.item()))
 
 
+def val_rank_ic(
+    pred: torch.Tensor,
+    target: torch.Tensor,
+    ids: torch.Tensor,
+    dates: torch.Tensor,
+) -> float:
+    """Mean cross-sectional rank-IC of ``r_close`` over a validation epoch.
+
+    Dedupes to one prediction per ``(ticker, date)`` and averages the daily
+    Spearman rank correlation, reusing the eval module's helpers so the
+    validation metric and the offline report agree. Returns ``nan`` for an
+    empty input (no identity collected).
+    """
+    from .evaluate import dedupe_by_ticker_date, rank_ic
+
+    if pred.numel() == 0:
+        return float("nan")
+    dp, dt, dd = dedupe_by_ticker_date(pred, target, ids, dates)
+    return rank_ic(dp, dt, dd)["ic_mean"]
+
+
 # --------------------------------------------------------------------------- #
 #  Lightning wrapper
 # --------------------------------------------------------------------------- #
@@ -118,6 +139,12 @@ class LightningOHLCPredictor(L.LightningModule):
 
         self.save_hyperparameters()
         self.loss_state = "train"
+        self._val_ic_buffers: dict[str, list[torch.Tensor]] = {
+            "pred": [],
+            "target": [],
+            "ids": [],
+            "dates": [],
+        }
 
     def _input_obj(
         self, input: dict[str, Any] | OHLCMulitClassPredictorInput
@@ -355,7 +382,40 @@ class LightningOHLCPredictor(L.LightningModule):
         loss = self.compute_loss(model_output)
         self.log("val_loss", loss, prog_bar=False, on_epoch=True, on_step=True, logger=True)
 
+        if model_output.stock_id is not None and model_output.date_ordinal is not None:
+            rs = int(model_output.response_size)
+            mask = model_output.trade_occured[:, -rs:]
+            resp_dates = model_output.date_ordinal[:, -rs:]
+            ids_br = model_output.stock_id.view(-1, 1).expand(-1, rs)
+            self._val_ic_buffers["pred"].append(
+                model_output.predicted_r_close[mask].reshape(-1).cpu()
+            )
+            self._val_ic_buffers["target"].append(
+                model_output.target_r_close[mask].reshape(-1).cpu()
+            )
+            self._val_ic_buffers["ids"].append(ids_br[mask].reshape(-1).cpu())
+            self._val_ic_buffers["dates"].append(resp_dates[mask].reshape(-1).cpu())
+
         return loss
+
+    def on_validation_epoch_end(self) -> None:
+        """Log ``val_rank_ic`` from accumulated identity, then reset buffers.
+
+        Only fires when the validation loader carries identity (``stock_id`` /
+        ``date_ordinal``); without it the buffers stay empty and nothing is
+        logged, so the default training path is unchanged.
+        """
+        preds = self._val_ic_buffers["pred"]
+        if preds:
+            ic = val_rank_ic(
+                torch.cat(preds),
+                torch.cat(self._val_ic_buffers["target"]),
+                torch.cat(self._val_ic_buffers["ids"]),
+                torch.cat(self._val_ic_buffers["dates"]),
+            )
+            self.log("val_rank_ic", ic, prog_bar=False, on_epoch=True, logger=True)
+        for buf in self._val_ic_buffers.values():
+            buf.clear()
 
     def _total_training_steps(self) -> int:
         """Resolve the cosine scheduler's horizon in optimizer steps.

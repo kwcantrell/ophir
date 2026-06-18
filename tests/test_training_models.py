@@ -3,7 +3,7 @@
 import torch
 
 from ophir.model_data import OHLCMulitClassPredictorInput
-from ophir.training_models import LightningOHLCPredictor, robust_scale
+from ophir.training_models import LightningOHLCPredictor, robust_scale, val_rank_ic
 
 
 def test_use_cache_attribute_is_removed() -> None:
@@ -66,3 +66,19 @@ def test_loss_weights_default_to_half() -> None:
     model = _build_predictor()
     assert model.upside_weight == 0.5
     assert model.downside_weight == 0.5
+
+
+def test_val_rank_ic_perfect_ranking_is_positive() -> None:
+    # Two days (date ordinals 10 and 11), three tickers each. Predictions rank
+    # the same way as targets within each day -> rank-IC == 1.0.
+    pred = torch.tensor([3.0, 2.0, 1.0, 1.0, 2.0, 3.0])
+    target = torch.tensor([0.3, 0.2, 0.1, 0.1, 0.2, 0.3])
+    ids = torch.tensor([1, 2, 3, 1, 2, 3])
+    dates = torch.tensor([10, 10, 10, 11, 11, 11])
+    assert val_rank_ic(pred, target, ids, dates) > 0.99
+
+
+def test_val_rank_ic_empty_is_nan() -> None:
+    empty = torch.tensor([])
+    result = val_rank_ic(empty, empty, empty.long(), empty.long())
+    assert result != result  # NaN
