@@ -21,6 +21,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   within each cross-section, and returns `{"ic_mean", "ic_std", "ic_ir",
   "n_days"}`. Covered by two new unit tests in `tests/test_evaluate.py`.
 
+- `pool_prefix_embedding` (module-level, `ophir.models`): mean-pools the
+  prefix (observed-history) positions `x[:, :-response_size]` into one vector
+  per example for the UI PCA projection, replacing the previous pool over the
+  masked forecast block. Signal-bearing prefix positions now drive the per-stock
+  embedding; zero impact on forecast loss.
 - `apply_output_activations` (module-level, `ophir.models`): passes `r_close`
   through unchanged and applies `softplus` to the `upside` and `downside`
   channels so the two log-magnitude heads are guaranteed non-negative. Negative

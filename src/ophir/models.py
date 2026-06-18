@@ -368,6 +368,16 @@ def apply_output_activations(raw: torch.Tensor) -> torch.Tensor:
     return torch.cat([r_close, upside, downside], dim=-1)
 
 
+def pool_prefix_embedding(x: torch.Tensor, response_size: int) -> torch.Tensor:
+    """Mean-pool the prefix (observed-history) positions into one vector/example.
+
+    Pools ``x[:, :-response_size]`` — the positions that carry real features —
+    rather than the masked forecast block, giving a more grounded per-stock
+    embedding for the UI projection.
+    """
+    return x[:, :-response_size].mean(dim=1)
+
+
 # --------------------------------------------------------------------------- #
 # Main model
 # --------------------------------------------------------------------------- #
@@ -469,5 +479,5 @@ class OHLCMulitClassPredictor(nn.Module):
         input.model_output = apply_output_activations(
             cast("torch.Tensor", self.out_ff(response_embeddings))
         )
-        input.stock_embeddings = response_embeddings.mean(dim=1)
+        input.stock_embeddings = pool_prefix_embedding(x, int(input.response_size))
         return input

@@ -2,7 +2,14 @@
 
 import torch
 
-from ophir.models import apply_output_activations
+from ophir.models import apply_output_activations, pool_prefix_embedding
+
+
+def test_pool_prefix_embedding_ignores_response_block():
+    # 1 example, 4 positions, 2-d; prefix=first 2 rows, response=last 2.
+    x = torch.tensor([[[1.0, 1.0], [3.0, 3.0], [99.0, 99.0], [99.0, 99.0]]])
+    pooled = pool_prefix_embedding(x, response_size=2)
+    torch.testing.assert_close(pooled, torch.tensor([[2.0, 2.0]]))
 
 
 def test_upside_downside_are_non_negative():
