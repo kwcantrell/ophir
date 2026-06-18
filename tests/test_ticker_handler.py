@@ -3,7 +3,9 @@
 import numpy as np
 import pandas as pd
 import pytest
+from pandas.testing import assert_frame_equal
 
+from ophir.sqlite_store import build_sqlite_store
 from ophir.ticker import StockHanlder, StockStreamer
 
 
@@ -225,3 +227,26 @@ def test_keep_stocks_handles_duplicates_and_generators(parquet_dir, capsys):
     out = capsys.readouterr().out
     assert "stocks kept: 1/3" in out
     assert "stocks not found: 1" in out
+
+
+# --------------------------------------------------------------------------- #
+# source toggle: sqlite vs parquet
+# --------------------------------------------------------------------------- #
+
+
+def test_stockhandler_sqlite_source_matches_parquet(parquet_dir, tmp_path):
+    base_path, paths = parquet_dir
+    db_path = str(tmp_path / "stocks.db")
+    build_sqlite_store(base_path, db_path)
+
+    pq = _handler(base_path)
+    sq = _handler(db_path, source="sqlite")
+
+    assert set(sq.stocks) == set(pq.stocks)
+    for sym in pq.stocks:
+        assert_frame_equal(sq.stock_df(sym), pq.stock_df(sym))
+
+
+def test_stockhandler_defaults_to_parquet(parquet_dir):
+    base_path, _ = parquet_dir
+    assert _handler(base_path).source == "parquet"

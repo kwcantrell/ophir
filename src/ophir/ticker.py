@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 import pandas as pd  # type: ignore[import-untyped]
@@ -597,11 +597,17 @@ class StockHanlder:
     min_ticker_history: int | None = None
     clean_rows: bool = False
     max_abs_r_close: float = 0.75
+    source: Literal["parquet", "sqlite"] = "parquet"
     stocks: list[str] = field(init=False)
     stock_dict: dict[str, str] = field(init=False)
 
     def __post_init__(self) -> None:
-        self.stock_dict = get_stock_parquets(self.base_path)
+        if self.source == "sqlite":
+            from ophir.sqlite_store import get_stock_tables
+
+            self.stock_dict = get_stock_tables(self.base_path)
+        else:
+            self.stock_dict = get_stock_parquets(self.base_path)
         self.stocks = list(self.stock_dict.keys())
 
         if self.offset == -1:
@@ -668,8 +674,12 @@ class StockHanlder:
             A date-indexed daily OHLCV frame, or an empty frame if the stock
             fails the volume / history filters.
         """
-        path = self.stock_dict[stock]
-        df = pd.read_parquet(path)
+        if self.source == "sqlite":
+            from ophir.sqlite_store import read_stock_table
+
+            df = read_stock_table(self.base_path, self.stock_dict[stock])
+        else:
+            df = pd.read_parquet(self.stock_dict[stock])
 
         if self.min_volume is not None and df["volume"].mean() < self.min_volume:
             return pd.DataFrame()
