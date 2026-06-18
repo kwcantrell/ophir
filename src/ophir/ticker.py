@@ -233,6 +233,13 @@ class StockSplit:
         pandas.DataFrame
             ``df`` with ``close`` divided, and ``volume`` multiplied, by the
             cumulative pre-split adjustment factor.
+
+        Notes
+        -----
+        Back-adjustment uses the full known split history, so a past row is
+        scaled using splits dated after it. This is standard for back-adjusted
+        series and the model trains on (largely split-invariant) log returns,
+        so the effect is negligible; it is intentionally *not* point-in-time.
         """
         df = df.sort_index()
 
@@ -256,23 +263,21 @@ class StockSplit:
         return df
 
 
-def extract_features(df: pd.DataFrame, winsorize_returns: bool = False) -> pd.DataFrame:
+def extract_features(df: pd.DataFrame) -> pd.DataFrame:
     """Compute the 13-feature model representation from an OHLCV frame.
 
-    Features: log time delta, log close return ``r_close`` (optionally
-    winsorized), and rolling normalized returns / normalized volume /
-    volatility over 10-, 20-, and 60-day windows, plus the ``upside`` and
-    ``downside`` log ratios. The frame is reindexed onto a daily calendar;
-    padded days are zero-filled and flagged by ``trade_occured``.
+    Features: log time delta, log close return ``r_close``, and rolling
+    normalized returns / normalized volume / volatility over 10-, 20-, and
+    60-day windows, plus the ``upside`` and ``downside`` log ratios. The frame
+    is reindexed onto a daily calendar; padded days are zero-filled and flagged
+    by ``trade_occured``. All features are point-in-time (trailing rolling
+    windows only), so this introduces no lookahead.
 
     Parameters
     ----------
     df : pandas.DataFrame
         Datetime-indexed frame with ``high`` / ``low`` / ``close`` /
         ``volume`` columns.
-    winsorize_returns : bool, optional
-        If ``True``, clip ``r_close`` to its 0.1 % / 99.9 % quantiles.
-        Defaults to ``False``.
 
     Returns
     -------
@@ -293,12 +298,6 @@ def extract_features(df: pd.DataFrame, winsorize_returns: bool = False) -> pd.Da
     # returns
     prev_close = df["close"].shift(1)
     df = add_feature("r_close", np.log(df["close"] / prev_close), df)
-
-    # does not add new features just updates r_close columns
-    if winsorize_returns:
-        df["r_close"] = df["r_close"].clip(
-            lower=df["r_close"].quantile(0.001), upper=df["r_close"].quantile(0.999)
-        )
 
     def add_rolling_features(window_size: int, df: pd.DataFrame) -> pd.DataFrame:
         # normalized returns
@@ -499,8 +498,6 @@ class StockHanlder:
         Drop stocks whose mean volume is below this threshold.
     min_ticker_history : int, optional
         Drop stocks spanning fewer than this many days.
-    winsorize_returns : bool, optional
-        Reserved flag for return winsorization.
     """
 
     seq_len: int
@@ -514,7 +511,6 @@ class StockHanlder:
     max_year: int | None = None
     min_volume: float | None = None
     min_ticker_history: int | None = None
-    winsorize_returns: bool = True
     stocks: list[str] = field(init=False)
     stock_dict: dict[str, str] = field(init=False)
 

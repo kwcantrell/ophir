@@ -53,7 +53,6 @@ val_stock_handler = StockHanlder(
     offset=offset,
     min_year=2024,
     min_volume=1000,
-    winsorize_returns=True,
 )
 val_stock_handler.keep_stocks(sp_500)
 stock_streamers: dict[str, StockStreamer] = {}

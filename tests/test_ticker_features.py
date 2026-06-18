@@ -43,16 +43,6 @@ def test_extract_features_has_no_nans(ohlcv_df):
     assert not out.isna().to_numpy().any()
 
 
-def test_extract_features_winsorize_clips_spike(make_ohlcv):
-    df = make_ohlcv(n_days=1000, seed=7)
-    df.iloc[500, df.columns.get_loc("close")] *= 5.0  # inject a return spike
-
-    plain = extract_features(df, winsorize_returns=False)
-    clipped = extract_features(df, winsorize_returns=True)
-
-    assert clipped["r_close"].abs().max() < plain["r_close"].abs().max()
-
-
 def test_extract_features_single_row(make_ohlcv, feature_cols):
     out = extract_features(make_ohlcv(n_days=1))
 

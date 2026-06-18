@@ -368,9 +368,40 @@ class OHLCMulitClassPredictor(nn.Module):
         # Positional encoding - we keep it simple and trainable
         self.pe = nn.Parameter(torch.randn((1, 512, hparams.emb_dim)))
         self.feature_mlp = nn.Linear(13, hparams.emb_dim)
+        # Learned token that replaces the response-block features so the model
+        # cannot read the targets it is asked to forecast (see _apply_response_mask).
+        self.mask_token = nn.Parameter(torch.randn(hparams.emb_dim))
         self.causal_masks = CausalPrefixBlockMasks()
         self.encoder = nn.ModuleList([TransformerBlock(hparams) for _ in range(hparams.num_layers)])
         self.out_ff = nn.Linear(hparams.emb_dim, 3)
+
+    def _apply_response_mask(self, x: torch.Tensor, response_size: int) -> torch.Tensor:
+        """Replace the response-block rows of ``x`` with the learned mask token.
+
+        The last ``response_size`` positions are the days the model must
+        forecast. Every input feature at those positions is contemporaneous
+        with that day's targets (``r_close`` / ``upside`` / ``downside``, plus
+        the rolling features derived from them), so feeding them would leak the
+        answer. They are overwritten with a single learned mask embedding,
+        leaving only positional information for the forecast horizon.
+
+        Parameters
+        ----------
+        x : torch.Tensor
+            Projected features of shape ``(B, L, emb_dim)``.
+        response_size : int
+            Number of trailing positions to mask.
+
+        Returns
+        -------
+        torch.Tensor
+            ``x`` with its last ``response_size`` rows replaced by the mask
+            token.
+        """
+        batch, seq_len, _ = x.shape
+        prefix_len = seq_len - response_size
+        mask = self.mask_token.expand(batch, response_size, -1)
+        return torch.cat([x[:, :prefix_len], mask], dim=1)
 
     def forward(self, input: OHLCMulitClassPredictorInput) -> OHLCMulitClassPredictorInput:
         """
@@ -394,8 +425,12 @@ class OHLCMulitClassPredictor(nn.Module):
         feature = input.feature_input
         x = cast("torch.Tensor", self.feature_mlp(feature))
 
-        # Add positional encoding (safely slice to the actual length)
+        # Mask the forecast horizon so the response days carry no features that
+        # would leak their own targets.
         _, seq_len, _ = x.shape
+        x = self._apply_response_mask(x, int(input.response_size))
+
+        # Add positional encoding (safely slice to the actual length)
         pe_slice = self.pe[:, :seq_len]
         x = x + pe_slice
 

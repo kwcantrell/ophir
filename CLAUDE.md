@@ -26,6 +26,20 @@ across S&P 500 tickers.
 | `cli.py` | Typer app exposed as the `ophir` console script (`ophir.cli:app`). Mounts `register.app`; lazy-imports `ui.serve`. |
 | `register.py` | Owns `.ophir/{data,model}` layout, Lightning `Trainer` factories, checkpoint loaders, MASSIVE-key storage. **Prints on import** (lines 20, 24) — leftover debug, expected. |
 | `models.py` | Transformer architecture: ALiBi positional bias, `torch` flex-attention with cached causal+prefix block mask, ReZero residual scaling. |
+
+> **Forecast-masking contract (do not regress):** every input feature at a
+> response-block position is contemporaneous with that day's targets
+> (`r_close`/`upside`/`downside` and the rolling features derived from them), so
+> feeding them leaks the answer. `OHLCMulitClassPredictor._apply_response_mask`
+> overwrites the last `response_size` positions with a learned `mask_token`
+> before the transformer; the model must forecast the horizon from the prefix
+> only. Masking just the three target columns is **not** enough — mask the whole
+> block. Pinned by `tests/test_models_leakage.py`.
+>
+> **Train/val split (for the off-repo training driver):** split **by date**, not
+> randomly (overlapping `offset` windows otherwise straddle the boundary), and
+> leave an embargo gap ≥ `seq_len` between train-end and val-start. Rolling
+> features are trailing/self-normalizing, so there is no global-stat leak.
 | `training_models.py` | PyTorch-Lightning wrapper: AdamW + cosine warmup, per-group LRs, weighted smooth-L1 over the three targets. |
 | `model_data.py` | `OHLCMulitClassPredictorInput` dataclass; converts features/targets/predictions back into candles and PCA projections. |
 | `ticker.py` | Parquet ingest, stock-split adjustment, 13-feature extraction (log returns, rolling vol, normalized volume, upside/downside), streaming datasets. |

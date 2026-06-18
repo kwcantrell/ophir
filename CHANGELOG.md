@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-06-18
+
+### Added
+
+- `scripts/leakage_viz.py`: a Gradio app that renders input-day attribution
+  heatmaps comparing the model with the response-block masking fix **off**
+  (leaky) vs **on** (fixed). Leakage shows as a bright diagonal in the response
+  region (forecasting a day from that same day's inputs); the fixed model
+  leaves that region dark.
+- Leakage regression tests: `tests/test_models_leakage.py` (CPU, pins the
+  masking helper) and `tests/test_models_leakage_realdata.py` (real-data
+  end-to-end through the GPU forward, auto-skipped without CUDA/data/checkpoint).
+
+### Fixed
+
+- **Data leakage:** the model was fed the values it was asked to forecast.
+  `feature_input` carried the response-block days' features (`r_close` /
+  `upside` / `downside` and the rolling features derived from them), which are
+  exactly the prediction targets, so the task was solvable by identity and all
+  losses/UI predictions were reading the answer. `OHLCMulitClassPredictor` now
+  replaces the response block with a learned `mask_token` before the
+  transformer (`_apply_response_mask`), forcing a genuine forecast from the
+  prefix. Existing checkpoints are invalidated and must be retrained.
+
+### Removed
+
+- The unused `winsorize_returns` flag on `extract_features` / `StockHanlder`,
+  which clipped `r_close` to full-series (future-inclusive) quantiles — a
+  lookahead foot-gun that was never wired into the streaming path.
+
 ## [0.1.7] - 2026-05-20
 
 ### Fixed
@@ -125,7 +155,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   value yields a rotation of π.
 - Model validation and minor fixes.
 
-[Unreleased]: https://github.com/kwcantrell/ophir/compare/v0.1.7...HEAD
+[Unreleased]: https://github.com/kwcantrell/ophir/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/kwcantrell/ophir/compare/v0.1.7...v0.2.0
 [0.1.7]: https://github.com/kwcantrell/ophir/compare/v0.1.6...v0.1.7
 [0.1.6]: https://github.com/kwcantrell/ophir/compare/v0.1.5...v0.1.6
 [0.1.5]: https://github.com/kwcantrell/ophir/compare/v0.1.4...v0.1.5
