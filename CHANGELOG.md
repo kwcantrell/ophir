@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-06-18
+
+### Added
+
+- `ophir evaluate` (`ophir.evaluate`): score a checkpoint on the held-out
+  validation set and print a per-target accuracy report — MAE, RMSE, bias, plus
+  directional accuracy and a zero-baseline skill score for `r_close`. It rebuilds
+  the same by-date validation split as `train`, restricts predictions/targets to
+  the response block and trading days (the same mask as the training loss), and
+  by default reports both base checkpoints (best-`val_loss` and time-interval)
+  side by side; `--finetuned` evaluates the finetuned checkpoint instead. The
+  metric core is pure/CPU-safe and covered by `tests/test_evaluate.py`; a new
+  "Evaluation" tab in `ophir dashboard` exposes the same report on demand.
+
+### Changed
+
+- The `ophir dashboard` loss plot now defaults to the per-pass aggregate
+  (`*_epoch`) series with an epoch/step granularity toggle. The per-step
+  validation series re-evaluates the same fixed, `limit_val_batches`-long batch
+  order every pass, so plotting it produced a misleading sawtooth; the epoch
+  series is the one that reflects learning.
+
 ## [0.3.0] - 2026-06-18
 
 ### Added
@@ -197,7 +219,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   value yields a rotation of π.
 - Model validation and minor fixes.
 
-[Unreleased]: https://github.com/kwcantrell/ophir/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/kwcantrell/ophir/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/kwcantrell/ophir/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/kwcantrell/ophir/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/kwcantrell/ophir/compare/v0.1.7...v0.2.0
 [0.1.7]: https://github.com/kwcantrell/ophir/compare/v0.1.6...v0.1.7

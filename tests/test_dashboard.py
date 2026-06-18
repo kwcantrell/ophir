@@ -34,6 +34,7 @@ def test_build_loss_figure_placeholder_without_metrics(tmp_path: Path) -> None:
 
 
 def test_build_loss_figure_plots_each_loss_series(tmp_path: Path) -> None:
+    # Bare loss columns (no _epoch/_step suffix) fall back to plotting all of them.
     model_dir = _write_metrics(
         tmp_path,
         "step,train_loss,train_r_close_loss,val_loss\n0,1.0,0.5,\n1,0.8,0.4,\n2,,,0.7\n",
@@ -41,3 +42,14 @@ def test_build_loss_figure_plots_each_loss_series(tmp_path: Path) -> None:
     fig = dashboard.build_loss_figure(model_dir)
     names = {trace.name for trace in fig.data}
     assert {"train_loss", "train_r_close_loss", "val_loss"} <= names
+
+
+def test_build_loss_figure_filters_by_granularity(tmp_path: Path) -> None:
+    model_dir = _write_metrics(
+        tmp_path,
+        "step,val_loss_epoch,val_loss_step\n0,0.3,0.31\n1,0.28,0.27\n",
+    )
+    epoch_names = {t.name for t in dashboard.build_loss_figure(model_dir, "epoch").data}
+    step_names = {t.name for t in dashboard.build_loss_figure(model_dir, "step").data}
+    assert epoch_names == {"val_loss_epoch"}
+    assert step_names == {"val_loss_step"}

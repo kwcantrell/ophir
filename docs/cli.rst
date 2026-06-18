@@ -99,12 +99,41 @@ the epoch-driven :func:`ophir.register.fetch_finetune_trainer`.
    ophir finetune [--seq-len INT] [--response-size INT] [--batch-size INT]
                   [--strict / --no-strict] [--time-version / --no-time-version]
 
+``ophir evaluate``
+------------------
+
+Score a checkpoint on the held-out validation set (:func:`ophir.evaluate.evaluate`).
+Rebuilds the same **by-date** validation split as ``train`` (only the validation
+handler is used), loads the checkpoint(s), runs them over at most
+``--val-batches`` batches, and prints a per-target accuracy report (MAE, RMSE,
+bias, plus directional accuracy and a zero-baseline skill score for ``r_close``).
+
+.. code-block:: bash
+
+   ophir evaluate [--seq-len INT] [--offset INT] [--response-size INT]
+                  [--batch-size INT] [--val-batches INT]
+                  [--train-max-year INT] [--val-min-year INT]
+                  [--use-sp500 / --no-use-sp500]
+                  [--strict / --no-strict] [--finetuned / --no-finetuned]
+
+- ``--seq-len`` (``365``) — window length in calendar days (≤ 512).
+- ``--response-size`` (``90``) — forecast horizon (trailing masked days).
+- ``--val-batches`` (``50``) — max validation batches to score.
+- ``--finetuned`` (``False``) — evaluate the latest finetuned checkpoint; otherwise both base checkpoints (best-``val_loss`` and time-interval) are reported side by side.
+- ``--strict`` (``False``) — require an exact ``state_dict`` match when loading.
+
+.. note::
+
+   ``evaluate`` runs the full flex-attention forward, so it requires a CUDA GPU,
+   the per-stock parquet tree, and a trained checkpoint.
+
 ``ophir dashboard``
 -------------------
 
 Launch the live training dashboard (:func:`ophir.dashboard.launch`). Shows
-per-target loss curves read live from the ``CSVLogger`` ``metrics.csv`` and an
-on-demand response-block leakage check against the latest checkpoint.
+per-target loss curves read live from the ``CSVLogger`` ``metrics.csv``, an
+on-demand response-block leakage check, and an on-demand validation evaluation
+against the latest checkpoints.
 
 .. code-block:: bash
 

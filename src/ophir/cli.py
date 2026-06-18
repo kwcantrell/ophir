@@ -7,12 +7,13 @@ sub-application under ``register`` and adds the top-level ``serve`` command.
 
 import typer
 
-from ophir import register, train
+from ophir import evaluate, register, train
 
 app = typer.Typer(help="Ophir CLI")
 app.add_typer(register.app, name="register")
 app.command()(train.train)
 app.command()(train.finetune)
+app.command()(evaluate.evaluate)
 
 
 @app.command()

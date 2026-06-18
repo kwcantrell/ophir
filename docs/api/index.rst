@@ -18,5 +18,6 @@ see :doc:`../architecture` for its design.
    ophir.ticker
    ophir.register
    ophir.train
+   ophir.evaluate
    ophir.leakage
    ophir.dashboard

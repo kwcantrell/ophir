@@ -8,9 +8,14 @@ is cheap. It surfaces the two things hardest to see during a training run:
 * **Loss per target** — live train/val curves for the combined loss and each
   target (``r_close`` / ``upside`` / ``downside``), read from the ``CSVLogger``
   ``metrics.csv`` written during training and auto-refreshed on a timer.
+  Defaults to the per-pass (``*_epoch``) series with an epoch/step toggle — the
+  per-step validation series repeats a fixed batch order each pass and only
+  looks cyclic.
 * **Leakage check** — on demand, perturbs the response-block inputs of the
   latest checkpoint and reports the resulting change in the model output per
   target (see :mod:`ophir.leakage`); ``0`` means the masking contract holds.
+* **Evaluation** — on demand, scores the base checkpoints on the held-out
+  validation set and reports per-target accuracy (see :mod:`ophir.evaluate`).
 
 Launched by :func:`launch` / the ``ophir dashboard`` command.
 """
@@ -74,18 +79,29 @@ def _placeholder(message: str) -> go.Figure:
     return fig
 
 
-def build_loss_figure(model_dir: str) -> go.Figure:
+def build_loss_figure(model_dir: str, granularity: str = "epoch") -> go.Figure:
     """Build the live loss-per-target figure from ``metrics.csv``.
 
-    Plots every logged loss series (any column containing ``loss``) against
-    ``step``. ``CSVLogger`` writes sparse rows (a metric is ``NaN`` on rows
-    where it was not logged), so each series drops its own missing values.
-    Returns a placeholder while metrics are unavailable.
+    Plots the logged loss series against ``step``. ``CSVLogger`` writes sparse
+    rows (a metric is ``NaN`` on rows where it was not logged), so each series
+    drops its own missing values. Returns a placeholder while metrics are
+    unavailable.
+
+    Lightning logs each loss at two granularities — per optimizer step
+    (``*_step``) and aggregated per validation pass (``*_epoch``). The default is
+    ``"epoch"``: the per-step validation series repeats the same fixed,
+    ``limit_val_batches``-long batch order every pass, so plotting it produces a
+    misleading sawtooth that says nothing about learning. The epoch series is the
+    one to watch.
 
     Parameters
     ----------
     model_dir : str
         The model directory holding the ``csv-logger`` output.
+    granularity : str, optional
+        ``"epoch"`` (default) to plot the per-pass aggregate series, or
+        ``"step"`` to plot the raw per-step series. Falls back to all loss
+        columns when none carry the requested suffix (e.g. older logs).
 
     Returns
     -------
@@ -109,14 +125,17 @@ def build_loss_figure(model_dir: str) -> go.Figure:
     if not loss_cols:
         return _placeholder("no loss metrics logged yet …")
 
+    suffix = f"_{granularity}"
+    selected = [c for c in loss_cols if c.endswith(suffix)] or loss_cols
+
     fig = go.Figure()
-    for col in sorted(loss_cols):
+    for col in sorted(selected):
         series = df[["step", col]].dropna()
         if series.empty:
             continue
         fig.add_trace(go.Scatter(x=series["step"], y=series[col], mode="lines", name=col))
     fig.update_layout(
-        title="Loss per target",
+        title=f"Loss per target ({granularity})",
         template="plotly_dark",
         xaxis_title="step",
         yaxis_title="loss",
@@ -218,6 +237,78 @@ def run_leakage_check(seq_len: int = 365, response_size: int = 90) -> str:
     )
 
 
+def run_evaluation(seq_len: int = 365, response_size: int = 90, val_batches: int = 20) -> str:
+    """Evaluate the base checkpoints on the validation set and report metrics.
+
+    Rebuilds the by-date validation split (:func:`ophir.train.build_split_handlers`),
+    loads the best-``val_loss`` and time-interval base checkpoints, scores each
+    over at most ``val_batches`` batches, and returns the Markdown report from
+    :func:`ophir.evaluate.format_report`. The evaluation forward is CUDA-only, so
+    without a GPU this returns a short note instead.
+
+    Parameters
+    ----------
+    seq_len, response_size : int
+        Window length and forecast horizon.
+    val_batches : int
+        Maximum number of validation batches to score. Kept small so a click
+        returns reasonably quickly.
+
+    Returns
+    -------
+    str
+        A Markdown evaluation report, or a friendly message when CUDA, the data
+        tree, or a checkpoint is unavailable.
+    """
+    import torch
+
+    from ophir import evaluate, register
+    from ophir.train import build_dataloader, build_split_handlers
+
+    if not torch.cuda.is_available():
+        return (
+            "**CUDA required** — evaluation runs the full flex-attention forward, "
+            "which is CUDA-only."
+        )
+
+    base_path = os.path.join(register.get_default_data_days_dir(), "stocks")
+    try:
+        _, val_handler = build_split_handlers(
+            base_path=base_path,
+            seq_len=seq_len,
+            offset=response_size,
+            min_volume=1000.0,
+            train_min_year=None,
+            train_max_year=2023,
+            val_min_year=2024,
+            val_max_year=None,
+            use_sp500=False,
+        )
+        val_dl = build_dataloader(val_handler, response_size, 32, 0, 8)
+    except (FileNotFoundError, IndexError, OSError, ValueError) as exc:
+        return f"**Could not build the validation set** — {exc}"
+
+    # Load each base checkpoint independently so a missing one (e.g. no best-val
+    # checkpoint saved yet) is skipped rather than failing the whole report.
+    results: dict[str, dict[str, dict[str, float]]] = {}
+    skipped: list[str] = []
+    for label, time_version in (("best-val", False), ("time-interval", True)):
+        try:
+            model = register.load_base_model_ckpt(strict=False, time_version=time_version)
+        except (FileNotFoundError, IndexError, OSError) as exc:
+            skipped.append(f"{label} ({exc})")
+            continue
+        results[label] = evaluate.evaluate_model(model, val_dl, val_batches)
+
+    if not results:
+        return f"**No base checkpoint could be loaded** — skipped: {', '.join(skipped)}."
+
+    report = evaluate.format_report(results)
+    if skipped:
+        report += f"\n\n*Skipped: {', '.join(skipped)}.*"
+    return report
+
+
 def build_demo(model_dir: str, seq_len: int = 365, response_size: int = 90) -> gr.Blocks:
     """Assemble the dashboard ``Blocks`` app.
 
@@ -243,15 +334,36 @@ def build_demo(model_dir: str, seq_len: int = 365, response_size: int = 90) -> g
             "response-block leakage check."
         )
         with gr.Tab("Loss per target"):
-            loss_plot = gr.Plot(value=build_loss_figure(model_dir))
+            granularity = gr.Radio(
+                choices=["epoch", "step"],
+                value="epoch",
+                label="Granularity",
+                info=(
+                    "Per-pass aggregate (epoch) or raw per-step. The per-step "
+                    "validation series repeats the same fixed batch order every "
+                    "pass, so it looks cyclic — watch the epoch series."
+                ),
+            )
+            loss_plot = gr.Plot(value=build_loss_figure(model_dir, "epoch"))
             timer = gr.Timer(value=5.0)
-            timer.tick(lambda: build_loss_figure(model_dir), outputs=loss_plot)
+            timer.tick(
+                lambda g: build_loss_figure(model_dir, g), inputs=granularity, outputs=loss_plot
+            )
+            granularity.change(
+                lambda g: build_loss_figure(model_dir, g), inputs=granularity, outputs=loss_plot
+            )
         with gr.Tab("Leakage check"):
             leakage_md = gr.Markdown(
                 "Press **Run leakage check** to probe the latest base checkpoint."
             )
             run_btn = gr.Button("Run leakage check", variant="primary")
             run_btn.click(lambda: run_leakage_check(seq_len, response_size), outputs=leakage_md)
+        with gr.Tab("Evaluation"):
+            eval_md = gr.Markdown(
+                "Press **Run evaluation** to score the base checkpoints on the validation set."
+            )
+            eval_btn = gr.Button("Run evaluation", variant="primary")
+            eval_btn.click(lambda: run_evaluation(seq_len, response_size), outputs=eval_md)
     return cast("gr.Blocks", demo)
 
 
