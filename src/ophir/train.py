@@ -150,6 +150,7 @@ def build_split_handlers(
             min_volume=min_volume,
             clean_rows=clean_rows,
             max_abs_r_close=max_abs_r_close,
+            shuffle=True,
         )
         if symbols is not None:
             handler.keep_stocks(symbols)
@@ -303,6 +304,7 @@ def train(
     lr: float = 2e-4,
     weight_decay: float = 0.01,
     warmup_ratio: float = 0.03,
+    loss_decay: float = 0.6,
 ) -> None:
     """Pre-train a base :class:`LightningOHLCPredictor` from scratch.
 
@@ -360,6 +362,10 @@ def train(
         Maximum validation batches per validation pass. Defaults to ``50``.
     lr, weight_decay, warmup_ratio : float
         Optimizer / scheduler hyper-parameters.
+    loss_decay : float
+        Time-decay weight of the furthest-future forecast day relative to the
+        nearest, in ``(0, 1]``; nearer-term errors are punished more. ``1.0``
+        disables the decay (uniform loss). Defaults to ``0.6``.
     """
     from ophir import register
     from ophir.training_models import LightningOHLCPredictor
@@ -408,6 +414,7 @@ def train(
         weight_decay=weight_decay,
         warmup_ratio=warmup_ratio,
         max_steps=max_steps,
+        loss_decay=loss_decay,
     )
     trainer = register.fetch_base_trainer(
         max_steps=max_steps,

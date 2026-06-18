@@ -40,6 +40,7 @@ class LightningOHLCPredictor(L.LightningModule):
         betas: tuple[float, float] = (0.9, 0.95),
         warmup_ratio: float = 0.03,
         max_steps: int = 100000,
+        loss_decay: float = 0.6,
     ) -> None:
         """Build the wrapped predictor and save hyper-parameters.
 
@@ -70,6 +71,12 @@ class LightningOHLCPredictor(L.LightningModule):
             Scheduler horizon used only when the trainer cannot estimate the
             total number of steps (e.g. an unsized ``IterableDataset`` driven by
             ``max_epochs``). Defaults to ``100000``.
+        loss_decay : float, optional
+            Time-decay weight of the furthest-future forecast day relative to the
+            nearest, in ``(0, 1]``. The per-day loss weight decays geometrically
+            across the response block, so errors on nearer-term days are punished
+            more. ``1.0`` recovers a uniform (unweighted) loss. Defaults to
+            ``0.6``.
         """
         super().__init__()
         hparams: OHLCMulitClassParameters = OHLCMulitClassParameters(
@@ -83,6 +90,7 @@ class LightningOHLCPredictor(L.LightningModule):
         self.betas = betas
         self.warmup_ratio = warmup_ratio
         self.max_steps = max_steps
+        self.loss_decay = loss_decay
 
         self.save_hyperparameters()
         self._use_cache = False
@@ -127,12 +135,71 @@ class LightningOHLCPredictor(L.LightningModule):
         prepared = self._input_obj(input)
         return cast("OHLCMulitClassPredictorInput", self.ohlc_predictor(prepared))
 
+    def _response_weights(
+        self, response_size: int, device: torch.device, dtype: torch.dtype
+    ) -> torch.Tensor:
+        """Build the geometric time-decay weights over the forecast horizon.
+
+        The weight for the ``i``-th response position (``i = 0`` is the earliest
+        forecast day) is ``loss_decay ** (i / (response_size - 1))``, so the
+        nearest day has weight ``1.0`` and the furthest has weight
+        ``loss_decay``. A ``loss_decay`` of ``1.0`` (or a single-position block)
+        yields uniform weights.
+
+        Parameters
+        ----------
+        response_size : int
+            Number of trailing forecast positions.
+        device, dtype : torch.device, torch.dtype
+            Placement of the returned tensor (matched to the loss tensor).
+
+        Returns
+        -------
+        torch.Tensor
+            Shape ``(response_size,)`` weight vector.
+        """
+        if self.loss_decay == 1.0 or response_size <= 1:
+            return torch.ones(response_size, device=device, dtype=dtype)
+        steps = torch.arange(response_size, device=device, dtype=dtype)
+        return self.loss_decay ** (steps / (response_size - 1))
+
+    @staticmethod
+    def _weighted_masked_mean(
+        loss: torch.Tensor, weight: torch.Tensor, mask: torch.Tensor
+    ) -> torch.Tensor:
+        """Reduce a per-day loss with time-decay weights and a trade mask.
+
+        Computes ``sum(w * loss * m) / sum(w * m)``, restricting the average to
+        days where a trade occurred and down-weighting later forecast days.
+        Dividing by the summed weights keeps the result on the same scale as a
+        plain masked mean.
+
+        Parameters
+        ----------
+        loss : torch.Tensor
+            Shape ``(B, R, 1)`` per-day loss (``reduction="none"``).
+        weight : torch.Tensor
+            Shape ``(R,)`` time-decay weights.
+        mask : torch.Tensor
+            Shape ``(B, R)`` boolean mask (``True`` where a trade occurred).
+
+        Returns
+        -------
+        torch.Tensor
+            The scalar weighted masked mean.
+        """
+        w = weight.view(1, -1, 1)
+        m = mask.unsqueeze(-1).to(loss.dtype)
+        weighted = w * m
+        return (loss * weighted).sum() / weighted.sum().clamp_min(1e-8)
+
     def compute_loss(self, model_output: OHLCMulitClassPredictorInput) -> torch.Tensor:
         """Compute the masked, weighted multi-target training loss.
 
         Each target uses a smooth-L1 loss restricted to days where a trade
-        occurred; the components are logged and combined as
-        ``close + 0.5·upside + 0.5·downside``.
+        occurred and weighted by a geometric time-decay over the forecast
+        horizon (see :meth:`_response_weights`); the components are logged and
+        combined as ``close + 0.5·upside + 0.5·downside``.
 
         Parameters
         ----------
@@ -150,8 +217,11 @@ class LightningOHLCPredictor(L.LightningModule):
         close_loss = F.smooth_l1_loss(
             predicted_r_close, target_r_close, beta=0.01, reduction="none"
         )
+        weight = self._response_weights(
+            int(model_output.response_size), close_loss.device, close_loss.dtype
+        )
 
-        close_loss = close_loss[mask].mean()
+        close_loss = self._weighted_masked_mean(close_loss, weight, mask)
         self.log(
             f"{self.loss_state}_r_close_loss",
             close_loss,
@@ -163,9 +233,11 @@ class LightningOHLCPredictor(L.LightningModule):
 
         target_upside = model_output.target_upside
         predicted_upside = model_output.predicted_upside
-        upside_loss = F.smooth_l1_loss(
-            predicted_upside, target_upside, beta=0.02, reduction="none"
-        )[mask].mean()
+        upside_loss = self._weighted_masked_mean(
+            F.smooth_l1_loss(predicted_upside, target_upside, beta=0.02, reduction="none"),
+            weight,
+            mask,
+        )
         self.log(
             f"{self.loss_state}_upside_loss",
             upside_loss,
@@ -177,9 +249,11 @@ class LightningOHLCPredictor(L.LightningModule):
 
         target_downside = model_output.target_downside
         predicted_downside = model_output.predicted_downside
-        downside_loss = F.smooth_l1_loss(
-            predicted_downside, target_downside, beta=0.02, reduction="none"
-        )[mask].mean()
+        downside_loss = self._weighted_masked_mean(
+            F.smooth_l1_loss(predicted_downside, target_downside, beta=0.02, reduction="none"),
+            weight,
+            mask,
+        )
         self.log(
             f"{self.loss_state}_downside_loss",
             downside_loss,

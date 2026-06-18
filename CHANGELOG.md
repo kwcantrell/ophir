@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-06-18
+
+### Added
+
+- `loss_decay` hyperparameter on `LightningOHLCPredictor` and the matching
+  `--loss-decay` flag on `ophir train` (default `0.6`; `1.0` disables the
+  decay). It is saved to and restored from checkpoints, so `ophir finetune`
+  inherits the value automatically.
+
+### Changed
+
+- The forecast loss now weights each predicted day geometrically across the
+  response block, punishing nearer-term errors more than further-out ones.
+  Reductions use a normalized weighted masked mean, keeping the loss scale
+  comparable to the previous uniform loss. By default training is no longer
+  uniform over the horizon; pass `--loss-decay 1.0` to recover the old
+  behavior.
+
 ## [0.5.0] - 2026-06-18
 
 ### Added
@@ -251,7 +269,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   value yields a rotation of π.
 - Model validation and minor fixes.
 
-[Unreleased]: https://github.com/kwcantrell/ophir/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/kwcantrell/ophir/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/kwcantrell/ophir/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/kwcantrell/ophir/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/kwcantrell/ophir/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/kwcantrell/ophir/compare/v0.3.0...v0.4.0
