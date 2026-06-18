@@ -34,6 +34,65 @@ Using pip:
 The distribution name and the import name are both ``ophir``. Installing the
 package registers the ``ophir`` console script (see :doc:`cli`).
 
+Setting up Ollama
+-----------------
+
+The chat panel (``ophir serve``) and the Ollama decision track
+(``ophir decide --track ollama`` / ``both``) call a local
+`Ollama <https://ollama.com/>`_ server running the ``gpt-oss:20b`` model. Without
+it those LLM calls fail safe to ``HOLD`` (the decision layer never trades on an
+unreachable model).
+
+1. **Install Ollama.**
+
+   .. code-block:: bash
+
+      # Windows
+      winget install --id Ollama.Ollama -e
+      # macOS / Linux: download from https://ollama.com/download
+
+2. **Start the server** (the desktop app starts it automatically; otherwise):
+
+   .. code-block:: bash
+
+      ollama serve
+
+3. **Pull the model** (~13 GB; needs roughly 16 GB of VRAM):
+
+   .. code-block:: bash
+
+      ollama pull gpt-oss:20b
+
+4. **Verify** it is reachable and the model is present:
+
+   .. code-block:: bash
+
+      ollama list
+      curl http://localhost:11434/api/tags
+
+To point ophir at a non-default host or port, set ``AGENT_OLLAMA_BASE_URL``
+(e.g. ``AGENT_OLLAMA_BASE_URL=http://192.168.1.10:11434``); the model name is
+likewise overridable via ``AGENT_OLLAMA_MODEL``.
+
+Alpaca paper trading (optional)
+-------------------------------
+
+``ophir trade`` defaults to an in-process simulated account and a dry run, so no
+broker is needed to try it. To reconcile against a real Alpaca **paper** account
+(``--broker alpaca``), create paper API keys at `Alpaca <https://alpaca.markets/>`_
+and provide them as environment variables:
+
+.. code-block:: bash
+
+   # macOS / Linux
+   export AGENT_ALPACA_KEY_ID=...
+   export AGENT_ALPACA_SECRET_KEY=...
+   # Windows PowerShell
+   $env:AGENT_ALPACA_KEY_ID = "..."; $env:AGENT_ALPACA_SECRET_KEY = "..."
+
+Orders are submitted only with the explicit ``--execute`` flag; the default is a
+dry run that prints the plan without trading.
+
 Building the documentation
 --------------------------
 
