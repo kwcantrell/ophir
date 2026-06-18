@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, cast
 
 import torch
+import torch.nn.functional as F
 from torch import nn
 from torch.nn.attention.flex_attention import (
     BlockMask,
@@ -351,6 +352,23 @@ class TransformerBlock(nn.Module):
 
 
 # --------------------------------------------------------------------------- #
+# Output activations
+# --------------------------------------------------------------------------- #
+def apply_output_activations(raw: torch.Tensor) -> torch.Tensor:
+    """Constrain the upside/downside channels to be non-negative.
+
+    ``upside``/``downside`` are log-magnitudes (``log(high/close)`` and
+    ``log(close/low)``), both ``>= 0`` by construction, while ``r_close`` is a
+    signed return. Softplus keeps the magnitude channels in their valid range so
+    the ``.exp()`` reconstruction can never invert the candle.
+    """
+    r_close = raw[..., 0:1]
+    upside = F.softplus(raw[..., 1:2])
+    downside = F.softplus(raw[..., 2:3])
+    return torch.cat([r_close, upside, downside], dim=-1)
+
+
+# --------------------------------------------------------------------------- #
 # Main model
 # --------------------------------------------------------------------------- #
 class OHLCMulitClassPredictor(nn.Module):
@@ -448,6 +466,8 @@ class OHLCMulitClassPredictor(nn.Module):
 
         # Extract the response embeddings and compute outputs
         response_embeddings = x[:, -input.response_size :]
-        input.model_output = cast("torch.Tensor", self.out_ff(response_embeddings))
+        input.model_output = apply_output_activations(
+            cast("torch.Tensor", self.out_ff(response_embeddings))
+        )
         input.stock_embeddings = response_embeddings.mean(dim=1)
         return input

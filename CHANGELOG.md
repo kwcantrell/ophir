@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `apply_output_activations` (module-level, `ophir.models`): passes `r_close`
+  through unchanged and applies `softplus` to the `upside` and `downside`
+  channels so the two log-magnitude heads are guaranteed non-negative. Negative
+  values would invert the reconstructed candle (`high < close` or `low > close`)
+  via the `.exp()` call in `model_data.py`. Wired into `OHLCMulitClassPredictor.forward`
+  immediately after `out_ff`. Existing checkpoints remain loadable but will need
+  a retrain to benefit from the constrained output distribution.
 - `extract_features` now emits a `feature_valid` boolean column: `False` for
   the first 59 warm-up rows (where the 60-day rolling features are undefined)
   and for calendar-padding rows, `True` otherwise. `StockStreamer` uses this
