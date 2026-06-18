@@ -9,9 +9,10 @@ Feature pipeline (:mod:`ophir.ticker`)
 --------------------------------------
 
 * :func:`~ophir.ticker.get_stock_parquets` discovers one parquet file per
-  stock under a base path. :class:`~ophir.ticker.StockHanlder` reads them,
-  aggregates to daily candles, and applies optional ``min_year`` / ``max_year``
-  / ``min_volume`` / history filters.
+  stock under a base path. :class:`~ophir.ticker.StockHanlder` reads them
+  (from parquet or, when ``source="sqlite"``, from a :mod:`ophir.sqlite_store`
+  database), aggregates to daily candles, and applies optional ``min_year`` /
+  ``max_year`` / ``min_volume`` / history filters.
 * :class:`~ophir.ticker.StockSplit` holds split dates and ratios and
   back-adjusts close prices (and inversely, volume) via
   :meth:`~ophir.ticker.StockSplit.apply_splits`. Split history is fetched once

@@ -45,6 +45,7 @@ across S&P 500 tickers.
 | `training_models.py` | PyTorch-Lightning wrapper: AdamW + cosine warmup, per-group LRs, weighted smooth-L1 over the three targets. |
 | `model_data.py` | `OHLCMulitClassPredictorInput` dataclass; converts features/targets/predictions back into candles and PCA projections. |
 | `ticker.py` | Parquet ingest, stock-split adjustment, 13-feature extraction (log returns, rolling vol, normalized volume, upside/downside), streaming datasets. |
+| `sqlite_store.py` | Single-file SQLite store: `build_sqlite_store` converter (one table per ticker + `_tickers` manifest with column-dtype JSON) and `get_stock_tables`/`read_stock_table` read helpers. Backs `StockHanlder(source="sqlite")`. |
 | `ui.py` | Gradio dashboard + LangChain–Ollama chat. Heavy import — fetches S&P 500 list, loads a CUDA checkpoint. Docs build mocks it. |
 | `trading/` | Deterministic core for the `alpaca-trader` skill: safety gate, ledger, metrics, signals, memory, exposure join, outcome scoring; CLI under `ophir trade`. |
 
@@ -78,10 +79,11 @@ uv run --group docs sphinx-build -W -b html docs docs/_build/html
 network), `evaluate`, `curation`, `dashboard`, `leakage`, `optimizer`,
 `models` (leakage + output activations), `model_data`, `training_models`
 (loss decay + the wrapper), `sweep` (pure helpers + monkeypatched fit), `train`
-(run_training), `cli` (command registration + help smoke tests), and `trading`
-(types, config, safety, ledger, metrics, signals, memory, exposure, outcomes,
-forecast, cli). Still untested: `register.py`, `ui.py` — add tests for new code
-in those areas where reasonable.
+(run_training), `sqlite_store` (round-trip, idempotence, sanitize), `cli`
+(command registration + help smoke tests, incl. the `migrate-sqlite`
+subcommand), and `trading` (types, config, safety, ledger, metrics, signals,
+memory, exposure, outcomes, forecast, cli). Still untested: `register.py`,
+`ui.py` — add tests for new code in those areas where reasonable.
 
 **Established test convention:** deterministic, seeded, **CPU-safe and
 network-free**. Shared fixtures live in `tests/conftest.py` (`make_ohlcv`,

@@ -235,7 +235,7 @@ def test_keep_stocks_handles_duplicates_and_generators(parquet_dir, capsys):
 
 
 def test_stockhandler_sqlite_source_matches_parquet(parquet_dir, tmp_path):
-    base_path, paths = parquet_dir
+    base_path, _paths = parquet_dir
     db_path = str(tmp_path / "stocks.db")
     build_sqlite_store(base_path, db_path)
 

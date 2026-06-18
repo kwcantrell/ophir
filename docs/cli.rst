@@ -185,3 +185,23 @@ against the latest checkpoints.
    under ``.ophir/data/days/stocks``. Unlike ``serve``, the ``dashboard``
    module is import-safe (no network or checkpoint load at import time); its
    leakage check loads a checkpoint on demand and prefers CUDA when available.
+
+``ophir migrate-sqlite``
+------------------------
+
+Convert the per-ticker parquet tree into a single SQLite store
+(:func:`ophir.cli.migrate_sqlite`). Builds one table per ticker plus a
+``_tickers`` manifest; idempotent (skips tickers already present unless
+``--overwrite``).
+
+.. code-block:: bash
+
+   ophir migrate-sqlite [--src PATH] [--dst PATH] [--overwrite / --no-overwrite]
+
+================= =============================== ===================================
+Option            Default                          Description
+================= =============================== ===================================
+``--src``         ``<DATA_DIR>/days/stocks``       Parquet base directory.
+``--dst``         ``<DATA_DIR>/days/stocks.db``    Destination SQLite file.
+``--overwrite``   ``False``                        Rewrite tables already present.
+================= =============================== ===================================

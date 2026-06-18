@@ -152,7 +152,7 @@ def get_stock_tables(db_path: str) -> dict[str, str]:
     """
     with closing(sqlite3.connect(db_path)) as conn:
         rows = conn.execute("SELECT ticker, table_name FROM _tickers").fetchall()
-    return {ticker: table for ticker, table in rows}
+    return dict(rows)
 
 
 def read_stock_table(db_path: str, table_name: str) -> pd.DataFrame:

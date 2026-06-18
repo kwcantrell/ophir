@@ -16,6 +16,7 @@ see :doc:`../architecture` for its design.
    ophir.models
    ophir.training_models
    ophir.ticker
+   ophir.sqlite_store
    ophir.register
    ophir.train
    ophir.curation
