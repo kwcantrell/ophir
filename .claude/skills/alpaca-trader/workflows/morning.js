@@ -59,7 +59,7 @@ edge. notional is the dollar size you want (premium-at-risk for options). Do NOT
 place any order. Return the proposal object.`,
       { label: `analyze:${c.symbol}`, phase: 'Analyze', schema: PROPOSAL_SCHEMA },
     ),
-  (proposal, c, _i) => {
+  (proposal, _c, _i) => {
     if (!proposal || !proposal.recommend) return null
     return parallel(
       Array.from({ length: verifyVotes }, (_v) => () =>
