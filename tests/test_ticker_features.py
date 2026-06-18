@@ -15,9 +15,10 @@ from ophir.ticker import extract_features, extract_model_data
 def test_extract_features_column_layout(ohlcv_df, feature_cols):
     out = extract_features(ohlcv_df)
 
-    # 13 features + the trailing bool ``trade_occured`` flag (14 total).
-    assert list(out.columns) == [*feature_cols, "trade_occured"]
+    # 13 features + ``trade_occured`` + ``feature_valid`` (15 total).
+    assert list(out.columns) == [*feature_cols, "trade_occured", "feature_valid"]
     assert out["trade_occured"].dtype == np.bool_
+    assert out["feature_valid"].dtype == np.bool_
 
 
 def test_extract_features_reindexes_to_daily_calendar(ohlcv_df):
@@ -47,7 +48,7 @@ def test_extract_features_single_row(make_ohlcv, feature_cols):
     out = extract_features(make_ohlcv(n_days=1))
 
     assert len(out) == 1
-    assert list(out.columns) == [*feature_cols, "trade_occured"]
+    assert list(out.columns) == [*feature_cols, "trade_occured", "feature_valid"]
     assert bool(out["trade_occured"].iloc[0])
 
 
@@ -60,6 +61,20 @@ def test_extract_features_empty_input_early_return(empty_ohlcv_df, feature_cols)
     assert out.empty
     assert list(out.columns) == ["high", "low", "close", "volume", *feature_cols]
     assert "trade_occured" not in out.columns
+
+
+def test_extract_features_flags_rolling_warmup_as_invalid(ohlcv_df):
+    out = extract_features(ohlcv_df)
+
+    assert "feature_valid" in out.columns
+    assert out["feature_valid"].dtype == np.bool_
+    # The 60-day rolling features are undefined for the first 59 trading rows;
+    # those must be flagged invalid rather than silently zero-filled.
+    valid = out["feature_valid"]
+    trading = out["trade_occured"]
+    first_valid_trading_day = valid[trading].idxmax()
+    assert valid[trading].iloc[:59].sum() == 0
+    assert valid.loc[first_valid_trading_day]
 
 
 # --------------------------------------------------------------------------- #

@@ -14,8 +14,23 @@ from ophir.ticker import StockStreamer, extract_features, get_starts
 def test_streamer_size_matches_get_starts(ohlcv_df):
     streamer = StockStreamer(ohlc_df=ohlcv_df, seq_len=20, offset=5)
 
-    expected = get_starts(streamer.preprocessed_ohlc_df, 20, 5)
+    preprocessed = streamer.preprocessed_ohlc_df
+    first_valid = int(preprocessed["feature_valid"].to_numpy().argmax())
+    expected = get_starts(preprocessed, 20, 5, first_valid_row=first_valid)
     assert streamer.size == len(streamer) == len(expected)
+
+
+def test_streamer_first_window_starts_at_or_after_first_valid_row(ohlcv_df):
+    streamer = StockStreamer(ohlc_df=ohlcv_df, seq_len=20, offset=5)
+
+    preprocessed = streamer.preprocessed_ohlc_df
+    first_valid_pos = int(preprocessed["feature_valid"].to_numpy().argmax())
+    # The first start must not be before the first valid row.
+    assert streamer.starts[0] >= first_valid_pos
+    # Every row in the first window must be feature_valid or a padding row.
+    first_window = streamer[int(streamer.starts[0])]
+    trading_in_window = first_window[first_window["trade_occured"]]
+    assert trading_in_window["feature_valid"].all()
 
 
 def test_streamer_offset_minus_one_is_non_overlapping(ohlcv_df):
@@ -28,8 +43,8 @@ def test_streamer_offset_minus_one_is_non_overlapping(ohlcv_df):
     second = streamer.next()
     assert len(first) == 15
     assert len(second) == 15
-    # non-overlapping: starts stride by seq_len
-    np.testing.assert_array_equal(streamer.starts[:2], np.array([0, 15]))
+    # non-overlapping: consecutive starts stride by seq_len
+    assert streamer.starts[1] - streamer.starts[0] == 15
 
 
 def test_streamer_empty_frame(empty_ohlcv_df):

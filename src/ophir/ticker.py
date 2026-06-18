@@ -59,7 +59,9 @@ def get_stock_parquets(base_path: str) -> dict[str, str]:
     return stocks
 
 
-def get_starts(df: pd.DataFrame, seq_len: int, offset: int) -> np.ndarray[Any, Any]:
+def get_starts(
+    df: pd.DataFrame, seq_len: int, offset: int, first_valid_row: int = 0
+) -> np.ndarray[Any, Any]:
     """Compute window start indices spanning ``df``.
 
     Parameters
@@ -70,15 +72,18 @@ def get_starts(df: pd.DataFrame, seq_len: int, offset: int) -> np.ndarray[Any, A
         Window length.
     offset : int
         Stride between consecutive window starts.
+    first_valid_row : int, optional
+        Minimum start index; windows before this position contain warm-up
+        rows and are excluded. Defaults to ``0`` (no restriction).
 
     Returns
     -------
     numpy.ndarray
-        Integer start positions ``0, offset, 2·offset, …`` up to
-        ``len(df) - seq_len``.
+        Integer start positions ``first_valid_row, first_valid_row+offset, …``
+        up to ``len(df) - seq_len``.
     """
     num_start = max(0, len(df) - seq_len)
-    starts = np.arange(0, num_start, offset)
+    starts = np.arange(first_valid_row, num_start, offset)
     return starts
 
 
@@ -381,16 +386,26 @@ def extract_features(df: pd.DataFrame) -> pd.DataFrame:
     if df.empty:
         return df
 
+    # A row is "valid" only once every rolling feature is defined: the largest
+    # rolling window is 60, so the first 59 rows are warm-up. Capture this on the
+    # trading-day frame, before calendar padding adds non-trading rows.
+    largest_window = 60
+    valid = pd.Series(True, index=df.index)
+    valid.iloc[: largest_window - 1] = False
+
     calendar = pd.date_range(df.index.min(), df.index.max(), freq="D")
     df_pad = df.reindex(index=calendar)
 
     df_pad = add_feature("trade_occured", df_pad["close"].notna(), df_pad)
+    # Padding rows are never valid; warm-up rows were flagged above. Anything not
+    # explicitly valid (padding gaps) defaults to False.
+    df_pad["feature_valid"] = valid.reindex(calendar, fill_value=False)
 
     pad_value = 0.0
     for col in feature_cols:
         df_pad[col] = df_pad[col].fillna(pad_value)
 
-    return df_pad[feature_cols]
+    return df_pad[[*feature_cols, "feature_valid"]]
 
 
 @dataclass(kw_only=True)
@@ -434,7 +449,8 @@ class StockStreamer:
         if self.offset == -1:
             self.offset = self.seq_len
 
-        self.starts = get_starts(self.preprocessed_ohlc_df, self.seq_len, self.offset)
+        first_valid = int(self.preprocessed_ohlc_df["feature_valid"].to_numpy().argmax())
+        self.starts = get_starts(self.preprocessed_ohlc_df, self.seq_len, self.offset, first_valid)
 
     @property
     def size(self) -> int:
