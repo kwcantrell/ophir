@@ -114,3 +114,66 @@ def test_rejects_when_cash_floor_binds_to_zero() -> None:
     decision = evaluate_order(_order(notional=1_000.0), _snapshot(cash=20_000.0), CONFIG)
     assert decision.action is GateAction.REJECT
     assert any("cash floor" in r for r in decision.reasons)
+
+
+def test_resizes_to_sleeve_cap() -> None:
+    # core cap = 50% * 100k = 50_000; existing 49_500 -> 500 headroom
+    snap = _snapshot(sleeve_exposure={Sleeve.CORE: 49_500.0})
+    decision = evaluate_order(_order(notional=3_000.0), snap, CONFIG)
+    assert decision.action is GateAction.RESIZE
+    assert decision.approved_notional == 500.0
+    assert any("sleeve" in r for r in decision.reasons)
+
+
+def test_resizes_to_sector_cap() -> None:
+    # sector cap = 25% * 100k = 25_000; existing 24_500 -> 500 headroom
+    snap = _snapshot(sector_exposure={"Technology": 24_500.0})
+    decision = evaluate_order(_order(notional=3_000.0), snap, CONFIG)
+    assert decision.action is GateAction.RESIZE
+    assert decision.approved_notional == 500.0
+    assert any("sector" in r for r in decision.reasons)
+
+
+def test_resizes_to_deployment_cap() -> None:
+    # deployment cap = 80% * 100k = 80_000; MSFT at 79_500, AAPL order -> 500 headroom
+    snap = _snapshot(symbol_exposure={"MSFT": 79_500.0})
+    decision = evaluate_order(_order(symbol="AAPL", notional=3_000.0), snap, CONFIG)
+    assert decision.action is GateAction.RESIZE
+    assert decision.approved_notional == 500.0
+    assert any("deployment" in r for r in decision.reasons)
+
+
+def test_resizes_to_option_per_contract_cap() -> None:
+    # option per-contract cap = 2% * 100k = 2_000
+    order = _order(asset_class=AssetClass.OPTION, notional=3_000.0)
+    decision = evaluate_order(order, _snapshot(), CONFIG)
+    assert decision.action is GateAction.RESIZE
+    assert decision.approved_notional == 2_000.0
+    assert any("option per-contract" in r for r in decision.reasons)
+
+
+def test_resizes_to_total_option_premium_cap() -> None:
+    # total option premium cap = 10% * 100k = 10_000; existing 9_500 -> 500 headroom
+    # (below per-contract cap of 2_000, so premium cap is binding)
+    snap = _snapshot(option_premium_at_risk=9_500.0)
+    order = _order(asset_class=AssetClass.OPTION, notional=3_000.0)
+    decision = evaluate_order(order, snap, CONFIG)
+    assert decision.action is GateAction.RESIZE
+    assert decision.approved_notional == 500.0
+    assert any("total option premium" in r for r in decision.reasons)
+
+
+def test_sell_approved_on_kill_switch_day() -> None:
+    # day_pl = -5_000 = 5% down, past 2% halt threshold, but SELL bypasses kill-switch
+    snap = _snapshot(day_pl=-5_000.0)
+    decision = evaluate_order(_order(side=Side.SELL, notional=2_000.0), snap, CONFIG)
+    assert decision.action is GateAction.APPROVE
+    assert decision.approved_notional == 2_000.0
+
+
+def test_held_symbol_passes_through_at_max_positions() -> None:
+    # 15 open positions (at max), but AAPL is held -> not rejected
+    snap = _snapshot(open_position_count=15, held_symbols=frozenset({"AAPL"}))
+    decision = evaluate_order(_order(symbol="AAPL", notional=1_000.0), snap, CONFIG)
+    assert decision.action is GateAction.APPROVE
+    assert decision.approved_notional == 1_000.0
