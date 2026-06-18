@@ -30,3 +30,14 @@ def test_pca_projection_uses_full_embedding_dimension():
     # A non-degenerate projection has spread on every component; the old
     # double-mean collapsed embeddings to (B, 1), making components 2 and 3 zero.
     assert np.all(projected.std(axis=0) > 1e-6)
+
+
+def test_optional_identity_fields_default_to_none():
+    obj = OHLCMulitClassPredictorInput(
+        feature_input=torch.zeros(1, 4, 13),
+        response_size=torch.tensor(2),
+        trade_occured=torch.ones(1, 4, dtype=torch.bool),
+        targets=torch.zeros(1, 4, 3),
+    )
+    assert obj.stock_id is None
+    assert obj.date_ordinal is None

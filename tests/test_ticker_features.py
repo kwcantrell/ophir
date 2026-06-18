@@ -117,6 +117,15 @@ def test_extract_model_data_array_response_size_double_wraps(feature_window):
     assert torch.equal(md["response_size"], torch.tensor([[5]]))
 
 
+def test_extract_model_data_includes_identity_when_stock_id_given(feature_window):
+    payload = extract_model_data(feature_window, response_size=5, stock_id=7)
+
+    assert payload["stock_id"].item() == 7
+    assert payload["stock_id"].dtype == torch.long
+    assert payload["date_ordinal"].shape[0] == len(feature_window)
+    assert payload["date_ordinal"].dtype == torch.int64
+
+
 def test_np_bool_alias_available():
     # ``extract_model_data`` relies on ``np.bool`` (restored in numpy 2.0).
     # The project pins numpy>=2.2.6; this guard fails loudly on a downgrade.

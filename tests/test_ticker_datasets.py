@@ -2,6 +2,7 @@
 
 import numpy as np
 import pytest
+import torch
 
 from ophir.ticker import (
     StockHandlerDataset,
@@ -190,6 +191,19 @@ def test_handler_dataset_supports_multiple_passes(parquet_dir, mocker):
     pass_1 = list(ds)
     pass_2 = list(ds)
     assert len(pass_1) == len(pass_2) == expected_total
+
+
+def test_handler_dataset_yields_identity_when_enabled(parquet_dir, mocker):
+    base_path, _ = parquet_dir
+    mocker.patch("numpy.random.randint", return_value=0)
+    handler = _streamer_handler(base_path, seq_len=20, offset=20)
+    ds = StockHandlerDataset(handler, response_size=5, cache_size=1, return_identity=True)
+    payload = next(iter(ds))
+
+    assert "stock_id" in payload and "date_ordinal" in payload
+    assert payload["stock_id"].dtype == torch.long
+    # stock_id is a valid index into the handler's stock list.
+    assert 0 <= int(payload["stock_id"]) < len(handler)
 
 
 def test_handler_dataset_single_stock_cache_one(parquet_dir, mocker, capsys):

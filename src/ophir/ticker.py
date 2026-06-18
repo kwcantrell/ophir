@@ -427,6 +427,9 @@ class StockStreamer:
         Split history to back-adjust prices with.
     shuffle : bool, optional
         If ``True``, iterate windows in random order.
+    symbol : str, optional
+        The ticker symbol this streamer was built for; carried for the opt-in
+        eval identity path. Defaults to ``None``.
     """
 
     ohlc_df: pd.DataFrame
@@ -434,6 +437,7 @@ class StockStreamer:
     offset: int
     stock_split: StockSplit | None = None
     shuffle: bool = False
+    symbol: str | None = None
 
     def __post_init__(self) -> None:
         if len(self.ohlc_df) < 1:
@@ -721,6 +725,7 @@ class StockHanlder:
             offset=self.offset,
             shuffle=self.shuffle,
             stock_split=stock_split,
+            symbol=stock,
         )
 
 
@@ -728,6 +733,7 @@ def extract_model_data(
     df: pd.DataFrame,
     response_size: int | np.ndarray[Any, Any],
     return_date: bool = False,
+    stock_id: int | None = None,
 ) -> dict[str, Any]:
     """Package a feature window into the model's input tensors.
 
@@ -742,12 +748,18 @@ def extract_model_data(
         normalizes via ``squeeze``.
     return_date : bool, optional
         If ``True``, also include the ``time`` index. Defaults to ``False``.
+    stock_id : int, optional
+        If given, also include opt-in eval identity: ``stock_id`` (a 0-dim
+        ``long`` tensor) and ``date_ordinal`` (an int64 calendar-day ordinal of
+        shape ``(seq_len,)`` from ``df.index``). Defaults to ``None`` (the keys
+        are omitted, so the training path is unaffected).
 
     Returns
     -------
     dict
         Keys ``feature_input``, ``targets``, ``trade_occured``,
-        ``response_size`` (and ``time`` when ``return_date`` is set), suitable
+        ``response_size`` (and ``time`` when ``return_date`` is set, and
+        ``stock_id`` / ``date_ordinal`` when ``stock_id`` is given), suitable
         for :class:`~ophir.model_data.OHLCMulitClassPredictorInput`.
     """
     features = [c for c, d in zip(df.columns, df.dtypes, strict=False) if d != np.bool]
@@ -762,6 +774,10 @@ def extract_model_data(
     }
     if return_date:
         model_data["time"] = df.index.to_numpy()
+    if stock_id is not None:
+        model_data["stock_id"] = torch.tensor(stock_id, dtype=torch.long)
+        ordinals = df.index.to_numpy().astype("datetime64[D]").astype(np.int64)
+        model_data["date_ordinal"] = torch.from_numpy(ordinals)
     return model_data
 
 
@@ -818,7 +834,11 @@ class StockHandlerDataset(IterableDataset[dict[str, Any]]):
     """
 
     def __init__(
-        self, stock_hanlder: StockHanlder, response_size: int, cache_size: int = 1
+        self,
+        stock_hanlder: StockHanlder,
+        response_size: int,
+        cache_size: int = 1,
+        return_identity: bool = False,
     ) -> None:
         """Initialize the dataset.
 
@@ -830,10 +850,16 @@ class StockHandlerDataset(IterableDataset[dict[str, Any]]):
             Number of trailing days to predict.
         cache_size : int, optional
             Number of streamers kept active concurrently. Defaults to ``1``.
+        return_identity : bool, optional
+            If ``True``, each yielded payload also carries the opt-in eval
+            identity (``stock_id`` / ``date_ordinal``); see
+            :func:`extract_model_data`. Defaults to ``False`` so the training
+            path is unaffected.
         """
         self.stock_hanlder = stock_hanlder
         self.response_size = np.array([response_size])
         self.cache_size = cache_size
+        self.return_identity = return_identity
 
         print(
             f"Creating StockHandlerDataset with offset: {self.stock_hanlder.offset} "
@@ -861,21 +887,23 @@ class StockHandlerDataset(IterableDataset[dict[str, Any]]):
             step = num_workers
 
         processed_stocks = 0
-        cache: list[StockStreamer] = []
+        cache: list[tuple[int, StockStreamer]] = []
         cur_stock = 0
         shard_stock_indices = np.arange(start, len(self.stock_hanlder), step)
         while processed_stocks < len(shard_stock_indices):
             if len(cache) < self.cache_size and cur_stock < len(shard_stock_indices):
-                stock_ind = shard_stock_indices[cur_stock]
+                stock_ind = int(shard_stock_indices[cur_stock])
                 streamer = self.stock_hanlder[stock_ind]
-                cache.append(streamer)
+                cache.append((stock_ind, streamer))
                 cur_stock += 1
 
             cache_index = np.random.randint(len(cache))
+            stock_ind, streamer = cache[cache_index]
 
             try:
-                df = cache[cache_index].next()
-                yield extract_model_data(df, self.response_size)
+                df = streamer.next()
+                sid = stock_ind if self.return_identity else None
+                yield extract_model_data(df, self.response_size, stock_id=sid)
             except StopIteration:
                 processed_stocks += 1
                 cache.pop(cache_index)

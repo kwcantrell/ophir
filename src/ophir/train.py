@@ -246,6 +246,7 @@ def build_dataloader(
     batch_size: int,
     num_workers: int,
     cache_size: int,
+    return_identity: bool = False,
 ) -> DataLoader[dict[str, Any]]:
     """Wrap a handler in a streaming, worker-sharded :class:`DataLoader`.
 
@@ -262,6 +263,11 @@ def build_dataloader(
     cache_size : int
         Number of streamers kept active concurrently per worker (more = more
         cross-stock mixing).
+    return_identity : bool, optional
+        Forwarded to :class:`~ophir.ticker.StockHandlerDataset`; when ``True``
+        each batch also carries the opt-in eval identity (``stock_id`` /
+        ``date_ordinal``). Defaults to ``False`` so the training path is
+        unaffected (the default collate stacks the extra tensor fields).
 
     Returns
     -------
@@ -272,7 +278,12 @@ def build_dataloader(
 
     from ophir.ticker import StockHandlerDataset
 
-    dataset = StockHandlerDataset(handler, response_size=response_size, cache_size=cache_size)
+    dataset = StockHandlerDataset(
+        handler,
+        response_size=response_size,
+        cache_size=cache_size,
+        return_identity=return_identity,
+    )
     return DataLoader(dataset, batch_size=batch_size, num_workers=num_workers)
 
 

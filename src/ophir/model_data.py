@@ -30,6 +30,12 @@ class OHLCMulitClassPredictorInput:
         Shape ``(B, S, 3)`` model predictions (written by the model).
     time : numpy.ndarray, optional
         Timestamps for each day in ``feature_input``.
+    stock_id : torch.LongTensor, optional
+        Per-example integer stock id ``(B,)``, carried only on the eval path
+        (opt-in) so predictions can be grouped by ticker. ``None`` in training.
+    date_ordinal : torch.LongTensor, optional
+        Per-day calendar-day ordinal ``(B, S)``, carried only on the eval path
+        (opt-in) so a day's cross-section can be identified. ``None`` in training.
     stock_embeddings : torch.FloatTensor
         Pooled per-example stock embeddings (written by the model).
     """
@@ -40,6 +46,8 @@ class OHLCMulitClassPredictorInput:
     targets: torch.Tensor
     model_output: torch.Tensor | None = None
     time: np.ndarray[Any, Any] | None = None
+    stock_id: torch.Tensor | None = None
+    date_ordinal: torch.Tensor | None = None
     stock_embeddings: torch.Tensor | None = None
     return_full_targets: bool = False
     r_close_index: ClassVar[int] = 0

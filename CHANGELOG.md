@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Opt-in eval identity plumbing: `OHLCMulitClassPredictorInput` gains optional
+  `stock_id` / `date_ordinal` tensor fields (default `None`, mirroring `time`);
+  `extract_model_data(..., stock_id=...)` emits a 0-dim `long` `stock_id` and an
+  int64 `(seq_len,)` `date_ordinal` from the window index; `StockStreamer` gains
+  a `symbol` field; `StockHandlerDataset(..., return_identity=False)` and
+  `build_dataloader(..., return_identity=False)` thread the flag through. All
+  opt-in and off by default, so the training collate and path are byte-for-byte
+  unchanged. Covered by new tests in `tests/test_model_data.py`,
+  `tests/test_ticker_features.py`, and `tests/test_ticker_datasets.py`.
 - `prefix_last_observed` + `AccumulatedEval` (`ophir.evaluate`): the validation
   report now scores `upside`/`downside` against a persistence baseline. The new
   pure helper `prefix_last_observed(values, trade_occured, response_size)`
