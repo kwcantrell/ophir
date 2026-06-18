@@ -55,3 +55,45 @@ def test_rejects_non_positive_shortlist(tmp_path: Path) -> None:
     bad = {**VALID, "shortlist_size": 0}
     with pytest.raises(ConfigError, match="shortlist_size"):
         load_config(_write(tmp_path, bad))
+
+
+def test_rejects_zero_verify_votes(tmp_path: Path) -> None:
+    bad = {**VALID, "verify_votes": 0}
+    with pytest.raises(ConfigError, match="verify_votes"):
+        load_config(_write(tmp_path, bad))
+
+
+def test_rejects_negative_verify_votes(tmp_path: Path) -> None:
+    bad = {**VALID, "verify_votes": -1}
+    with pytest.raises(ConfigError, match="verify_votes"):
+        load_config(_write(tmp_path, bad))
+
+
+def test_rejects_bool_shortlist_size(tmp_path: Path) -> None:
+    bad = {**VALID, "shortlist_size": True}
+    with pytest.raises(ConfigError, match="shortlist_size"):
+        load_config(_write(tmp_path, bad))
+
+
+def test_rejects_bool_verify_votes(tmp_path: Path) -> None:
+    bad = {**VALID, "verify_votes": True}
+    with pytest.raises(ConfigError, match="verify_votes"):
+        load_config(_write(tmp_path, bad))
+
+
+def test_rejects_bool_max_open_positions(tmp_path: Path) -> None:
+    bad = {**VALID, "limits": {**VALID["limits"], "max_open_positions": True}}
+    with pytest.raises(ConfigError, match="max_open_positions"):
+        load_config(_write(tmp_path, bad))
+
+
+def test_rejects_zero_max_open_positions(tmp_path: Path) -> None:
+    bad = {**VALID, "limits": {**VALID["limits"], "max_open_positions": 0}}
+    with pytest.raises(ConfigError, match="max_open_positions"):
+        load_config(_write(tmp_path, bad))
+
+
+def test_rejects_invalid_depth(tmp_path: Path) -> None:
+    bad = {**VALID, "depth": "extreme"}
+    with pytest.raises(ConfigError, match="depth"):
+        load_config(_write(tmp_path, bad))
