@@ -50,17 +50,35 @@ if not os.path.exists(MODEL_DIR):
     os.makedirs(MODEL_DIR)
 
 
-def fetch_base_trainer(file_name: str | None = None) -> L.Trainer:
+def fetch_base_trainer(
+    file_name: str | None = None,
+    max_steps: int = 100000,
+    val_check_interval: int | float = 1.0,
+    limit_val_batches: int | float = 1.0,
+) -> L.Trainer:
     """Build the :class:`lightning.Trainer` used for base pre-training.
 
-    Configures mixed precision, CUDA acceleration, gradient clipping, a
-    TensorBoard logger, and two checkpoint callbacks: one that saves on a
-    fixed wall-clock interval and one that saves the best ``val_loss`` epoch.
+    Configures mixed precision, CUDA acceleration, gradient clipping, both a
+    TensorBoard and a CSV logger, and two checkpoint callbacks: one that saves
+    on a fixed wall-clock interval and one that saves the best ``val_loss``
+    epoch.
 
     Parameters
     ----------
     file_name : str, optional
         Base name for the checkpoint files. Defaults to :data:`BASE_NAME`.
+    max_steps : int, optional
+        Total number of optimizer steps. Should match the ``max_steps``
+        hyper-parameter passed to
+        :class:`~ophir.training_models.LightningOHLCPredictor` so the trainer
+        and the cosine schedule share one horizon. Defaults to ``100000``.
+    val_check_interval : int or float, optional
+        How often to run validation. An ``int`` validates every N optimizer
+        steps (decoupled from the epoch — preferred for the unsized streaming
+        dataset); a ``float`` is a fraction of an epoch. Defaults to ``1.0``.
+    limit_val_batches : int or float, optional
+        Cap on validation batches per validation pass, keeping step-based
+        validation cheap. Defaults to ``1.0`` (the whole validation set).
 
     Returns
     -------
@@ -70,7 +88,7 @@ def fetch_base_trainer(file_name: str | None = None) -> L.Trainer:
     """
     import lightning as L
     from lightning.pytorch.callbacks import LearningRateMonitor, ModelCheckpoint
-    from lightning.pytorch.loggers import TensorBoardLogger
+    from lightning.pytorch.loggers import CSVLogger, TensorBoardLogger
 
     if file_name is None:
         file_name = BASE_NAME
@@ -84,19 +102,18 @@ def fetch_base_trainer(file_name: str | None = None) -> L.Trainer:
         save_on_train_epoch_end=False,  # Prevents this callback from also saving at epoch end
     )
 
-    # 2. Checkpoint at the end of every epoch
-    # Checkpoints will be saved with a format like 'epoch_check-epoch={epoch}.ckpt'
+    # 2. Best-``val_loss`` checkpoint, evaluated whenever validation runs
+    # (step-based when ``val_check_interval`` is an int), not only at epoch end.
     epoch_checkpoint_callback = ModelCheckpoint(
         monitor="val_loss",
         dirpath=MODEL_DIR,
         filename=file_name + EPOCH_MODIFIER,
-        save_top_k=1,  # Saves at the end of every epoch
-        # To save all epoch checkpoints, or use 0 to save only the last
-        save_on_train_epoch_end=True,
+        save_top_k=1,  # keep only the best val_loss checkpoint
+        save_on_train_epoch_end=False,
     )
 
     trainer = L.Trainer(
-        max_steps=100000,
+        max_steps=max_steps,
         precision="16-mixed",
         default_root_dir=MODEL_DIR,
         accelerator="cuda",
@@ -105,7 +122,13 @@ def fetch_base_trainer(file_name: str | None = None) -> L.Trainer:
             epoch_checkpoint_callback,
             LearningRateMonitor("step"),
         ],
-        logger=TensorBoardLogger(MODEL_DIR, name="tensorboard-logger"),
+        logger=[
+            TensorBoardLogger(MODEL_DIR, name="tensorboard-logger"),
+            CSVLogger(MODEL_DIR, name="csv-logger", flush_logs_every_n_steps=10),
+        ],
+        val_check_interval=val_check_interval,
+        check_val_every_n_epoch=None if isinstance(val_check_interval, int) else 1,
+        limit_val_batches=limit_val_batches,
         gradient_clip_val=1,
         gradient_clip_algorithm="norm",
     )
@@ -116,7 +139,8 @@ def fetch_finetune_trainer() -> L.Trainer:
     """Build the :class:`lightning.Trainer` used for finetuning.
 
     Like :func:`fetch_base_trainer` but epoch-driven: it validates every epoch
-    and checkpoints every 25 epochs under :data:`FINETUNE_NAME`.
+    and checkpoints every 25 epochs under :data:`FINETUNE_NAME`. Logs to both
+    TensorBoard and CSV.
 
     Returns
     -------
@@ -125,7 +149,7 @@ def fetch_finetune_trainer() -> L.Trainer:
     """
     import lightning as L
     from lightning.pytorch.callbacks import LearningRateMonitor, ModelCheckpoint
-    from lightning.pytorch.loggers import TensorBoardLogger
+    from lightning.pytorch.loggers import CSVLogger, TensorBoardLogger
 
     trainer = L.Trainer(
         precision="16-mixed",
@@ -141,7 +165,10 @@ def fetch_finetune_trainer() -> L.Trainer:
             ),
             LearningRateMonitor("epoch"),
         ],
-        logger=TensorBoardLogger(MODEL_DIR, name="tensorboard-logger"),
+        logger=[
+            TensorBoardLogger(MODEL_DIR, name="tensorboard-logger"),
+            CSVLogger(MODEL_DIR, name="csv-logger", flush_logs_every_n_steps=10),
+        ],
         check_val_every_n_epoch=1,
     )
     return trainer

@@ -7,10 +7,12 @@ sub-application under ``register`` and adds the top-level ``serve`` command.
 
 import typer
 
-from ophir import register
+from ophir import register, train
 
 app = typer.Typer(help="Ophir CLI")
 app.add_typer(register.app, name="register")
+app.command()(train.train)
+app.command()(train.finetune)
 
 
 @app.command()
@@ -38,3 +40,36 @@ def serve(
     from ophir import ui
 
     ui.serve(port=port, share=share, debug=debug)
+
+
+@app.command()
+def dashboard(
+    port: int = typer.Option(7861, help="Gradio server port"),
+    share: bool = typer.Option(False, help="Expose a public share link"),
+    debug: bool = typer.Option(True, help="Launch Gradio in debug mode"),
+    model_dir: str | None = typer.Option(
+        None, help="Directory holding csv-logger metrics and checkpoints"
+    ),
+) -> None:
+    """Launch the live training dashboard.
+
+    Imports :mod:`ophir.dashboard` lazily and starts a Gradio server showing
+    per-target loss curves (read live from ``metrics.csv``) and an on-demand
+    response-block leakage check. Unlike ``serve`` the module is import-safe;
+    the leakage check loads a checkpoint and prefers CUDA when available.
+
+    Parameters
+    ----------
+    port : int, optional
+        Gradio server port. Defaults to ``7861``.
+    share : bool, optional
+        If ``True``, expose a public Gradio share link. Defaults to ``False``.
+    debug : bool, optional
+        If ``True``, launch Gradio in debug mode. Defaults to ``True``.
+    model_dir : str, optional
+        Directory holding the training metrics and checkpoints. Defaults to the
+        package model directory.
+    """
+    from ophir import dashboard as dashboard_ui
+
+    dashboard_ui.launch(port=port, share=share, debug=debug, model_dir=model_dir)

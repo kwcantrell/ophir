@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import math
 from typing import TYPE_CHECKING, Any, cast
 
 import lightning as L
 import torch
 import torch.nn.functional as F
+from lightning.pytorch.utilities import rank_zero_warn
 from transformers import get_cosine_schedule_with_warmup
 
 if TYPE_CHECKING:
@@ -27,7 +29,18 @@ class LightningOHLCPredictor(L.LightningModule):
     learning rate for the ReZero parameters).
     """
 
-    def __init__(self, emb_dim: int, num_layers: int, num_heads: int) -> None:
+    def __init__(
+        self,
+        emb_dim: int,
+        num_layers: int,
+        num_heads: int,
+        lr: float = 2e-4,
+        rezero_lr: float = 3e-4,
+        weight_decay: float = 0.01,
+        betas: tuple[float, float] = (0.9, 0.95),
+        warmup_ratio: float = 0.03,
+        max_steps: int = 100000,
+    ) -> None:
         """Build the wrapped predictor and save hyper-parameters.
 
         Parameters
@@ -39,12 +52,37 @@ class LightningOHLCPredictor(L.LightningModule):
             Number of transformer blocks.
         num_heads : int
             Number of attention heads.
+        lr : float, optional
+            AdamW learning rate for the decayed and bias/norm parameter groups.
+            Defaults to ``2e-4``.
+        rezero_lr : float, optional
+            Dedicated learning rate for the ReZero scalars. Defaults to
+            ``3e-4``.
+        weight_decay : float, optional
+            Weight decay for the decayed (dense weight) group. Defaults to
+            ``0.01``.
+        betas : tuple[float, float], optional
+            AdamW beta coefficients. Defaults to ``(0.9, 0.95)``.
+        warmup_ratio : float, optional
+            Fraction of total steps spent in linear warmup before the cosine
+            decay. Defaults to ``0.03``.
+        max_steps : int, optional
+            Scheduler horizon used only when the trainer cannot estimate the
+            total number of steps (e.g. an unsized ``IterableDataset`` driven by
+            ``max_epochs``). Defaults to ``100000``.
         """
         super().__init__()
         hparams: OHLCMulitClassParameters = OHLCMulitClassParameters(
             emb_dim=emb_dim, num_layers=num_layers, num_heads=num_heads
         )
         self.ohlc_predictor = OHLCMulitClassPredictor(hparams=hparams)
+
+        self.lr = lr
+        self.rezero_lr = rezero_lr
+        self.weight_decay = weight_decay
+        self.betas = betas
+        self.warmup_ratio = warmup_ratio
+        self.max_steps = max_steps
 
         self.save_hyperparameters()
         self._use_cache = False
@@ -208,12 +246,38 @@ class LightningOHLCPredictor(L.LightningModule):
 
         return loss
 
+    def _total_training_steps(self) -> int:
+        """Resolve the cosine scheduler's horizon in optimizer steps.
+
+        Prefers the trainer's own estimate (which accounts for ``max_steps`` /
+        ``max_epochs``, dataloader length, gradient accumulation, and device
+        count). The streaming :class:`~ophir.ticker.StockHandlerDataset` is an
+        unsized ``IterableDataset``, so an epoch-driven run (finetuning) cannot
+        be estimated; in that case fall back to the ``max_steps`` hyperparameter.
+
+        Returns
+        -------
+        int
+            The number of optimizer steps the cosine schedule decays over.
+        """
+        estimated = self.trainer.estimated_stepping_batches
+        if math.isfinite(estimated):
+            return int(estimated)
+        rank_zero_warn(
+            "Trainer could not estimate the total step count (unsized "
+            f"IterableDataset?); falling back to max_steps={self.max_steps} for "
+            "the cosine schedule."
+        )
+        return self.max_steps
+
     def configure_optimizers(self) -> OptimizerLRScheduler:
         """Configure AdamW with cosine warmup and ReZero-specific grouping.
 
         Parameters are split into three groups — weight-decayed dense
         weights, non-decayed (bias / norm) weights, and ReZero scalars (which
-        get their own learning rate).
+        get their own learning rate). All rates, decay, betas, and the warmup
+        fraction come from the constructor hyper-parameters, and the cosine
+        horizon is derived from the trainer (see :meth:`_total_training_steps`).
 
         Returns
         -------
@@ -229,21 +293,21 @@ class LightningOHLCPredictor(L.LightningModule):
             elif "rezero" not in name:
                 no_decay.append(p)
             else:
-                print(name)
                 rezero_params.append(p)
 
         optimizer = torch.optim.AdamW(
             [
-                {"params": decay, "weight_decay": 0.01},
+                {"params": decay, "weight_decay": self.weight_decay},
                 {"params": no_decay, "weight_decay": 0.0},
-                {"params": rezero_params, "lr": 3e-4, "weight_decay": 0.0},
+                {"params": rezero_params, "lr": self.rezero_lr, "weight_decay": 0.0},
             ],
-            lr=2e-4,
-            betas=(0.9, 0.95),
+            lr=self.lr,
+            betas=self.betas,
         )
-        steps = 100000
+        total_steps = self._total_training_steps()
+        warmup_steps = int(self.warmup_ratio * total_steps)
         scheduler = get_cosine_schedule_with_warmup(
-            optimizer, int(0.03 * steps), num_training_steps=steps
+            optimizer, warmup_steps, num_training_steps=total_steps
         )
         return {
             "optimizer": optimizer,

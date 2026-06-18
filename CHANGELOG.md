@@ -7,6 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-06-18
+
+### Added
+
+- In-repo training entrypoints `ophir train` (base pre-training) and
+  `ophir finetune` (`ophir.train`), wiring the streaming datasets to
+  `LightningOHLCPredictor` and the trainer factories — previously the only way
+  to train was an unversioned off-repo driver. The train/validation split is
+  **by date** with an embargo gap (`build_split_handlers`): disjoint year ranges
+  separated by at least `ceil(seq_len / 365)` skipped years so no window
+  straddles the boundary. Parameter guards reject invalid model dimensions up
+  front (including `emb_dim // num_heads < 16`, which PyTorch flex-attention
+  cannot compile on CUDA). The step budget is sized to the data by default —
+  `ophir train --epochs N` derives `max_steps = N * ceil(num_windows / batch_size)`
+  (so the cosine schedule anneals over the actual dataset) with `--max-steps`
+  available as an explicit override. `num_windows` is *estimated* from a
+  `--window-sample` of stocks rather than scanning the whole dataset, so sizing
+  is fast on large corpora. Validation is **step-based** (`--val-every-steps`,
+  bounded by `--val-batches`) instead of once per epoch, so `val_loss` is
+  reported frequently even when an epoch spans the entire dataset; the
+  best-`val_loss` checkpoint now saves whenever validation runs.
+- `ophir dashboard` (`ophir.dashboard`): a standalone, import-safe live training
+  dashboard with a per-target loss panel (read from the new `CSVLogger`
+  `metrics.csv`, auto-refreshing on a timer) and an on-demand response-block
+  leakage check against the latest checkpoint.
+- `ophir.leakage`: reusable leakage scorers — `response_block_leakage_score`
+  (CPU-safe, exercises only the masking helper) and `end_to_end_leakage_scores`
+  (per-target, full CUDA forward). Covered by `tests/test_leakage_score.py`.
+- A `CSVLogger` alongside the existing `TensorBoardLogger` in both trainer
+  factories, so training metrics are written to an easily parsed `metrics.csv`.
+
+### Changed
+
+- `LightningOHLCPredictor` now exposes the optimizer/scheduler hyper-parameters
+  (`lr`, `rezero_lr`, `weight_decay`, `betas`, `warmup_ratio`, `max_steps`) as
+  constructor arguments (saved with the checkpoint). `configure_optimizers` no
+  longer hardcodes a 100k-step cosine horizon — it is derived from
+  `trainer.estimated_stepping_batches`, falling back to `max_steps` for the
+  unsized streaming dataset. `fetch_base_trainer` gained a `max_steps` parameter
+  so the trainer and schedule share one horizon. New tests in
+  `tests/test_optimizer.py`.
+
 ## [0.2.0] - 2026-06-18
 
 ### Added
@@ -155,7 +197,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   value yields a rotation of π.
 - Model validation and minor fixes.
 
-[Unreleased]: https://github.com/kwcantrell/ophir/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/kwcantrell/ophir/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/kwcantrell/ophir/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/kwcantrell/ophir/compare/v0.1.7...v0.2.0
 [0.1.7]: https://github.com/kwcantrell/ophir/compare/v0.1.6...v0.1.7
 [0.1.6]: https://github.com/kwcantrell/ophir/compare/v0.1.5...v0.1.6

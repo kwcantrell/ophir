@@ -50,3 +50,75 @@ Argument       Description
 
 The stored key is later read by :func:`ophir.register.get_massive_client` to
 construct an authenticated ``massive.RESTClient``.
+
+``ophir train``
+---------------
+
+Pre-train a base model from scratch (:func:`ophir.train.train`). Builds a
+**by-date** train/validation split with an embargo gap (see
+:func:`ophir.train.build_split_handlers`), wires the streaming datasets to a
+:class:`~ophir.training_models.LightningOHLCPredictor`, and fits it with
+:func:`ophir.register.fetch_base_trainer`. ``--max-steps`` drives both the
+trainer and the cosine schedule.
+
+.. code-block:: bash
+
+   ophir train [--emb-dim INT] [--num-layers INT] [--num-heads INT]
+               [--seq-len INT] [--offset INT] [--response-size INT]
+               [--batch-size INT] [--num-workers INT] [--cache-size INT]
+               [--train-max-year INT] [--val-min-year INT]
+               [--max-steps INT] [--lr FLOAT] [--use-sp500 / --no-use-sp500]
+
+- ``--emb-dim`` (``128``) — token embedding size (multiple of 4; ``emb_dim // num_heads`` must be ≥ 16 for flex-attention).
+- ``--num-layers`` (``6``) — transformer blocks.
+- ``--num-heads`` (``8``) — attention heads.
+- ``--seq-len`` (``365``) — window length in calendar days (≤ 512).
+- ``--offset`` (``90``) — stride between window starts.
+- ``--response-size`` (``90``) — forecast horizon (trailing masked days).
+- ``--batch-size`` (``32``) — samples per batch.
+- ``--train-max-year`` (``2023``) — train upper year bound (exclusive).
+- ``--val-min-year`` (``2024``) — validation lower year bound (inclusive).
+- ``--epochs`` (``10``) — passes over the data; sizes the step budget when ``--max-steps`` is omitted.
+- ``--max-steps`` (auto) — explicit optimizer-step budget; defaults to ``epochs × ceil(num_windows / batch_size)``.
+- ``--window-sample`` (``256``) — stocks sampled to *estimate* ``num_windows`` (avoids a full data scan); ``≤ 0`` counts every stock exactly.
+- ``--val-every-steps`` (``500``) — run validation every N optimizer steps (decoupled from the epoch).
+- ``--val-batches`` (``50``) — max validation batches per validation pass.
+- ``--lr`` (``2e-4``) — AdamW learning rate.
+- ``--use-sp500`` (``False``) — restrict to S&P 500 symbols (network fetch).
+
+``ophir finetune``
+------------------
+
+Resume from the latest base checkpoint and finetune
+(:func:`ophir.train.finetune`). Same date-split data setup as ``train`` but the
+model is restored via :func:`ophir.register.load_base_model_ckpt` and fit with
+the epoch-driven :func:`ophir.register.fetch_finetune_trainer`.
+
+.. code-block:: bash
+
+   ophir finetune [--seq-len INT] [--response-size INT] [--batch-size INT]
+                  [--strict / --no-strict] [--time-version / --no-time-version]
+
+``ophir dashboard``
+-------------------
+
+Launch the live training dashboard (:func:`ophir.dashboard.launch`). Shows
+per-target loss curves read live from the ``CSVLogger`` ``metrics.csv`` and an
+on-demand response-block leakage check against the latest checkpoint.
+
+.. code-block:: bash
+
+   ophir dashboard [--port INTEGER] [--share / --no-share]
+                   [--debug / --no-debug] [--model-dir TEXT]
+
+- ``--port`` (``7861``) — Gradio server port (so it runs beside ``serve``).
+- ``--share`` (``False``) — expose a public Gradio share link.
+- ``--debug`` (``True``) — launch Gradio in debug mode.
+- ``--model-dir`` (none) — directory holding the metrics and checkpoints.
+
+.. note::
+
+   ``train`` and ``finetune`` require a CUDA GPU and the per-stock parquet tree
+   under ``.ophir/data/days/stocks``. Unlike ``serve``, the ``dashboard``
+   module is import-safe (no network or checkpoint load at import time); its
+   leakage check loads a checkpoint on demand and prefers CUDA when available.
