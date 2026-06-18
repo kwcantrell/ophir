@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-06-18
+
+### Fixed
+
+- `ophir serve` no longer crashes at startup when building the embedding
+  scatter plot. `build_embedding_figure` ran every S&P 500 ticker through the
+  model before checking its history length, so a ticker with fewer days than
+  the 90-day response horizon (e.g. FISV at 51) produced a negative prefix
+  slice in the response-block masking and raised a tensor-size mismatch. The
+  insufficient-history guard now runs before inference, so short-history
+  tickers are skipped and the dashboard launches.
+
 ## [0.4.0] - 2026-06-18
 
 ### Added
@@ -219,7 +231,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   value yields a rotation of π.
 - Model validation and minor fixes.
 
-[Unreleased]: https://github.com/kwcantrell/ophir/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/kwcantrell/ophir/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/kwcantrell/ophir/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/kwcantrell/ophir/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/kwcantrell/ophir/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/kwcantrell/ophir/compare/v0.1.7...v0.2.0
