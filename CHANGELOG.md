@@ -14,6 +14,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and for calendar-padding rows, `True` otherwise. `StockStreamer` uses this
   flag to skip warm-up rows when computing window start positions so no
   zero-filled warm-up features enter any training window.
+- `robust_scale` helper (`ophir.training_models`): computes a Gaussian-equivalent
+  scale from the median absolute deviation (`1.4826 * MAD`), floored at `1e-4`.
+  Each channel's smooth-L1 `beta` in `compute_loss` is now derived from the
+  MAD of its masked target so Huber's transition sits at the actual noise scale
+  rather than a hardcoded constant.
 
 ### Fixed
 

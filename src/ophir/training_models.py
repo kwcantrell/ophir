@@ -18,6 +18,20 @@ from .model_data import OHLCMulitClassPredictorInput
 from .models import OHLCMulitClassParameters, OHLCMulitClassPredictor
 
 
+def robust_scale(x: torch.Tensor, floor: float = 1e-4) -> float:
+    """Gaussian-equivalent scale of ``x`` via the median absolute deviation.
+
+    ``1.4826 * MAD`` matches the standard deviation for normal data but is
+    robust to the fat tails of daily returns. Returns ``floor`` for an empty or
+    zero-variance input so it is always safe as a smooth-L1 ``beta``.
+    """
+    if x.numel() == 0:
+        return floor
+    median = x.median()
+    mad = (x - median).abs().median()
+    return max(floor, float(1.4826 * mad.item()))
+
+
 # --------------------------------------------------------------------------- #
 #  Lightning wrapper
 # --------------------------------------------------------------------------- #
@@ -213,8 +227,12 @@ class LightningOHLCPredictor(L.LightningModule):
         mask = model_output.trade_occured[:, -model_output.response_size :]
         target_r_close = model_output.target_r_close
         predicted_r_close = model_output.predicted_r_close
+        masked_close_target = target_r_close[mask]
         close_loss = F.smooth_l1_loss(
-            predicted_r_close, target_r_close, beta=0.01, reduction="none"
+            predicted_r_close,
+            target_r_close,
+            beta=robust_scale(masked_close_target),
+            reduction="none",
         )
         weight = self._response_weights(
             int(model_output.response_size), close_loss.device, close_loss.dtype
@@ -233,7 +251,12 @@ class LightningOHLCPredictor(L.LightningModule):
         target_upside = model_output.target_upside
         predicted_upside = model_output.predicted_upside
         upside_loss = self._weighted_masked_mean(
-            F.smooth_l1_loss(predicted_upside, target_upside, beta=0.02, reduction="none"),
+            F.smooth_l1_loss(
+                predicted_upside,
+                target_upside,
+                beta=robust_scale(target_upside[mask]),
+                reduction="none",
+            ),
             weight,
             mask,
         )
@@ -249,7 +272,12 @@ class LightningOHLCPredictor(L.LightningModule):
         target_downside = model_output.target_downside
         predicted_downside = model_output.predicted_downside
         downside_loss = self._weighted_masked_mean(
-            F.smooth_l1_loss(predicted_downside, target_downside, beta=0.02, reduction="none"),
+            F.smooth_l1_loss(
+                predicted_downside,
+                target_downside,
+                beta=robust_scale(target_downside[mask]),
+                reduction="none",
+            ),
             weight,
             mask,
         )
