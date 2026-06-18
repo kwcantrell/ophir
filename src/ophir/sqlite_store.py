@@ -8,7 +8,21 @@ byte-identically to ``pandas.read_parquet``.
 
 from __future__ import annotations
 
+import json
 import re
+import sqlite3
+from contextlib import closing
+
+import pandas as pd  # type: ignore[import-untyped]
+
+from ophir.ticker import get_stock_parquets
+
+_MANIFEST_DDL = (
+    "CREATE TABLE IF NOT EXISTS _tickers ("
+    "ticker TEXT PRIMARY KEY, "
+    "table_name TEXT NOT NULL UNIQUE, "
+    "dtypes TEXT NOT NULL)"
+)
 
 
 def sanitize_table_name(ticker: str, used: set[str]) -> str:
@@ -39,3 +53,83 @@ def sanitize_table_name(ticker: str, used: set[str]) -> str:
         suffix += 1
     used.add(name)
     return name
+
+
+def _prepare_frame(df: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, str]]:
+    """Drop the redundant ``ticker`` column and encode datetimes as int64 ns.
+
+    Returns the storage-ready frame and the original column dtype map (in
+    column order) that :func:`read_stock_table` replays.
+    """
+    if "ticker" in df.columns:
+        df = df.drop(columns=["ticker"])
+    dtypes = {col: str(df[col].dtype) for col in df.columns}
+    for col, dtype in dtypes.items():
+        if dtype.startswith("datetime"):
+            df[col] = df[col].astype("int64")
+    return df, dtypes
+
+
+def build_sqlite_store(parquet_base: str, db_path: str, *, overwrite: bool = False) -> int:
+    """Convert a Hive-partitioned parquet tree into a SQLite store.
+
+    Each ticker becomes its own table; the ``_tickers`` manifest records the
+    ``ticker -> table_name`` mapping and the column dtypes needed to restore
+    frames identically to ``pandas.read_parquet``. Tickers already present are
+    skipped unless ``overwrite`` is set, so an interrupted run can resume.
+
+    Parameters
+    ----------
+    parquet_base : str
+        Directory of ``<key>=<symbol>`` partition dirs (as read by
+        :func:`ophir.ticker.get_stock_parquets`).
+    db_path : str
+        Destination SQLite file; created if absent.
+    overwrite : bool, optional
+        If ``True``, rewrite tables for tickers already in the manifest.
+
+    Returns
+    -------
+    int
+        The number of ticker tables written during this call.
+    """
+    stock_dict = get_stock_parquets(parquet_base)
+    with closing(sqlite3.connect(db_path)) as conn:
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=NORMAL")
+        conn.execute(_MANIFEST_DDL)
+
+        existing = {row[0] for row in conn.execute("SELECT ticker FROM _tickers")}
+        used = {row[0] for row in conn.execute("SELECT table_name FROM _tickers")}
+
+        written = 0
+        for ticker, parquet_path in stock_dict.items():
+            if ticker in existing and not overwrite:
+                continue
+
+            frame, dtypes = _prepare_frame(pd.read_parquet(parquet_path))
+
+            if ticker in existing:
+                old = conn.execute(
+                    "SELECT table_name FROM _tickers WHERE ticker = ?",
+                    (ticker,),
+                ).fetchone()[0]
+                conn.execute(f'DROP TABLE IF EXISTS "{old}"')
+                used.discard(old)
+                table = sanitize_table_name(ticker, used)
+                conn.execute(
+                    "UPDATE _tickers SET table_name = ?, dtypes = ? WHERE ticker = ?",
+                    (table, json.dumps(dtypes), ticker),
+                )
+            else:
+                table = sanitize_table_name(ticker, used)
+                conn.execute(
+                    "INSERT INTO _tickers (ticker, table_name, dtypes) VALUES (?, ?, ?)",
+                    (ticker, table, json.dumps(dtypes)),
+                )
+
+            frame.to_sql(table, conn, if_exists="replace", index=False)
+            written += 1
+
+        conn.commit()
+    return written
