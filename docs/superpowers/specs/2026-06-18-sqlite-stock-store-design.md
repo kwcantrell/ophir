@@ -62,16 +62,29 @@ source of truth rather than scraping `sqlite_master`.
 
 ## Schema
 
-**Manifest:**
+**Manifest** — also carries each table's column dtype map so the read path can
+restore the exact pandas dtypes (see "Round-trip fidelity"):
 
 ```sql
 CREATE TABLE _tickers (
-    ticker     TEXT PRIMARY KEY,    -- true symbol, e.g. "A.WD"
-    table_name TEXT NOT NULL UNIQUE -- sanitized, e.g. "t_A_WD"
+    ticker     TEXT PRIMARY KEY,     -- true symbol, e.g. "A.WD"
+    table_name TEXT NOT NULL UNIQUE, -- sanitized, e.g. "t_A_WD"
+    dtypes     TEXT NOT NULL         -- JSON {column: pandas-dtype-str}, write order
 );
 ```
 
-**Per-ticker table** mirrors the parquet columns exactly:
+**Per-ticker tables are created dynamically** by `pandas.DataFrame.to_sql`, so
+the converter is **column-agnostic** — it stores whatever columns the parquet
+holds. This matters because the real data has 8 columns
+(`volume, open, close, high, low, window_start, transactions, utc_time`) while
+the test fixture has only 5 (`utc_time, high, low, close, volume`), and column
+dtypes differ between them (real `volume` is `int32`; the fixture's is
+`float64`). Hard-coding a fixed `CREATE TABLE` or fixed per-column dtypes would
+break one or the other. The only column-specific rule is dropping `ticker` (the
+parquet dictionary column) when present — it is redundant (the table *is* the
+ticker) and unused by `stock_df`.
+
+Real data lands as, e.g.:
 
 ```sql
 CREATE TABLE "t_A" (
@@ -82,12 +95,9 @@ CREATE TABLE "t_A" (
     low           REAL,
     window_start  INTEGER,   -- epoch nanoseconds, as-is
     transactions  INTEGER,
-    utc_time      INTEGER     -- epoch nanoseconds (lossless)
+    utc_time      INTEGER     -- epoch nanoseconds (lossless; see below)
 );
 ```
-
-The `ticker` dictionary column from parquet is dropped — it is redundant (the
-table *is* the ticker) and unused by `stock_df`.
 
 **Sanitization:** `table_name = "t_" + re.sub(r"[^0-9A-Za-z]", "_", ticker)`; on
 collision append `_2`, `_3`, …. The `t_` prefix guarantees a valid identifier
@@ -95,18 +105,27 @@ even for all-numeric or reserved-word symbols.
 
 ## Round-trip fidelity
 
-The fidelity-critical column is **`utc_time`**. In parquet it is `timestamp[ns]`;
-`stock_df` relies on it being `datetime64[ns]` (it does `.max() - .min()` and
-`.dt.normalize()`). Naive `to_sql` would stringify it and risk dtype drift.
+SQLite has only INTEGER/REAL/TEXT affinity, so a naive `to_sql` round-trip
+loses pandas dtype detail (`int32` → `int64`) and mangles datetimes. The store
+therefore records each column's original pandas dtype string in the `_tickers`
+`dtypes` JSON at write time, in column order, and the read path replays it.
 
-- **On write:** store `utc_time` as `int64` epoch-ns (`df["utc_time"].view("int64")`).
-- **On read:** `read_stock_table` restores the exact dtypes the parquet path
-  yields — `volume`/`transactions` → `int32`, OHLC → `float64`, `window_start` →
-  `int64`, `utc_time` → `pd.to_datetime(col, unit="ns")`.
+- **On write:** capture `dtypes = {c: str(frame[c].dtype) for c in frame.columns}`
+  (after dropping `ticker`). Any datetime column (dtype starting with
+  `"datetime"`) is converted to `int64` epoch-ns via `.astype("int64")` before
+  `to_sql`, so it stores losslessly as INTEGER.
+- **On read:** `read_stock_table(db_path, table_name)` looks up the table's
+  `dtypes` JSON from `_tickers`, reads the table, and for each column: a
+  `"datetime"`-prefixed dtype is restored with `pd.to_datetime(col, unit="ns")`;
+  every other column is restored with `.astype(stored_dtype)`. Columns are
+  returned in the recorded write order.
 
-The contract is pinned by a test asserting
-`StockHanlder(source="sqlite").stock_df(t)` is `assert_frame_equal`-identical to
-`source="parquet"` on the same fixture.
+The fidelity-critical column is **`utc_time`** — `stock_df` relies on it being
+`datetime64[ns]` (it does `.max() - .min()` and `.dt.normalize()`), and the
+datetime branch above guarantees that. The whole contract is pinned by a test
+asserting `StockHanlder(source="sqlite").stock_df(t)` is
+`assert_frame_equal`-identical to `source="parquet"` on the same fixture, plus a
+raw `read_stock_table` vs `pd.read_parquet` equality check.
 
 ## Converter
 
@@ -115,8 +134,9 @@ The contract is pinned by a test asserting
 - Opens `db_path`, creates `_tickers` if absent.
 - Iterates `get_stock_parquets(parquet_base)` (reuses existing discovery so
   behavior matches the parquet path exactly), wrapped in `tqdm`.
-- For each ticker: read parquet → cast `utc_time` to int64 → drop `ticker`
-  column → `to_sql(table_name, ...)`; insert `(ticker, table_name)` into
+- For each ticker: read parquet → drop `ticker` column if present → capture the
+  column dtype map → convert datetime columns to int64 ns →
+  `to_sql(table_name, ...)`; insert `(ticker, table_name, dtypes_json)` into
   `_tickers`.
 - **Idempotent/resumable:** a ticker already in `_tickers` is skipped unless
   `overwrite=True`, so an interrupted 34k-table run can resume. Returns count
