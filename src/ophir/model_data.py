@@ -133,12 +133,12 @@ class OHLCMulitClassPredictorInput:
         Returns
         -------
         numpy.ndarray
-            A ``(B, 3)`` array of the embeddings (averaged over the sequence
-            axis) projected into the leading 3-D PCA subspace.
+            A ``(B, 3)`` array of the per-stock embeddings projected into the
+            leading 3-D PCA subspace.
         """
         assert self.stock_embeddings is not None
         with torch.no_grad():
-            stock_embeddings = self.stock_embeddings.mean(1)
+            stock_embeddings = self.stock_embeddings
             _u, _s, v = torch.pca_lowrank(stock_embeddings, q=3)
             transformed_data = torch.matmul(stock_embeddings, v)
         return transformed_data.cpu().numpy()

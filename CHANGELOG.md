@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `pca_projection()` was applying a redundant `.mean(1)` on stock embeddings
+  already pooled by the model, collapsing the embedding dimension to a scalar
+  and making the UI PCA projection degenerate. Removed the double-mean.
+
 ## [0.6.1] - 2026-06-18
 
 ### Changed
