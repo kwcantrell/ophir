@@ -14,6 +14,7 @@ def test_normalize_clamps() -> None:
     assert normalize(10.0, 0.0, 10.0) == pytest.approx(1.0)
     assert normalize(0.0, 0.0, 10.0) == pytest.approx(-1.0)
     assert normalize(-5.0, 0.0, 10.0) == pytest.approx(-1.0)
+    assert normalize(15.0, 0.0, 10.0) == pytest.approx(1.0)
     with pytest.raises(ValueError, match="lo"):
         normalize(1.0, 1.0, 1.0)
 
@@ -29,6 +30,12 @@ def test_blend_ophir_absent_renormalizes() -> None:
     # momentum=1, sentiment=-1, weights renormalize over 0.25/0.15
     expected = (0.25 * 1.0 + 0.15 * -1.0) / (0.25 + 0.15)
     assert blend_signals(None, 1.0, -1.0, w) == pytest.approx(expected)
+
+
+def test_blend_zero_weights_raises() -> None:
+    w = SignalWeights(ophir=0.0, momentum=0.0, sentiment=0.0)
+    with pytest.raises(ValueError, match="zero"):
+        blend_signals(None, 1.0, 1.0, w)
 
 
 def test_preset_weights_exist() -> None:
