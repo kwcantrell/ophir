@@ -169,3 +169,39 @@ def sweep(
         for rank, record in enumerate(results, start=1):
             typer.echo(f"\n## Rank {rank}: {record['config']}")
             typer.echo(format_report({"confirm": record["report"]}))
+
+
+@app.command()
+def migrate_sqlite(
+    src: str = typer.Option(None, help="Parquet base dir (default: <DATA_DIR>/days/stocks)"),
+    dst: str = typer.Option(
+        None, help="Destination SQLite file (default: <DATA_DIR>/days/stocks.db)"
+    ),
+    overwrite: bool = typer.Option(False, help="Rewrite tables for tickers already present"),
+) -> None:
+    """Convert the per-ticker parquet tree into a single SQLite store.
+
+    Builds one table per ticker plus a ``_tickers`` manifest. Idempotent:
+    tickers already present are skipped unless ``--overwrite`` is given.
+
+    Parameters
+    ----------
+    src : str, optional
+        Parquet base directory. Defaults to ``<DATA_DIR>/days/stocks``.
+    dst : str, optional
+        Destination SQLite file path. Defaults to ``<DATA_DIR>/days/stocks.db``.
+    overwrite : bool, optional
+        If ``True``, rewrite tables for tickers already present. Defaults to
+        ``False``.
+    """
+    import os
+
+    from ophir.register import get_default_data_days_dir
+    from ophir.sqlite_store import build_sqlite_store
+
+    days = get_default_data_days_dir()
+    src = src or os.path.join(days, "stocks")
+    dst = dst or os.path.join(days, "stocks.db")
+
+    written = build_sqlite_store(src, dst, overwrite=overwrite)
+    typer.echo(f"{written} tickers written")
