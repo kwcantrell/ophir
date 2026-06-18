@@ -48,15 +48,19 @@ _METRIC_ORDER = (
     "directional_accuracy",
     "skill_score",
     "skill_vs_persistence",
+    "rank_ic_mean",
+    "rank_ic_ir",
 )
 
 
 @dataclass
 class AccumulatedEval:
-    """Masked predictions/targets and per-channel persistence baselines."""
+    """Masked predictions/targets, persistence baselines, and r_close identity."""
 
     channels: dict[str, tuple[torch.Tensor, torch.Tensor]]
     baselines: dict[str, torch.Tensor] = field(default_factory=dict)
+    r_close_ids: torch.Tensor | None = None
+    r_close_dates: torch.Tensor | None = None
 
 
 def target_metrics(pred: torch.Tensor, target: torch.Tensor) -> dict[str, float]:
@@ -246,6 +250,30 @@ def rank_ic(pred: torch.Tensor, target: torch.Tensor, dates: list[str]) -> dict[
     }
 
 
+def dedupe_by_ticker_date(
+    pred: torch.Tensor, target: torch.Tensor, ids: torch.Tensor, dates: torch.Tensor
+) -> tuple[torch.Tensor, torch.Tensor, list[str]]:
+    """Keep one prediction per (ticker, date) so a day's cross-section is unique.
+
+    Overlapping windows can emit several predictions for the same ticker on the
+    same calendar day; rank-IC needs one row per name per day. Keeps the first
+    occurrence (stable order) and returns the per-row date as strings for
+    :func:`rank_ic`.
+    """
+    seen: set[tuple[int, int]] = set()
+    keep: list[int] = []
+    id_list = ids.tolist()
+    date_list = dates.tolist()
+    for i, (sid, day) in enumerate(zip(id_list, date_list, strict=True)):
+        key = (int(sid), int(day))
+        if key not in seen:
+            seen.add(key)
+            keep.append(i)
+    index = torch.tensor(keep, dtype=torch.long)
+    kept_dates = [str(int(date_list[i])) for i in keep]
+    return pred[index], target[index], kept_dates
+
+
 def accumulate_targets(
     model: LightningOHLCPredictor,
     dataloader: DataLoader[dict[str, object]],
@@ -280,13 +308,18 @@ def accumulate_targets(
         ``channels`` maps each of ``r_close`` / ``upside`` / ``downside`` to a
         ``(pred, target)`` pair of 1-D CPU tensors; ``baselines`` maps
         ``upside`` / ``downside`` to their persistence-baseline tensors aligned
-        row-for-row with the predictions.
+        row-for-row with the predictions. When the loader carries identity
+        (``return_identity=True``), ``r_close_ids`` / ``r_close_dates`` hold the
+        per-prediction ticker id and calendar-day ordinal aligned row-for-row
+        with the ``r_close`` channel (else ``None``).
     """
     model = model.cuda().eval()
     collected: dict[str, tuple[list[torch.Tensor], list[torch.Tensor]]] = {
         name: ([], []) for name in _TARGETS
     }
     baseline_lists: dict[str, list[torch.Tensor]] = {"upside": [], "downside": []}
+    id_lists: list[torch.Tensor] = []
+    date_lists: list[torch.Tensor] = []
     with torch.no_grad():
         for index, batch in enumerate(dataloader):
             if index >= max_batches:
@@ -308,12 +341,20 @@ def accumulate_targets(
                 base = prefix_last_observed(channel_values, output.trade_occured, rs)  # (B,)
                 base = base.unsqueeze(1).expand(-1, rs)  # (B, R)
                 baseline_lists[name].append(base[mask].reshape(-1).cpu())
+            # Opt-in identity, collected parallel to the r_close pred/target above.
+            if output.stock_id is not None and output.date_ordinal is not None:
+                resp_dates = output.date_ordinal[:, -rs:]  # (B, R)
+                ids_br = output.stock_id.view(-1, 1).expand(-1, rs)  # (B, R)
+                id_lists.append(ids_br[mask].reshape(-1).cpu())
+                date_lists.append(resp_dates[mask].reshape(-1).cpu())
     return AccumulatedEval(
         channels={
             name: (torch.cat(preds), torch.cat(targets))
             for name, (preds, targets) in collected.items()
         },
         baselines={name: torch.cat(b) for name, b in baseline_lists.items()},
+        r_close_ids=torch.cat(id_lists) if id_lists else None,
+        r_close_dates=torch.cat(date_lists) if date_lists else None,
     )
 
 
@@ -337,7 +378,8 @@ def evaluate_model(
     -------
     dict[str, dict[str, float]]
         ``{channel: metrics}``; the ``r_close`` entry additionally carries
-        ``directional_accuracy`` and ``skill_score``, and the
+        ``directional_accuracy`` and ``skill_score`` (and ``rank_ic_mean`` /
+        ``rank_ic_ir`` when the loader carries identity), and the
         ``upside``/``downside`` entries carry ``skill_vs_persistence`` (the
         skill score against the persistence baseline).
     """
@@ -353,6 +395,12 @@ def evaluate_model(
                 pred, target, acc.baselines[name]
             )
         results[name] = metrics
+    if acc.r_close_ids is not None and acc.r_close_dates is not None:
+        pred, target = acc.channels["r_close"]
+        dp, dt, dd = dedupe_by_ticker_date(pred, target, acc.r_close_ids, acc.r_close_dates)
+        ic = rank_ic(dp, dt, dd)
+        results["r_close"]["rank_ic_mean"] = ic["ic_mean"]
+        results["r_close"]["rank_ic_ir"] = ic["ic_ir"]
     return results
 
 
@@ -473,7 +521,14 @@ def evaluate(
         val_max_year=val_max_year,
         use_sp500=use_sp500,
     )
-    val_dl = build_dataloader(val_handler, response_size, batch_size, num_workers, cache_size)
+    val_dl = build_dataloader(
+        val_handler,
+        response_size,
+        batch_size,
+        num_workers,
+        cache_size,
+        return_identity=True,
+    )
 
     loaders: list[tuple[str, Callable[[], LightningOHLCPredictor]]]
     if finetuned:

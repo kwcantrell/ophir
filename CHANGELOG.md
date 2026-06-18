@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Cross-sectional rank-IC in the validation report (`ophir.evaluate`):
+  `accumulate_targets` now also collects per-`r_close`-prediction `(stock_id,
+  date)` identity (when the loader carries it), exposed as `r_close_ids` /
+  `r_close_dates` on `AccumulatedEval`. New pure helper
+  `dedupe_by_ticker_date(pred, target, ids, dates)` keeps the first prediction
+  per `(ticker, date)` (stable order) and returns the per-row date strings for
+  `rank_ic`. `evaluate_model` reports `rank_ic_mean` / `rank_ic_ir` for
+  `r_close`, and the `evaluate` command builds its loader with
+  `return_identity=True`. Covered by new tests in `tests/test_evaluate.py`.
 - Opt-in eval identity plumbing: `OHLCMulitClassPredictorInput` gains optional
   `stock_id` / `date_ordinal` tensor fields (default `None`, mirroring `time`);
   `extract_model_data(..., stock_id=...)` emits a 0-dim `long` `stock_id` and an

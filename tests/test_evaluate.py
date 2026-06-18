@@ -11,6 +11,7 @@ import torch
 
 from ophir.evaluate import (
     accumulate_targets,
+    dedupe_by_ticker_date,
     directional_accuracy,
     format_report,
     prefix_last_observed,
@@ -37,6 +38,8 @@ class _FakeModel:
             response_size=batch["response_size"],  # type: ignore[arg-type]
             trade_occured=batch["trade_occured"],  # type: ignore[arg-type]
             targets=batch["targets"],  # type: ignore[arg-type]
+            stock_id=batch.get("stock_id"),  # type: ignore[arg-type]
+            date_ordinal=batch.get("date_ordinal"),  # type: ignore[arg-type]
         )
         # Perfect predictions so error metrics are trivially checkable.
         obj.model_output = obj.targets.clone()
@@ -61,6 +64,50 @@ def test_accumulate_targets_reports_persistence_baseline() -> None:
     assert "upside" in acc.baselines
     # Last traded prefix upside value is col 1 -> 0.3, broadcast over the horizon.
     torch.testing.assert_close(acc.baselines["upside"], torch.tensor([0.3, 0.3]))
+
+
+def test_dedupe_keeps_first_per_ticker_date() -> None:
+    pred = torch.tensor([1.0, 2.0, 3.0])
+    target = torch.tensor([10.0, 20.0, 30.0])
+    ids = torch.tensor([5, 5, 6])
+    dates = torch.tensor([100, 100, 100])  # ticker 5 appears twice on day 100
+
+    dp, dt, dd = dedupe_by_ticker_date(pred, target, ids, dates)
+
+    assert dp.tolist() == [1.0, 3.0]  # second (5,100) dropped
+    assert dt.tolist() == [10.0, 30.0]
+    assert dd == ["100", "100"]
+
+
+def _toy_identity_batch() -> dict[str, object]:
+    # B=2 (two tickers), S=3, response_size=1. Same date so they form one day's
+    # cross-section; predictions rank the two names in target order.
+    targets = torch.tensor(
+        [
+            [[0.0, 0.1, 0.1], [0.0, 0.1, 0.1], [0.02, 0.1, 0.1]],
+            [[0.0, 0.1, 0.1], [0.0, 0.1, 0.1], [-0.01, 0.1, 0.1]],
+        ]
+    )
+    return {
+        "feature_input": torch.zeros(2, 3, 13),
+        "targets": targets,
+        "trade_occured": torch.ones(2, 3, dtype=torch.bool),
+        "response_size": torch.tensor(1),
+        "stock_id": torch.tensor([5, 6]),
+        "date_ordinal": torch.tensor([[10, 11, 12], [10, 11, 12]]),
+    }
+
+
+def test_evaluate_model_reports_rank_ic() -> None:
+    from ophir import evaluate as ev
+
+    model = _FakeModel()  # perfect predictions
+    out = ev.evaluate_model(model, [_toy_identity_batch()], max_batches=1)  # type: ignore[arg-type]
+
+    assert "rank_ic_mean" in out["r_close"]
+    # One day, two names, perfectly ranked -> IC is 1.0 (two distinct tickers on
+    # day 12 survive dedupe). float32 Spearman lands a hair above 1.0.
+    assert abs(out["r_close"]["rank_ic_mean"] - 1.0) < 1e-6
 
 
 def test_target_metrics_perfect_prediction_is_zero() -> None:
