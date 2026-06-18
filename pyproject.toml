@@ -61,6 +61,7 @@ ignore = [
     "ANN401",  # Any — needed for torch/whisper interop
     "B008",    # function calls in default args — conflicts with FastAPI Depends pattern
     "N812",    # `import lightning as L` / `torch.nn.functional as F` are standard aliases
+    "UP042",   # StrEnum requires Python 3.11+; use (str, Enum) mixin for 3.10 compat
 ]
 unfixable = [
     "F401",  # unused imports — don't auto-remove; files may be edited incrementally
