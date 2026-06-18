@@ -5,7 +5,15 @@ from pathlib import Path
 
 import typer
 
+from ophir.trading import metrics
 from ophir.trading.config import load_config
+from ophir.trading.ledger import (
+    append_decision,
+    ledger_path,
+    load_decisions,
+    record_from_dict,
+    record_to_dict,
+)
 from ophir.trading.safety import evaluate_order
 from ophir.trading.types import (
     AccountSnapshot,
@@ -86,3 +94,61 @@ def gate(
     )
     if decision.action is GateAction.REJECT:
         raise typer.Exit(code=1)
+
+
+@app.command()
+def record(
+    ledger_dir: Path = typer.Option(..., help="Ledger directory"),
+    month: str = typer.Option(..., help="YYYY-MM"),
+    decision: Path = typer.Option(..., help="Decision JSON file"),
+) -> None:
+    """Append one decision record to the ledger."""
+    rec = record_from_dict(json.loads(decision.read_text()))
+    append_decision(ledger_dir, month, rec)
+    typer.echo(json.dumps({"appended": True}))
+
+
+@app.command()
+def close(
+    ledger_dir: Path = typer.Option(..., help="Ledger directory"),
+    month: str = typer.Option(..., help="YYYY-MM"),
+    order_id: str = typer.Option(..., help="order_id to update"),
+    status: str = typer.Option(..., help="new status"),
+    realized_pl: float = typer.Option(..., help="realized P&L"),
+) -> None:
+    """Mark a decision closed/scored with its realized P&L."""
+    records = load_decisions(ledger_dir, month)
+    updated = 0
+    new_lines: list[str] = []
+    for rec in records:
+        data = record_to_dict(rec)
+        if rec.order_id == order_id:
+            data["status"] = status
+            data["realized_pl"] = realized_pl
+            data["scored"] = True
+            updated += 1
+        new_lines.append(json.dumps(data))
+    ledger_path(ledger_dir, month).write_text("\n".join(new_lines) + ("\n" if new_lines else ""))
+    typer.echo(json.dumps({"updated": updated}))
+
+
+@app.command()
+def performance(
+    equity_curve: Path = typer.Option(..., help="JSON array of equity values"),
+    out: Path = typer.Option(..., help="Output performance.md path"),
+) -> None:
+    """Compute portfolio metrics and write a performance.md snapshot."""
+    curve = [float(x) for x in json.loads(equity_curve.read_text())]
+    payload = {
+        "total_return": metrics.total_return(curve),
+        "sharpe": metrics.sharpe(metrics.daily_returns(curve)),
+        "max_drawdown": metrics.max_drawdown(curve),
+    }
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(
+        "# Performance\n\n"
+        f"- Total return: {payload['total_return']:.4f}\n"
+        f"- Sharpe: {payload['sharpe']:.4f}\n"
+        f"- Max drawdown: {payload['max_drawdown']:.4f}\n"
+    )
+    typer.echo(json.dumps(payload))
