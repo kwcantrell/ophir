@@ -55,6 +55,7 @@ def fetch_base_trainer(
     max_steps: int = 100000,
     val_check_interval: int | float = 1.0,
     limit_val_batches: int | float = 1.0,
+    extra_callbacks: list[L.Callback] | None = None,
 ) -> L.Trainer:
     """Build the :class:`lightning.Trainer` used for base pre-training.
 
@@ -79,6 +80,9 @@ def fetch_base_trainer(
     limit_val_batches : int or float, optional
         Cap on validation batches per validation pass, keeping step-based
         validation cheap. Defaults to ``1.0`` (the whole validation set).
+    extra_callbacks : list[lightning.Callback], optional
+        Additional callbacks appended to the default set (e.g. a sweep's
+        pruning callback). Defaults to ``None``.
 
     Returns
     -------
@@ -112,16 +116,20 @@ def fetch_base_trainer(
         save_on_train_epoch_end=False,
     )
 
+    callbacks: list[L.Callback] = [
+        time_checkpoint_callback,
+        epoch_checkpoint_callback,
+        LearningRateMonitor("step"),
+    ]
+    if extra_callbacks:
+        callbacks.extend(extra_callbacks)
+
     trainer = L.Trainer(
         max_steps=max_steps,
         precision="16-mixed",
         default_root_dir=MODEL_DIR,
         accelerator="cuda",
-        callbacks=[
-            time_checkpoint_callback,
-            epoch_checkpoint_callback,
-            LearningRateMonitor("step"),
-        ],
+        callbacks=callbacks,
         logger=[
             TensorBoardLogger(MODEL_DIR, name="tensorboard-logger"),
             CSVLogger(MODEL_DIR, name="csv-logger", flush_logs_every_n_steps=10),

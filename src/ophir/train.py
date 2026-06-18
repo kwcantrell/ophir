@@ -29,6 +29,7 @@ if TYPE_CHECKING:
     from torch.utils.data import DataLoader
 
     from ophir.ticker import StockHanlder
+    from ophir.training_models import LightningOHLCPredictor
 
 #: Calendar days per year; windows are sliced from a daily-calendar frame, so
 #: the embargo gap is measured in calendar (not trading) days.
@@ -287,7 +288,8 @@ def build_dataloader(
     return DataLoader(dataset, batch_size=batch_size, num_workers=num_workers)
 
 
-def train(
+def run_training(
+    *,
     emb_dim: int = 128,
     num_layers: int = 6,
     num_heads: int = 8,
@@ -313,73 +315,32 @@ def train(
     val_every_steps: int = 500,
     val_batches: int = 50,
     lr: float = 2e-4,
+    rezero_lr: float = 3e-4,
     weight_decay: float = 0.01,
+    betas: tuple[float, float] = (0.9, 0.95),
     warmup_ratio: float = 0.03,
     loss_decay: float = 0.6,
-) -> None:
-    """Pre-train a base :class:`LightningOHLCPredictor` from scratch.
+    upside_weight: float = 0.5,
+    downside_weight: float = 0.5,
+    val_identity: bool = False,
+    callbacks: list[Any] | None = None,
+    seed: int | None = None,
+) -> LightningOHLCPredictor:
+    """Build the date-split dataloaders, fit a model, and return it.
 
-    Builds date-split train/val dataloaders (see :func:`build_split_handlers`),
-    instantiates the model, and fits it with
-    :func:`~ophir.register.fetch_base_trainer`. Unless ``--max-steps`` is given,
-    the step budget is derived from the dataset:
-    ``epochs * ceil(num_windows / batch_size)``, where ``num_windows`` is
-    *estimated* from a sample of ``window_sample`` stocks
-    (:func:`estimate_windows`) so large datasets are not fully scanned. The
-    resolved value drives both the trainer and the cosine schedule.
-
-    Validation runs every ``val_every_steps`` optimizer steps over at most
-    ``val_batches`` batches, rather than once per (very long) epoch — so
-    ``val_loss`` is reported frequently and cheaply. Requires CUDA.
-
-    Parameters
-    ----------
-    emb_dim, num_layers, num_heads : int
-        Model architecture (``emb_dim`` multiple of 4 and divisible by
-        ``num_heads``).
-    seq_len, offset, response_size : int
-        Window length, stride, and forecast horizon.
-    batch_size, num_workers, cache_size : int
-        Dataloader configuration.
-    min_volume : float
-        Minimum average volume filter.
-    train_min_year, train_max_year, val_min_year, val_max_year : int or None
-        Date-split year ranges (``max_year`` exclusive); the gap must embargo at
-        least one window length.
-    data_dir : str, optional
-        Override the data directory (defaults to the package ``.ophir/data/days``).
-    use_sp500 : bool
-        Restrict to S&P 500 symbols (network fetch). Defaults to ``False``.
-    use_quality_allowlist : bool
-        Restrict to the curated allowlist from ``ophir curate``. Defaults to
-        ``False``.
-    clean_rows : bool
-        Drop zero-volume and return-spike rows per stock. Defaults to ``False``.
-    max_abs_r_close : float
-        Return-spike threshold used when ``clean_rows`` is set. Defaults to
-        ``0.75``.
-    epochs : int
-        Number of passes over the data, used to derive ``max_steps`` when it is
-        not given. Defaults to ``10``.
-    max_steps : int, optional
-        Explicit optimizer-step budget. When ``None`` (default) it is computed
-        from the (estimated) dataset size and ``epochs``.
-    window_sample : int
-        Number of stocks sampled to estimate the dataset size. Set ``<= 0`` to
-        count every stock exactly (a full data pass). Defaults to ``256``.
-    val_every_steps : int
-        Run validation every this many optimizer steps. Defaults to ``500``.
-    val_batches : int
-        Maximum validation batches per validation pass. Defaults to ``50``.
-    lr, weight_decay, warmup_ratio : float
-        Optimizer / scheduler hyper-parameters.
-    loss_decay : float
-        Time-decay weight of the furthest-future forecast day relative to the
-        nearest, in ``(0, 1]``; nearer-term errors are punished more. ``1.0``
-        disables the decay (uniform loss). Defaults to ``0.6``.
+    The reusable engine behind ``ophir train`` and the sweep harness. When
+    ``val_identity`` is set the validation loader carries opt-in identity so the
+    model logs ``val_rank_ic``; ``callbacks`` are appended to the base trainer
+    (e.g. a sweep pruning callback); ``seed`` seeds Lightning for reproducible
+    trials. Requires CUDA.
     """
+    import lightning as L
+
     from ophir import register
     from ophir.training_models import LightningOHLCPredictor
+
+    if seed is not None:
+        L.seed_everything(seed, workers=True)
 
     _validate_dims(emb_dim, num_heads, seq_len, response_size)
 
@@ -415,24 +376,119 @@ def train(
         )
 
     train_dl = build_dataloader(train_handler, response_size, batch_size, num_workers, cache_size)
-    val_dl = build_dataloader(val_handler, response_size, batch_size, num_workers, cache_size)
+    val_dl = build_dataloader(
+        val_handler,
+        response_size,
+        batch_size,
+        num_workers,
+        cache_size,
+        return_identity=val_identity,
+    )
 
     model = LightningOHLCPredictor(
         emb_dim=emb_dim,
         num_layers=num_layers,
         num_heads=num_heads,
         lr=lr,
+        rezero_lr=rezero_lr,
         weight_decay=weight_decay,
+        betas=betas,
         warmup_ratio=warmup_ratio,
         max_steps=max_steps,
         loss_decay=loss_decay,
+        upside_weight=upside_weight,
+        downside_weight=downside_weight,
     )
     trainer = register.fetch_base_trainer(
         max_steps=max_steps,
         val_check_interval=val_every_steps,
         limit_val_batches=val_batches,
+        extra_callbacks=callbacks,
     )
     trainer.fit(model, train_dataloaders=train_dl, val_dataloaders=val_dl)
+    return model
+
+
+def train(
+    emb_dim: int = 128,
+    num_layers: int = 6,
+    num_heads: int = 8,
+    seq_len: int = 365,
+    offset: int = 90,
+    response_size: int = 90,
+    batch_size: int = 32,
+    num_workers: int = 4,
+    cache_size: int = 8,
+    min_volume: float = 1000.0,
+    train_min_year: int | None = None,
+    train_max_year: int = 2023,
+    val_min_year: int = 2024,
+    val_max_year: int | None = None,
+    data_dir: str | None = None,
+    use_sp500: bool = False,
+    use_quality_allowlist: bool = False,
+    clean_rows: bool = False,
+    max_abs_r_close: float = 0.75,
+    epochs: int = 10,
+    max_steps: int | None = None,
+    window_sample: int = 256,
+    val_every_steps: int = 500,
+    val_batches: int = 50,
+    lr: float = 2e-4,
+    rezero_lr: float = 3e-4,
+    weight_decay: float = 0.01,
+    beta1: float = 0.9,
+    beta2: float = 0.95,
+    warmup_ratio: float = 0.03,
+    loss_decay: float = 0.6,
+    upside_weight: float = 0.5,
+    downside_weight: float = 0.5,
+    val_identity: bool = False,
+    seed: int | None = None,
+) -> None:
+    """Pre-train a base :class:`LightningOHLCPredictor` from scratch.
+
+    Thin CLI wrapper over :func:`run_training`; see it for the engine details.
+    Validation runs every ``val_every_steps`` optimizer steps over at most
+    ``val_batches`` batches. Pass ``--val-identity`` to also log ``val_rank_ic``.
+    Requires CUDA.
+    """
+    run_training(
+        emb_dim=emb_dim,
+        num_layers=num_layers,
+        num_heads=num_heads,
+        seq_len=seq_len,
+        offset=offset,
+        response_size=response_size,
+        batch_size=batch_size,
+        num_workers=num_workers,
+        cache_size=cache_size,
+        min_volume=min_volume,
+        train_min_year=train_min_year,
+        train_max_year=train_max_year,
+        val_min_year=val_min_year,
+        val_max_year=val_max_year,
+        data_dir=data_dir,
+        use_sp500=use_sp500,
+        use_quality_allowlist=use_quality_allowlist,
+        clean_rows=clean_rows,
+        max_abs_r_close=max_abs_r_close,
+        epochs=epochs,
+        max_steps=max_steps,
+        window_sample=window_sample,
+        val_every_steps=val_every_steps,
+        val_batches=val_batches,
+        lr=lr,
+        rezero_lr=rezero_lr,
+        weight_decay=weight_decay,
+        betas=(beta1, beta2),
+        warmup_ratio=warmup_ratio,
+        loss_decay=loss_decay,
+        upside_weight=upside_weight,
+        downside_weight=downside_weight,
+        val_identity=val_identity,
+        seed=seed,
+    )
 
 
 def finetune(

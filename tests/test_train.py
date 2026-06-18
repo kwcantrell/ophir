@@ -5,10 +5,13 @@ paths require the parquet tree and a CUDA GPU, so they are exercised by the
 end-to-end run rather than here.
 """
 
+from typing import Any
+
 import pytest
 import typer
 
 from ophir import train
+from ophir.training_models import LightningOHLCPredictor
 
 
 def test_validate_dims_rejects_non_multiple_of_four() -> None:
@@ -112,3 +115,62 @@ def test_build_split_handlers_requires_two_year_gap_for_long_window() -> None:
             val_max_year=None,
             use_sp500=False,
         )
+
+
+class _FakeTrainer:
+    def __init__(self) -> None:
+        self.fitted_model: LightningOHLCPredictor | None = None
+
+    def fit(self, model: LightningOHLCPredictor, **_: Any) -> None:
+        self.fitted_model = model
+
+
+@pytest.fixture
+def patched_engine(monkeypatch: pytest.MonkeyPatch) -> _FakeTrainer:
+    """Stub out data + trainer so run_training builds a real CPU model only."""
+    trainer = _FakeTrainer()
+    monkeypatch.setattr(train, "build_split_handlers", lambda **_: ("train_h", "val_h"))
+    monkeypatch.setattr(train, "build_dataloader", lambda *a, **k: "loader")
+    monkeypatch.setattr(train, "estimate_windows", lambda *a, **k: 1000)
+    monkeypatch.setattr(train, "_validate_dims", lambda *a, **k: None)
+    from ophir import register
+
+    monkeypatch.setattr(register, "fetch_base_trainer", lambda **_: trainer)
+    monkeypatch.setattr(register, "get_default_data_days_dir", lambda: "/tmp")
+    return trainer
+
+
+def test_run_training_forwards_hyperparameters(patched_engine: _FakeTrainer) -> None:
+    model = train.run_training(
+        emb_dim=16,
+        num_layers=1,
+        num_heads=2,
+        lr=1e-3,
+        rezero_lr=5e-4,
+        weight_decay=0.05,
+        betas=(0.9, 0.98),
+        upside_weight=0.4,
+        downside_weight=0.7,
+        loss_decay=0.5,
+    )
+    assert model is patched_engine.fitted_model
+    assert model.lr == 1e-3
+    assert model.rezero_lr == 5e-4
+    assert model.betas == (0.9, 0.98)
+    assert model.upside_weight == 0.4
+    assert model.downside_weight == 0.7
+
+
+def test_run_training_passes_val_identity(
+    monkeypatch: pytest.MonkeyPatch, patched_engine: _FakeTrainer
+) -> None:
+    calls: list[bool] = []
+
+    def fake_loader(*_a: Any, return_identity: bool = False, **_k: Any) -> str:
+        calls.append(return_identity)
+        return "loader"
+
+    monkeypatch.setattr(train, "build_dataloader", fake_loader)
+    train.run_training(emb_dim=16, num_layers=1, num_heads=2, val_identity=True)
+    # Two loaders built (train, val); the val one carries identity.
+    assert calls == [False, True]
