@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `rank_ic` / `_spearman` (`ophir.evaluate`): pure, CPU-safe daily
+  cross-sectional rank-IC metric. `rank_ic(pred, target, dates)` groups
+  predictions and targets by day label, computes the Spearman rank correlation
+  within each cross-section, and returns `{"ic_mean", "ic_std", "ic_ir",
+  "n_days"}`. Covered by two new unit tests in `tests/test_evaluate.py`.
+
 - `apply_output_activations` (module-level, `ophir.models`): passes `r_close`
   through unchanged and applies `softplus` to the `upside` and `downside`
   channels so the two log-magnitude heads are guaranteed non-negative. Negative

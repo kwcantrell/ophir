@@ -117,6 +117,68 @@ def skill_score(pred: torch.Tensor, target: torch.Tensor) -> float:
     return float(1.0 - rmse_model / rmse_baseline)
 
 
+def _spearman(pred: torch.Tensor, target: torch.Tensor) -> float:
+    """Spearman rank correlation of two 1-D tensors (nan if < 2 points)."""
+    if pred.numel() < 2:
+        return float("nan")
+    pr = pred.argsort().argsort().float()
+    tr = target.argsort().argsort().float()
+    pr = pr - pr.mean()
+    tr = tr - tr.mean()
+    denom = pr.norm() * tr.norm()
+    if denom == 0:
+        return float("nan")
+    return float((pr @ tr / denom).item())
+
+
+def rank_ic(pred: torch.Tensor, target: torch.Tensor, dates: list[str]) -> dict[str, float]:
+    """Daily cross-sectional rank information coefficient.
+
+    Groups predictions/targets by ``dates`` and computes the Spearman rank
+    correlation within each day, then summarises across days. ``ic_ir`` is the
+    information ratio ``ic_mean / ic_std`` (annualisable by the caller).
+
+    Parameters
+    ----------
+    pred, target : torch.Tensor
+        1-D tensors of equal length holding predictions and ground-truth
+        values across all days.
+    dates : list[str]
+        Day label for each element; rows sharing a label form one cross-section.
+
+    Returns
+    -------
+    dict[str, float]
+        ``ic_mean``, ``ic_std``, ``ic_ir``, and ``n_days`` (the number of days
+        with at least two observations and a finite Spearman correlation).
+    """
+    by_day: dict[str, list[int]] = {}
+    for i, d in enumerate(dates):
+        by_day.setdefault(d, []).append(i)
+    ics: list[float] = []
+    for idx in by_day.values():
+        sel = torch.tensor(idx)
+        ic = _spearman(pred[sel], target[sel])
+        if ic == ic:  # skip nan days
+            ics.append(ic)
+    if not ics:
+        return {
+            "ic_mean": float("nan"),
+            "ic_std": float("nan"),
+            "ic_ir": float("nan"),
+            "n_days": 0.0,
+        }
+    t = torch.tensor(ics)
+    mean = float(t.mean().item())
+    std = float(t.std(unbiased=False).item())
+    return {
+        "ic_mean": mean,
+        "ic_std": std,
+        "ic_ir": mean / std if std > 0 else float("nan"),
+        "n_days": float(len(ics)),
+    }
+
+
 def accumulate_targets(
     model: LightningOHLCPredictor,
     dataloader: DataLoader[dict[str, object]],

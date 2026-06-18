@@ -12,6 +12,7 @@ import torch
 from ophir.evaluate import (
     directional_accuracy,
     format_report,
+    rank_ic,
     skill_score,
     target_metrics,
 )
@@ -118,3 +119,26 @@ def test_format_report_two_checkpoints_side_by_side() -> None:
     report = format_report({"best-val": base, "time-interval": base})
 
     assert "| metric | best-val | time-interval |" in report
+
+
+def test_rank_ic_perfect_daily_ranking() -> None:
+    # Two days, three names each; predictions rank names identically to targets.
+    dates = ["d1", "d1", "d1", "d2", "d2", "d2"]
+    target = torch.tensor([0.03, 0.01, -0.02, -0.01, 0.04, 0.00])
+    pred = torch.tensor([3.0, 2.0, 1.0, 1.0, 3.0, 2.0])  # same within-day order
+
+    result = rank_ic(pred, target, dates)
+
+    assert result["n_days"] == 2
+    assert abs(result["ic_mean"] - 1.0) < 1e-6
+    assert result["ic_std"] < 1e-6
+
+
+def test_rank_ic_inverted_ranking_is_negative() -> None:
+    dates = ["d1", "d1", "d1"]
+    target = torch.tensor([0.03, 0.01, -0.02])
+    pred = torch.tensor([-3.0, -2.0, -1.0])  # exactly reversed
+
+    result = rank_ic(pred, target, dates)
+
+    assert abs(result["ic_mean"] + 1.0) < 1e-6
