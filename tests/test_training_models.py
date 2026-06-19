@@ -112,3 +112,23 @@ def test_reset_rezero_restores_configured_init() -> None:
     model.reset_rezero()
     for block in model.ohlc_predictor.encoder:
         assert abs(float(block._rezero.detach()) - 0.1) < 1e-6
+
+
+def test_log_rezero_gates_logs_when_enabled() -> None:
+    logged: dict[str, float] = {}
+    model = LightningOHLCPredictor(
+        emb_dim=16, num_layers=2, num_heads=2, rezero_init=0.1, log_rezero_gates=True
+    )
+    model.log = lambda name, value, **kw: logged.__setitem__(name, float(value))  # type: ignore[method-assign]
+    # Bypass the val_rank_ic branch (needs a trainer); it is guarded by empty buffers.
+    model.on_validation_epoch_end()
+    assert abs(logged["rezero_mean_abs"] - 0.1) < 1e-6
+    assert abs(logged["rezero_max_abs"] - 0.1) < 1e-6
+
+
+def test_log_rezero_gates_silent_when_disabled() -> None:
+    logged: dict[str, float] = {}
+    model = LightningOHLCPredictor(emb_dim=16, num_layers=2, num_heads=2)
+    model.log = lambda name, value, **kw: logged.__setitem__(name, float(value))  # type: ignore[method-assign]
+    model.on_validation_epoch_end()
+    assert "rezero_mean_abs" not in logged

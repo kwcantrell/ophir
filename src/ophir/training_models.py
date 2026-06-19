@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from lightning.pytorch.utilities.types import OptimizerLRScheduler
 
 from .model_data import OHLCMulitClassPredictorInput
-from .models import OHLCMulitClassParameters, OHLCMulitClassPredictor
+from .models import OHLCMulitClassParameters, OHLCMulitClassPredictor, rezero_gate_stats
 
 
 def robust_scale(x: torch.Tensor, floor: float = 1e-4) -> float:
@@ -80,6 +80,7 @@ class LightningOHLCPredictor(L.LightningModule):
         close_weight: float = 1.0,
         upside_weight: float = 0.5,
         downside_weight: float = 0.5,
+        log_rezero_gates: bool = False,
     ) -> None:
         """Build the wrapped predictor and save hyper-parameters.
 
@@ -130,6 +131,10 @@ class LightningOHLCPredictor(L.LightningModule):
         downside_weight : float, optional
             Weight of the downside channel in the combined loss (normalized by
             the weight sum; see ``close_weight``). Defaults to ``0.5``.
+        log_rezero_gates : bool, optional
+            When ``True``, log ``rezero_mean_abs`` / ``rezero_max_abs`` each
+            validation pass so the gate magnitudes are visible. Defaults to
+            ``False`` (default CSV columns unchanged).
         """
         super().__init__()
         hparams: OHLCMulitClassParameters = OHLCMulitClassParameters(
@@ -148,6 +153,7 @@ class LightningOHLCPredictor(L.LightningModule):
         self.close_weight = close_weight
         self.upside_weight = upside_weight
         self.downside_weight = downside_weight
+        self.log_rezero_gates = log_rezero_gates
 
         self.save_hyperparameters()
         self.loss_state = "train"
@@ -429,6 +435,12 @@ class LightningOHLCPredictor(L.LightningModule):
         ``date_ordinal``); without it the buffers stay empty and nothing is
         logged, so the default training path is unchanged.
         """
+        if self.log_rezero_gates:
+            stats = rezero_gate_stats(self.ohlc_predictor)
+            self.log(
+                "rezero_mean_abs", cast("float", stats["mean_abs"]), on_epoch=True, logger=True
+            )
+            self.log("rezero_max_abs", cast("float", stats["max_abs"]), on_epoch=True, logger=True)
         preds = self._val_ic_buffers["pred"]
         if preds:
             ic = val_rank_ic(
