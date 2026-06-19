@@ -132,3 +132,39 @@ def test_log_rezero_gates_silent_when_disabled() -> None:
     model.log = lambda name, value, **kw: logged.__setitem__(name, float(value))  # type: ignore[method-assign]
     model.on_validation_epoch_end()
     assert "rezero_mean_abs" not in logged
+
+
+def test_lr_factor_helpers() -> None:
+    from ophir.training_models import _cosine_factor, _flat_factor
+
+    # Warmup ramps linearly for both.
+    assert abs(_cosine_factor(0, 10, 100) - 0.0) < 1e-9
+    assert abs(_cosine_factor(5, 10, 100) - 0.5) < 1e-9
+    assert abs(_flat_factor(5, 10) - 0.5) < 1e-9
+    # End of training: cosine decays to ~0, flat stays at 1.0.
+    assert _cosine_factor(100, 10, 100) < 1e-6
+    assert abs(_flat_factor(100, 10) - 1.0) < 1e-9
+    # Start of decay (just past warmup): cosine ~1.0.
+    assert abs(_cosine_factor(10, 10, 100) - 1.0) < 1e-6
+
+
+def test_decoupled_schedule_keeps_rezero_flat() -> None:
+    model = LightningOHLCPredictor(
+        emb_dim=16, num_layers=2, num_heads=2, warmup_ratio=0.1, decouple_rezero_schedule=True
+    )
+    # configure_optimizers calls self._total_training_steps() (which reads the
+    # trainer); override it so the test needs no Trainer.
+    model._total_training_steps = lambda: 100  # type: ignore[method-assign]
+    cfg = model.configure_optimizers()
+    sched = cfg["lr_scheduler"]["scheduler"]
+    opt = cfg["optimizer"]
+    # LambdaLR applies the factor immediately on construction (step=0 → factor=0 during warmup),
+    # so g["lr"] is already 0 at this point; read initial_lr to get the configured base rates.
+    base = [g["initial_lr"] for g in opt.param_groups]
+    for _ in range(100):
+        opt.step()
+        sched.step()
+    final = [g["lr"] for g in opt.param_groups]
+    # Groups 0/1 (cosine) have decayed to ~0; group 2 (rezero, flat) holds its base lr.
+    assert final[0] < base[0] * 0.05
+    assert abs(final[2] - base[2]) < base[2] * 0.05

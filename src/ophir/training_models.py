@@ -18,6 +18,21 @@ from .model_data import OHLCMulitClassPredictorInput
 from .models import OHLCMulitClassParameters, OHLCMulitClassPredictor, rezero_gate_stats
 
 
+def _cosine_factor(step: int, warmup: int, total: int) -> float:
+    """Cosine-with-warmup LR factor matching ``get_cosine_schedule_with_warmup``."""
+    if step < warmup:
+        return step / max(1, warmup)
+    progress = (step - warmup) / max(1, total - warmup)
+    return max(0.0, 0.5 * (1.0 + math.cos(math.pi * progress)))
+
+
+def _flat_factor(step: int, warmup: int) -> float:
+    """Linear warmup then a constant ``1.0`` (no decay) — for the ReZero gates."""
+    if step < warmup:
+        return step / max(1, warmup)
+    return 1.0
+
+
 def robust_scale(x: torch.Tensor, floor: float = 1e-4) -> float:
     """Gaussian-equivalent scale of ``x`` via the median absolute deviation.
 
@@ -81,6 +96,7 @@ class LightningOHLCPredictor(L.LightningModule):
         upside_weight: float = 0.5,
         downside_weight: float = 0.5,
         log_rezero_gates: bool = False,
+        decouple_rezero_schedule: bool = False,
     ) -> None:
         """Build the wrapped predictor and save hyper-parameters.
 
@@ -135,6 +151,11 @@ class LightningOHLCPredictor(L.LightningModule):
             When ``True``, log ``rezero_mean_abs`` / ``rezero_max_abs`` each
             validation pass so the gate magnitudes are visible. Defaults to
             ``False`` (default CSV columns unchanged).
+        decouple_rezero_schedule : bool, optional
+            When ``True``, the ReZero param group uses a flat (warmup-then-
+            constant) LR while the other groups keep the cosine decay, so the
+            gates keep growing late in training. Defaults to ``False`` (single
+            cosine schedule over all groups, unchanged).
         """
         super().__init__()
         hparams: OHLCMulitClassParameters = OHLCMulitClassParameters(
@@ -154,6 +175,7 @@ class LightningOHLCPredictor(L.LightningModule):
         self.upside_weight = upside_weight
         self.downside_weight = downside_weight
         self.log_rezero_gates = log_rezero_gates
+        self.decouple_rezero_schedule = decouple_rezero_schedule
 
         self.save_hyperparameters()
         self.loss_state = "train"
@@ -513,9 +535,18 @@ class LightningOHLCPredictor(L.LightningModule):
         )
         total_steps = self._total_training_steps()
         warmup_steps = int(self.warmup_ratio * total_steps)
-        scheduler = get_cosine_schedule_with_warmup(
-            optimizer, warmup_steps, num_training_steps=total_steps
-        )
+        if self.decouple_rezero_schedule:
+            from functools import partial
+
+            cosine = partial(_cosine_factor, warmup=warmup_steps, total=total_steps)
+            flat = partial(_flat_factor, warmup=warmup_steps)
+            scheduler: torch.optim.lr_scheduler.LRScheduler = torch.optim.lr_scheduler.LambdaLR(
+                optimizer, lr_lambda=[cosine, cosine, flat]
+            )
+        else:
+            scheduler = get_cosine_schedule_with_warmup(
+                optimizer, warmup_steps, num_training_steps=total_steps
+            )
         return {
             "optimizer": optimizer,
             "lr_scheduler": {
