@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from functools import partial
 from typing import TYPE_CHECKING, Any, cast
 
 import lightning as L
@@ -453,9 +454,10 @@ class LightningOHLCPredictor(L.LightningModule):
     def on_validation_epoch_end(self) -> None:
         """Log ``val_rank_ic`` from accumulated identity, then reset buffers.
 
-        Only fires when the validation loader carries identity (``stock_id`` /
-        ``date_ordinal``); without it the buffers stay empty and nothing is
-        logged, so the default training path is unchanged.
+        Also logs ``rezero_mean_abs`` / ``rezero_max_abs`` when ``log_rezero_gates``
+        is set. Only fires rank-IC when the validation loader carries identity
+        (``stock_id`` / ``date_ordinal``); without it the buffers stay empty and
+        nothing is logged, so the default training path is unchanged.
         """
         if self.log_rezero_gates:
             stats = rezero_gate_stats(self.ohlc_predictor)
@@ -536,8 +538,6 @@ class LightningOHLCPredictor(L.LightningModule):
         total_steps = self._total_training_steps()
         warmup_steps = int(self.warmup_ratio * total_steps)
         if self.decouple_rezero_schedule:
-            from functools import partial
-
             cosine = partial(_cosine_factor, warmup=warmup_steps, total=total_steps)
             flat = partial(_flat_factor, warmup=warmup_steps)
             scheduler: torch.optim.lr_scheduler.LRScheduler = torch.optim.lr_scheduler.LambdaLR(

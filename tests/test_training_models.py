@@ -132,6 +132,7 @@ def test_log_rezero_gates_silent_when_disabled() -> None:
     model.log = lambda name, value, **kw: logged.__setitem__(name, float(value))  # type: ignore[method-assign]
     model.on_validation_epoch_end()
     assert "rezero_mean_abs" not in logged
+    assert "rezero_max_abs" not in logged
 
 
 def test_lr_factor_helpers() -> None:
@@ -167,4 +168,5 @@ def test_decoupled_schedule_keeps_rezero_flat() -> None:
     final = [g["lr"] for g in opt.param_groups]
     # Groups 0/1 (cosine) have decayed to ~0; group 2 (rezero, flat) holds its base lr.
     assert final[0] < base[0] * 0.05
+    assert final[1] < base[1] * 0.05
     assert abs(final[2] - base[2]) < base[2] * 0.05
