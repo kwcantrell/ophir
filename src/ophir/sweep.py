@@ -35,6 +35,8 @@ def sample_config(trial: optuna.Trial) -> dict[str, Any]:
     tier = trial.suggest_categorical("size_tier", list(SIZE_TIERS))
     arch = SIZE_TIERS[tier]
     beta2 = trial.suggest_float("beta2", 0.9, 0.999)
+    # close_weight is fixed at 1.0: compute_loss normalizes the three weights by
+    # their sum, so sampling all three would only add a redundant scale axis.
     return {
         "emb_dim": arch["emb_dim"],
         "num_layers": arch["num_layers"],
@@ -45,6 +47,7 @@ def sample_config(trial: optuna.Trial) -> dict[str, Any]:
         "warmup_ratio": trial.suggest_float("warmup_ratio", 0.0, 0.1),
         "loss_decay": trial.suggest_float("loss_decay", 0.3, 1.0),
         "betas": (0.9, beta2),
+        "close_weight": 1.0,
         "upside_weight": trial.suggest_float("upside_weight", 0.25, 1.0),
         "downside_weight": trial.suggest_float("downside_weight", 0.25, 1.0),
     }

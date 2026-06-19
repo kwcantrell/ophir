@@ -34,6 +34,9 @@ def test_sample_config_returns_valid_arch_and_ranges() -> None:
     assert config["betas"] == (0.9, 0.95)
     assert config["lr"] == 1e-3
     assert "size_tier" not in config  # mapped into train kwargs, not passed raw
+    assert config["close_weight"] == 1.0  # anchored: normalization removes its scale DOF
+    assert config["upside_weight"] == 0.5
+    assert config["downside_weight"] == 0.5
 
 
 def test_select_top_configs_orders_by_value_desc() -> None:
