@@ -199,6 +199,8 @@ def format_importances(result: dict[str, Any], *, sampler: str, pruned: bool) ->
         reasons.append(f"sampler={sampler!r} (non-random designs bias fANOVA)")
     if pruned:
         reasons.append("pruning enabled (completed trials are selection-biased)")
+    # fANOVA fits a random forest over completed trials; below ~8 it has too
+    # little data for a stable variance decomposition.
     if n < 8:
         reasons.append(f"only {n} completed trials")
     if reasons:
@@ -206,7 +208,8 @@ def format_importances(result: dict[str, Any], *, sampler: str, pruned: bool) ->
 
     lines.append(f"Completed trials: {n}")
     for title, key in (("fANOVA", "fanova"), ("MDI", "mdi")):
-        lines.append(f"\n{title} importances:")
+        lines.append("")
+        lines.append(f"{title} importances:")
         ranked = sorted(result[key].items(), key=lambda kv: kv[1], reverse=True)
         if not ranked:
             lines.append("  (too few completed trials to estimate)")

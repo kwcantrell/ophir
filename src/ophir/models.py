@@ -202,9 +202,6 @@ class CausalPrefixBlockMasks:
 
         causal_mask = or_masks(prefix, causal)
 
-        # Debug - can be removed in production
-        print(f"creating block mask of size {seq_len} with response size {response_size}...")
-
         if pad_mask is not None:
             return and_masks(causal_mask, pad_mask)
         else:

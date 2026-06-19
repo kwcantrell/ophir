@@ -1,6 +1,7 @@
 """CPU-safe tests for the sweep harness pure helpers (no CUDA, no Optuna run)."""
 
 import optuna
+import pytest
 
 from ophir import sweep
 
@@ -59,8 +60,6 @@ def test_build_sampler_selects_type() -> None:
 
 
 def test_build_sampler_rejects_unknown() -> None:
-    import pytest
-
     with pytest.raises(ValueError, match="sampler"):
         sweep._build_sampler("nope", 0)
 
@@ -79,8 +78,10 @@ def test_format_importances_warns_for_tpe_or_pruned() -> None:
     txt = sweep.format_importances(result, sampler="tpe", pruned=True)
     assert "WARNING" in txt
     assert "downside_weight" in txt
-    # highest-importance param is listed first in the fANOVA section
-    assert txt.index("downside_weight") < txt.index("lr")
+    # within the fANOVA section, params are listed highest-importance first
+    fanova_section = txt.split("fANOVA importances:")[1].split("MDI importances:")[0]
+    ranked = [ln.split()[0] for ln in fanova_section.splitlines() if ln.startswith("  ")]
+    assert ranked == ["downside_weight", "lr"]
 
 
 def test_format_importances_clean_study_has_no_warning() -> None:

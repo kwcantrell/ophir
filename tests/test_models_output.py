@@ -23,7 +23,9 @@ def test_pool_prefix_embedding_masks_padded_prefix_positions():
 
 def test_pool_prefix_embedding_all_padded_falls_back_to_mean():
     x = torch.tensor([[[1.0, 1.0], [3.0, 3.0], [99.0, 99.0], [99.0, 99.0]]])
-    trade = torch.tensor([[False, False, True, True]])  # no valid prefix positions
+    # positions 2-3 are the response block; the prefix (0-1) is all no-trade,
+    # so there are no valid prefix positions to pool.
+    trade = torch.tensor([[False, False, True, True]])
     pooled = pool_prefix_embedding(x, response_size=2, trade_occured=trade)
     torch.testing.assert_close(pooled, torch.tensor([[2.0, 2.0]]))  # unmasked prefix mean
 

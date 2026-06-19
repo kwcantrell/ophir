@@ -260,7 +260,7 @@ def test_run_training_forwards_close_weight(
 
     _orig_predictor = tm.LightningOHLCPredictor
 
-    class _CapturingPredictor(_orig_predictor):  # type: ignore[misc]
+    class _CapturingPredictor(_orig_predictor):  # type: ignore[misc, valid-type]
         def __init__(self, **kwargs: Any) -> None:
             captured.update(kwargs)
             super().__init__(**kwargs)

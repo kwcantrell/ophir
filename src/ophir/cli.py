@@ -195,6 +195,8 @@ def importances(
     Loads the persisted study and reports both importance estimates. Pass the
     ``--sampler``/``--pruned`` the study was run with so the output can warn when
     the estimate is biased (TPE or ASHA produce non-i.i.d. completed-trial sets).
+    The defaults (``tpe``, pruned) are conservative: if unsure, leave them and
+    the warning will be shown.
     """
     import os
 

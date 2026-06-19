@@ -120,11 +120,11 @@ class LightningOHLCPredictor(L.LightningModule):
             weights are normalized by their sum, so only their ratios matter.
             Defaults to ``1.0``.
         upside_weight : float, optional
-            Weight of the upside channel in the combined loss. Defaults to
-            ``0.5``.
+            Weight of the upside channel in the combined loss (normalized by the
+            weight sum; see ``close_weight``). Defaults to ``0.5``.
         downside_weight : float, optional
-            Weight of the downside channel in the combined loss. Defaults to
-            ``0.5``.
+            Weight of the downside channel in the combined loss (normalized by
+            the weight sum; see ``close_weight``). Defaults to ``0.5``.
         """
         super().__init__()
         hparams: OHLCMulitClassParameters = OHLCMulitClassParameters(
