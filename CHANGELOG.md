@@ -90,6 +90,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Each channel's smooth-L1 `beta` in `compute_loss` is now derived from the
   MAD of its masked target so Huber's transition sits at the actual noise scale
   rather than a hardcoded constant.
+- `--sampler {tpe,random}` and `--no-prune` options on `ophir sweep`: choose
+  between TPE (default) and random search, and optionally disable ASHA pruning.
+- `ophir importances <study>`: reports fANOVA and MDI hyperparameter
+  importances for a completed sweep study, with a reliability warning for
+  biased (TPE/ASHA) designs. Requires `scikit-learn` (added as a dependency
+  for the Optuna importance evaluators).
+
+### Changed
+
+- Normalized the three multi-target loss weights (`r_close`, `upside`,
+  `downside`) by their sum so the weights control task balance only and no
+  longer co-vary with total loss scale. Added a tunable `close_weight`
+  (default `1.0`) to complement the existing `upside_weight` and
+  `downside_weight`. Note: existing default configs see a halved loss magnitude
+  (effective LR rescale); prior checkpoints and learning-rate settings are not
+  directly comparable.
+- `pool_prefix_embedding` now masks padding positions (non-traded days) out of
+  the prefix mean-pool, so the UI PCA embedding is driven by genuine price
+  history rather than zero-filled padding rows.
+- `OHLCMulitClassPredictor.forward` now clamps `response_size` to
+  `[1, seq_len - 1]` before use, guarding against out-of-range values that
+  would produce empty prefix slices or index errors.
 
 ### Fixed
 
