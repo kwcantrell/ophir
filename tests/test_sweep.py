@@ -68,3 +68,58 @@ def test_build_sampler_rejects_unknown() -> None:
 def test_build_pruner_toggles() -> None:
     assert isinstance(sweep._build_pruner(True), optuna.pruners.SuccessiveHalvingPruner)
     assert isinstance(sweep._build_pruner(False), optuna.pruners.NopPruner)
+
+
+def test_format_importances_warns_for_tpe_or_pruned() -> None:
+    result = {
+        "fanova": {"downside_weight": 0.6, "lr": 0.4},
+        "mdi": {"downside_weight": 0.5},
+        "n_completed": 30,
+    }
+    txt = sweep.format_importances(result, sampler="tpe", pruned=True)
+    assert "WARNING" in txt
+    assert "downside_weight" in txt
+    # highest-importance param is listed first in the fANOVA section
+    assert txt.index("downside_weight") < txt.index("lr")
+
+
+def test_format_importances_clean_study_has_no_warning() -> None:
+    result = {"fanova": {"lr": 1.0}, "mdi": {"lr": 1.0}, "n_completed": 40}
+    txt = sweep.format_importances(result, sampler="random", pruned=False)
+    assert "WARNING" not in txt
+
+
+def test_format_importances_warns_on_few_trials() -> None:
+    result = {"fanova": {"lr": 1.0}, "mdi": {"lr": 1.0}, "n_completed": 3}
+    txt = sweep.format_importances(result, sampler="random", pruned=False)
+    assert "WARNING" in txt
+
+
+def _study_with_completed_trials(n: int) -> optuna.Study:
+    study = optuna.create_study(direction="maximize")
+    dist = optuna.distributions.FloatDistribution(0.25, 1.0)
+    for i in range(n):
+        # Two varying params so fANOVA has variance to decompose.
+        w = 0.25 + 0.75 * (i / max(n - 1, 1))
+        study.add_trial(
+            optuna.trial.create_trial(
+                params={"downside_weight": w, "upside_weight": 1.0 - 0.5 * w},
+                distributions={"downside_weight": dist, "upside_weight": dist},
+                value=w,  # objective tracks downside_weight => high importance
+            )
+        )
+    return study
+
+
+def test_compute_importances_reports_completed_and_params() -> None:
+    result = sweep.compute_importances(_study_with_completed_trials(20))
+    assert result["n_completed"] == 20
+    assert "downside_weight" in result["fanova"]
+    assert set(result["fanova"]) == {"downside_weight", "upside_weight"}
+
+
+def test_compute_importances_handles_too_few_trials() -> None:
+    result = sweep.compute_importances(_study_with_completed_trials(1))
+    assert result["n_completed"] == 1
+    assert result["fanova"] == {}
+    assert result["mdi"] == {}

@@ -157,6 +157,64 @@ def run_sweep(
     return study
 
 
+def compute_importances(study: optuna.Study) -> dict[str, Any]:
+    """Hyperparameter importances over the study's completed trials.
+
+    Returns fANOVA and mean-decrease-impurity (MDI) importances plus the number
+    of completed trials. fANOVA needs at least two completed trials with varying
+    parameters; when there are too few, the importance maps come back empty
+    rather than raising, so callers can still report ``n_completed``.
+    """
+    import optuna
+
+    completed = [
+        t
+        for t in study.trials
+        if t.state == optuna.trial.TrialState.COMPLETE and t.value is not None
+    ]
+    if len(completed) < 2:
+        return {"fanova": {}, "mdi": {}, "n_completed": len(completed)}
+
+    fanova = optuna.importance.get_param_importances(
+        study, evaluator=optuna.importance.FanovaImportanceEvaluator(seed=0)
+    )
+    mdi = optuna.importance.get_param_importances(
+        study, evaluator=optuna.importance.MeanDecreaseImpurityImportanceEvaluator(seed=0)
+    )
+    return {"fanova": dict(fanova), "mdi": dict(mdi), "n_completed": len(completed)}
+
+
+def format_importances(result: dict[str, Any], *, sampler: str, pruned: bool) -> str:
+    """Render fANOVA + MDI importances, warning when the estimate is unreliable.
+
+    fANOVA assumes a roughly i.i.d. design over the search space. A TPE sampler
+    concentrates sampling, and pruning leaves only an early-success-biased subset
+    of completed trials, so importances from such a study are biased. A small
+    completed-trial count is also unreliable. Any of these prepends a WARNING.
+    """
+    lines: list[str] = []
+    n = int(result["n_completed"])
+    reasons: list[str] = []
+    if sampler != "random":
+        reasons.append(f"sampler={sampler!r} (non-random designs bias fANOVA)")
+    if pruned:
+        reasons.append("pruning enabled (completed trials are selection-biased)")
+    if n < 8:
+        reasons.append(f"only {n} completed trials")
+    if reasons:
+        lines.append("WARNING: importances may be unreliable — " + "; ".join(reasons) + ".")
+
+    lines.append(f"Completed trials: {n}")
+    for title, key in (("fANOVA", "fanova"), ("MDI", "mdi")):
+        lines.append(f"\n{title} importances:")
+        ranked = sorted(result[key].items(), key=lambda kv: kv[1], reverse=True)
+        if not ranked:
+            lines.append("  (too few completed trials to estimate)")
+        for name, importance in ranked:
+            lines.append(f"  {name:<18} {importance:.4f}")
+    return "\n".join(lines)
+
+
 def confirm_top(
     study: optuna.Study,
     *,
