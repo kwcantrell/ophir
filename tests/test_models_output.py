@@ -8,8 +8,24 @@ from ophir.models import apply_output_activations, pool_prefix_embedding
 def test_pool_prefix_embedding_ignores_response_block():
     # 1 example, 4 positions, 2-d; prefix=first 2 rows, response=last 2.
     x = torch.tensor([[[1.0, 1.0], [3.0, 3.0], [99.0, 99.0], [99.0, 99.0]]])
-    pooled = pool_prefix_embedding(x, response_size=2)
+    trade = torch.ones(1, 4, dtype=torch.bool)
+    pooled = pool_prefix_embedding(x, response_size=2, trade_occured=trade)
     torch.testing.assert_close(pooled, torch.tensor([[2.0, 2.0]]))
+
+
+def test_pool_prefix_embedding_masks_padded_prefix_positions():
+    # Prefix rows are [1,1] (padded) and [3,3] (valid); only the valid row counts.
+    x = torch.tensor([[[1.0, 1.0], [3.0, 3.0], [99.0, 99.0], [99.0, 99.0]]])
+    trade = torch.tensor([[False, True, True, True]])
+    pooled = pool_prefix_embedding(x, response_size=2, trade_occured=trade)
+    torch.testing.assert_close(pooled, torch.tensor([[3.0, 3.0]]))
+
+
+def test_pool_prefix_embedding_all_padded_falls_back_to_mean():
+    x = torch.tensor([[[1.0, 1.0], [3.0, 3.0], [99.0, 99.0], [99.0, 99.0]]])
+    trade = torch.tensor([[False, False, True, True]])  # no valid prefix positions
+    pooled = pool_prefix_embedding(x, response_size=2, trade_occured=trade)
+    torch.testing.assert_close(pooled, torch.tensor([[2.0, 2.0]]))  # unmasked prefix mean
 
 
 def test_upside_downside_are_non_negative():

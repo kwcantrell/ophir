@@ -368,14 +368,24 @@ def apply_output_activations(raw: torch.Tensor) -> torch.Tensor:
     return torch.cat([r_close, upside, downside], dim=-1)
 
 
-def pool_prefix_embedding(x: torch.Tensor, response_size: int) -> torch.Tensor:
-    """Mean-pool the prefix (observed-history) positions into one vector/example.
+def pool_prefix_embedding(
+    x: torch.Tensor, response_size: int, trade_occured: torch.Tensor
+) -> torch.Tensor:
+    """Padding-masked mean of the prefix (observed-history) positions per example.
 
-    Pools ``x[:, :-response_size]`` — the positions that carry real features —
-    rather than the masked forecast block, giving a more grounded per-stock
-    embedding for the UI projection.
+    Pools ``x[:, :-response_size]`` — the positions that carry real features,
+    excluding the masked forecast block — and averages only the positions where a
+    trade occurred, so padded (no-trade) rows do not contaminate the per-stock
+    embedding used for the UI projection. Rows with no valid prefix position fall
+    back to the unmasked prefix mean.
     """
-    return x[:, :-response_size].mean(dim=1)
+    prefix = x[:, :-response_size]
+    valid = trade_occured[:, : prefix.shape[1]].unsqueeze(-1).to(prefix.dtype)
+    count = valid.sum(dim=1)
+    masked_mean = (prefix * valid).sum(dim=1) / count.clamp_min(1.0)
+    fallback = prefix.mean(dim=1)
+    has_valid = count.squeeze(-1) > 0
+    return torch.where(has_valid.unsqueeze(-1), masked_mean, fallback)
 
 
 # --------------------------------------------------------------------------- #
@@ -480,5 +490,7 @@ class OHLCMulitClassPredictor(nn.Module):
         input.model_output = apply_output_activations(
             cast("torch.Tensor", self.out_ff(response_embeddings))
         )
-        input.stock_embeddings = pool_prefix_embedding(x, int(input.response_size))
+        input.stock_embeddings = pool_prefix_embedding(
+            x, int(input.response_size), input.trade_occured
+        )
         return input
