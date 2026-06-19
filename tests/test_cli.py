@@ -46,3 +46,9 @@ def test_migrate_sqlite_runs(parquet_dir, tmp_path):
     result = runner.invoke(app, ["migrate-sqlite", "--src", base_path, "--dst", db_path])
     assert result.exit_code == 0
     assert f"{len(paths)} tickers written" in result.output
+
+
+def test_importances_command_is_registered() -> None:
+    result = runner.invoke(app, ["importances", "--help"])
+    assert result.exit_code == 0
+    assert "study" in result.output.lower()

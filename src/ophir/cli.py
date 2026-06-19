@@ -178,6 +178,39 @@ def sweep(
 
 
 @app.command()
+def importances(
+    study: str = typer.Argument(..., help="Optuna study name to analyze"),
+    storage: str | None = typer.Option(
+        None, help="Optuna storage URL; defaults to a SQLite db under the model dir"
+    ),
+    sampler: str = typer.Option(
+        "tpe", help="Sampler the study used (controls the reliability warning)"
+    ),
+    pruned: bool = typer.Option(
+        True, help="Whether the study used pruning (controls the reliability warning)"
+    ),
+) -> None:
+    """Print fANOVA + MDI hyperparameter importances for a completed sweep study.
+
+    Loads the persisted study and reports both importance estimates. Pass the
+    ``--sampler``/``--pruned`` the study was run with so the output can warn when
+    the estimate is biased (TPE or ASHA produce non-i.i.d. completed-trial sets).
+    """
+    import os
+
+    import optuna
+
+    from ophir import register
+    from ophir import sweep as sweep_mod
+
+    if storage is None:
+        storage = f"sqlite:///{os.path.join(register.MODEL_DIR, study + '.db')}"
+    study_obj = optuna.load_study(study_name=study, storage=storage)
+    result = sweep_mod.compute_importances(study_obj)
+    typer.echo(sweep_mod.format_importances(result, sampler=sampler, pruned=pruned))
+
+
+@app.command()
 def migrate_sqlite(
     src: str = typer.Option(None, help="Parquet base dir (default: <DATA_DIR>/days/stocks)"),
     dst: str = typer.Option(
