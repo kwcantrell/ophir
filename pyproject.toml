@@ -81,6 +81,7 @@ dev = [
     "pre-commit>=4.0",
     "pytest>=8.0",
     "pytest-mock>=3.14",
+    "optuna-dashboard>=0.20.0",
 ]
 docs = [
     "sphinx>=8.1",

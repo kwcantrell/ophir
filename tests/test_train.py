@@ -268,3 +268,31 @@ def test_run_training_forwards_close_weight(
     monkeypatch.setattr(tm, "LightningOHLCPredictor", _CapturingPredictor)
     train.run_training(emb_dim=16, num_layers=1, num_heads=2, close_weight=2.0)
     assert captured["close_weight"] == 2.0
+
+
+class _PruningTrainer(_FakeTrainer):
+    """Trainer whose fit() raises TrialPruned to simulate Optuna pruning."""
+
+    def fit(self, model: LightningOHLCPredictor, **_: Any) -> None:
+        import optuna
+
+        raise optuna.TrialPruned()
+
+
+def test_run_training_reraises_trial_pruned_cleanly(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    trainer = _PruningTrainer()
+    monkeypatch.setattr(train, "build_split_handlers", lambda **_: ("train_h", "val_h"))
+    monkeypatch.setattr(train, "build_dataloader", lambda *a, **k: "loader")
+    monkeypatch.setattr(train, "estimate_windows", lambda *a, **k: 1000)
+    monkeypatch.setattr(train, "_validate_dims", lambda *a, **k: None)
+    from ophir import register
+
+    monkeypatch.setattr(register, "fetch_base_trainer", lambda **_: trainer)
+    monkeypatch.setattr(register, "get_default_data_days_dir", lambda: "/tmp")
+
+    import optuna
+
+    with pytest.raises(optuna.TrialPruned):
+        train.run_training(emb_dim=16, num_layers=1, num_heads=2)
