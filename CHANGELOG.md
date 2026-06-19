@@ -100,6 +100,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   already pooled by the model, collapsing the embedding dimension to a scalar
   and making the UI PCA projection degenerate. Removed the double-mean.
 
+## [0.6.4] - 2026-06-18
+
+### Added
+
+- `cache_frames` option on `StockHanlder`: memoizes each symbol's loaded daily
+  frame so streaming epochs skip re-reading and re-aggregating the
+  parquet/SQLite source on every pass. Output-identical (split-adjustment and
+  feature extraction return new frames, so the cached frame is only ever read).
+  `build_split_handlers` enables it for training.
+
+### Changed
+
+- Raise `StockHandlerDataset`'s default `cache_size` from `1` to `8` (the
+  training default), so direct instantiation mixes windows across stocks
+  instead of draining one stock fully into strongly autocorrelated batches.
+
 ## [0.6.3] - 2026-06-18
 
 ### Fixed
@@ -402,7 +418,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   value yields a rotation of π.
 - Model validation and minor fixes.
 
-[Unreleased]: https://github.com/kwcantrell/ophir/compare/v0.6.3...HEAD
+[Unreleased]: https://github.com/kwcantrell/ophir/compare/v0.6.4...HEAD
+[0.6.4]: https://github.com/kwcantrell/ophir/compare/v0.6.3...v0.6.4
 [0.6.3]: https://github.com/kwcantrell/ophir/compare/v0.6.2...v0.6.3
 [0.6.2]: https://github.com/kwcantrell/ophir/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/kwcantrell/ophir/compare/v0.6.0...v0.6.1

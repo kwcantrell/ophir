@@ -21,6 +21,27 @@ def _handler(base_path, **kwargs):
 
 
 # --------------------------------------------------------------------------- #
+# frame cache
+# --------------------------------------------------------------------------- #
+
+
+def test_stock_df_memoizes_when_cache_frames_enabled(parquet_dir):
+    # With caching on, repeated loads of the same symbol reuse one frame instead
+    # of re-reading parquet and re-aggregating every epoch.
+    base_path, _ = parquet_dir
+    handler = _handler(base_path, cache_frames=True)
+    stock = handler.stocks[0]
+    assert handler.stock_df(stock) is handler.stock_df(stock)
+
+
+def test_stock_df_rereads_when_cache_disabled(parquet_dir):
+    base_path, _ = parquet_dir
+    handler = _handler(base_path)  # cache_frames defaults to False
+    stock = handler.stocks[0]
+    assert handler.stock_df(stock) is not handler.stock_df(stock)
+
+
+# --------------------------------------------------------------------------- #
 # discovery / indexing
 # --------------------------------------------------------------------------- #
 

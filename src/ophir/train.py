@@ -153,6 +153,7 @@ def build_split_handlers(
             clean_rows=clean_rows,
             max_abs_r_close=max_abs_r_close,
             shuffle=True,
+            cache_frames=True,
         )
         if symbols is not None:
             handler.keep_stocks(symbols)

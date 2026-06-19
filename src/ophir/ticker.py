@@ -582,6 +582,12 @@ class StockHanlder:
     max_abs_r_close : float, optional
         Return-spike threshold forwarded to :func:`clean_daily_ohlcv` when
         ``clean_rows`` is set. Defaults to ``0.75``.
+    cache_frames : bool, optional
+        If ``True``, memoize each symbol's loaded daily frame so repeated
+        streaming epochs reuse it instead of re-reading the parquet/SQLite
+        source. The cached frame is only ever read downstream (split-adjustment
+        and feature extraction return new frames), so this is output-identical.
+        Defaults to ``False``.
     """
 
     seq_len: int
@@ -598,8 +604,10 @@ class StockHanlder:
     clean_rows: bool = False
     max_abs_r_close: float = 0.75
     source: Literal["parquet", "sqlite"] = "parquet"
+    cache_frames: bool = False
     stocks: list[str] = field(init=False)
     stock_dict: dict[str, str] = field(init=False)
+    _frame_cache: dict[str, pd.DataFrame] = field(init=False)
 
     def __post_init__(self) -> None:
         if self.source == "sqlite":
@@ -609,6 +617,7 @@ class StockHanlder:
         else:
             self.stock_dict = get_stock_parquets(self.base_path)
         self.stocks = list(self.stock_dict.keys())
+        self._frame_cache = {}
 
         if self.offset == -1:
             self.offset = self.seq_len
@@ -663,6 +672,10 @@ class StockHanlder:
     def stock_df(self, stock: str) -> pd.DataFrame:
         """Load and daily-aggregate one stock, applying configured filters.
 
+        When ``cache_frames`` is set, the result (including filter-rejected
+        empty frames) is memoized per symbol so subsequent epochs skip the disk
+        read and aggregation.
+
         Parameters
         ----------
         stock : str
@@ -674,6 +687,15 @@ class StockHanlder:
             A date-indexed daily OHLCV frame, or an empty frame if the stock
             fails the volume / history filters.
         """
+        if self.cache_frames and stock in self._frame_cache:
+            return self._frame_cache[stock]
+        df = self._load_stock_df(stock)
+        if self.cache_frames:
+            self._frame_cache[stock] = df
+        return df
+
+    def _load_stock_df(self, stock: str) -> pd.DataFrame:
+        """Read and daily-aggregate one stock's source frame (uncached)."""
         if self.source == "sqlite":
             from ophir.sqlite_store import read_stock_table
 
@@ -847,7 +869,7 @@ class StockHandlerDataset(IterableDataset[dict[str, Any]]):
         self,
         stock_hanlder: StockHanlder,
         response_size: int,
-        cache_size: int = 1,
+        cache_size: int = 8,
         return_identity: bool = False,
     ) -> None:
         """Initialize the dataset.
@@ -859,7 +881,10 @@ class StockHandlerDataset(IterableDataset[dict[str, Any]]):
         response_size : int
             Number of trailing days to predict.
         cache_size : int, optional
-            Number of streamers kept active concurrently. Defaults to ``1``.
+            Number of streamers kept active concurrently. Defaults to ``8``
+            (matching the training default) so windows mix across stocks; a
+            cache of ``1`` drains one stock fully before the next, yielding
+            strongly autocorrelated batches.
         return_identity : bool, optional
             If ``True``, each yielded payload also carries the opt-in eval
             identity (``stock_id`` / ``date_ordinal``); see

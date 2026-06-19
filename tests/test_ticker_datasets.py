@@ -99,6 +99,15 @@ def _streamer_handler(base_path, **kwargs):
     return StockHanlder(**defaults)
 
 
+def test_handler_dataset_default_cache_size_matches_training(parquet_dir):
+    # Direct instantiation must not silently use the autocorrelated cache=1;
+    # the default mirrors the training default (run_training cache_size=8) so
+    # batches mix across stocks.
+    base_path, _ = parquet_dir
+    ds = StockHandlerDataset(_streamer_handler(base_path), response_size=5)
+    assert ds.cache_size == 8
+
+
 def test_handler_dataset_init_prints_offset_and_cache(parquet_dir, capsys):
     base_path, _ = parquet_dir
     handler = _streamer_handler(base_path)
