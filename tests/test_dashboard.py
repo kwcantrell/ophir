@@ -53,3 +53,29 @@ def test_build_loss_figure_filters_by_granularity(tmp_path: Path) -> None:
     step_names = {t.name for t in dashboard.build_loss_figure(model_dir, "step").data}
     assert epoch_names == {"val_loss_epoch"}
     assert step_names == {"val_loss_step"}
+
+
+def test_summarize_rezero_runs_tabulates_final_values(tmp_path: Path) -> None:
+    def _arm(name: str, body: str) -> str:
+        d = tmp_path / name / "version_0"
+        d.mkdir(parents=True)
+        (d / "metrics.csv").write_text(body)
+        return str(d)
+
+    versions = {
+        "shallow": _arm(
+            "shallow",
+            "step,val_rank_ic,rezero_mean_abs,rezero_max_abs\n10,0.02,,\n20,0.03,,\n",
+        ),
+        "deep_open": _arm(
+            "deep_open",
+            "step,val_rank_ic,rezero_mean_abs,rezero_max_abs\n10,0.05,0.4,0.6\n20,0.07,0.5,0.7\n",
+        ),
+    }
+    df = dashboard.summarize_rezero_runs(versions)
+    row = df.set_index("arm")
+    assert abs(row.loc["deep_open", "val_rank_ic"] - 0.07) < 1e-9
+    assert abs(row.loc["deep_open", "rezero_mean_abs"] - 0.5) < 1e-9
+    assert abs(row.loc["shallow", "val_rank_ic"] - 0.03) < 1e-9
+    # shallow logged no gate stats -> NaN
+    assert row.loc["shallow", "rezero_mean_abs"] != row.loc["shallow", "rezero_mean_abs"]

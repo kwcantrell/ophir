@@ -28,6 +28,7 @@ from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
     import gradio as gr
+    import pandas as pd  # type: ignore[import-untyped]
     import plotly.graph_objects as go
     import torch
 
@@ -54,6 +55,29 @@ def _latest_metrics_csv(model_dir: str) -> str | None:
     if not matches:
         return None
     return max(matches, key=os.path.getmtime)
+
+
+def summarize_rezero_runs(versions: dict[str, str]) -> pd.DataFrame:
+    """Tabulate the final val_rank_ic and ReZero gate magnitudes per arm.
+
+    ``versions`` maps an arm label to its ``CSVLogger`` ``version_*`` directory.
+    Each ``metrics.csv`` is read and the last non-NaN value of ``val_rank_ic``,
+    ``rezero_mean_abs``, and ``rezero_max_abs`` is taken (``NaN`` if a column is
+    absent). Returns one row per arm for side-by-side comparison.
+    """
+    import pandas as pd
+
+    cols = ["val_rank_ic", "rezero_mean_abs", "rezero_max_abs"]
+    rows = []
+    for arm, version_dir in versions.items():
+        path = os.path.join(version_dir, "metrics.csv")
+        df = pd.read_csv(path)
+        row: dict[str, object] = {"arm": arm}
+        for col in cols:
+            series = df[col].dropna() if col in df.columns else pd.Series(dtype="float64")
+            row[col] = float(series.iloc[-1]) if not series.empty else float("nan")
+        rows.append(row)
+    return pd.DataFrame(rows, columns=["arm", *cols])
 
 
 def _placeholder(message: str) -> go.Figure:
@@ -108,7 +132,7 @@ def build_loss_figure(model_dir: str, granularity: str = "epoch") -> go.Figure:
     plotly.graph_objects.Figure
         A dark-themed multi-series line chart, or a placeholder figure.
     """
-    import pandas as pd  # type: ignore[import-untyped]
+    import pandas as pd
     import plotly.graph_objects as go
 
     path = _latest_metrics_csv(model_dir)
