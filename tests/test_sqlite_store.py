@@ -36,6 +36,16 @@ def test_sanitize_resolves_collisions():
     assert {"t_A_WD", "t_A_WD_2"} <= used
 
 
+def test_sanitize_resolves_case_insensitive_collisions():
+    # SQLite identifiers are case-insensitive, so tickers differing only in
+    # case (e.g. CPV / CpV) must not share a table name.
+    used: set[str] = set()
+    first = sanitize_table_name("CPV", used)
+    second = sanitize_table_name("CpV", used)
+    assert first == "t_CPV"
+    assert second.lower() != first.lower()
+
+
 def test_build_sqlite_store_creates_manifest_and_tables(parquet_dir, tmp_path):
     base_path, paths = parquet_dir
     db_path = str(tmp_path / "stocks.db")

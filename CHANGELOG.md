@@ -100,6 +100,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   already pooled by the model, collapsing the embedding dimension to a scalar
   and making the UI PCA projection degenerate. Removed the double-mean.
 
+## [0.6.5] - 2026-06-18
+
+### Fixed
+
+- `ophir migrate-sqlite` crashed with `table "t_CPV" already exists` on real
+  data because `sanitize_table_name` deduped table names case-sensitively while
+  SQLite identifiers are case-insensitive; tickers differing only in case (e.g.
+  `CPV` / `CpV`) produced distinct Python strings that collided as the same
+  SQLite table. Deduplication now compares names case-insensitively. Verified
+  end-to-end over all 34,700 tickers.
+
 ## [0.6.4] - 2026-06-18
 
 ### Added
@@ -418,7 +429,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   value yields a rotation of π.
 - Model validation and minor fixes.
 
-[Unreleased]: https://github.com/kwcantrell/ophir/compare/v0.6.4...HEAD
+[Unreleased]: https://github.com/kwcantrell/ophir/compare/v0.6.5...HEAD
+[0.6.5]: https://github.com/kwcantrell/ophir/compare/v0.6.4...v0.6.5
 [0.6.4]: https://github.com/kwcantrell/ophir/compare/v0.6.3...v0.6.4
 [0.6.3]: https://github.com/kwcantrell/ophir/compare/v0.6.2...v0.6.3
 [0.6.2]: https://github.com/kwcantrell/ophir/compare/v0.6.1...v0.6.2
