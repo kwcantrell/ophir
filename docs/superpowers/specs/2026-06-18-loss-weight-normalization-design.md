@@ -135,7 +135,10 @@ pruning on), threaded into `run_sweep`.
 ```
 
 using Optuna's `FanovaImportanceEvaluator` and `MeanDecreaseImpurityImportanceEvaluator`
-over completed trials. Returns empty importance dicts (and `n_completed`) when
+over completed trials. **Both evaluators require scikit-learn**, which is not
+currently a project dependency, so `scikit-learn>=1.5` is added to
+`pyproject.toml`. Our code never imports `sklearn` directly (Optuna does), so no
+mypy `ignore_missing_imports` entry is needed. Returns empty importance dicts (and `n_completed`) when
 too few trials completed to evaluate, rather than raising.
 
 A pure formatting helper `format_importances(result, *, sampler, pruned) -> str`
@@ -230,6 +233,8 @@ empty-slice / NaN edge when `response_size == 0` or `>= seq_len`.
 - `tests/` — `test_training_models.py`, `test_models_output.py`,
   `test_sweep.py` (and a guard test).
 - `CHANGELOG.md` — loss-scale change note + new diagnostics.
+- `pyproject.toml` — add `scikit-learn>=1.5` (required by the Optuna importance
+  evaluators).
 
 ## Risks / call-outs
 
