@@ -270,6 +270,34 @@ def test_run_training_forwards_close_weight(
     assert captured["close_weight"] == 2.0
 
 
+def test_run_training_forwards_rezero_knobs(
+    monkeypatch: pytest.MonkeyPatch, patched_engine: _FakeTrainer
+) -> None:
+    captured: dict[str, Any] = {}
+
+    import ophir.training_models as tm
+
+    _orig_predictor = tm.LightningOHLCPredictor
+
+    class _CapturingPredictor(_orig_predictor):  # type: ignore[misc, valid-type]
+        def __init__(self, **kwargs: Any) -> None:
+            captured.update(kwargs)
+            super().__init__(**kwargs)
+
+    monkeypatch.setattr(tm, "LightningOHLCPredictor", _CapturingPredictor)
+    train.run_training(
+        emb_dim=16,
+        num_layers=1,
+        num_heads=2,
+        rezero_init=0.1,
+        log_rezero_gates=True,
+        decouple_rezero_schedule=True,
+    )
+    assert captured["rezero_init"] == 0.1
+    assert captured["log_rezero_gates"] is True
+    assert captured["decouple_rezero_schedule"] is True
+
+
 class _PruningTrainer(_FakeTrainer):
     """Trainer whose fit() raises TrialPruned to simulate Optuna pruning."""
 

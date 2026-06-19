@@ -348,6 +348,9 @@ def run_training(
     close_weight: float = 1.0,
     upside_weight: float = 0.5,
     downside_weight: float = 0.5,
+    rezero_init: float = 0.0,
+    log_rezero_gates: bool = False,
+    decouple_rezero_schedule: bool = False,
     val_identity: bool = False,
     callbacks: list[Any] | None = None,
     seed: int | None = None,
@@ -428,6 +431,9 @@ def run_training(
         close_weight=close_weight,
         upside_weight=upside_weight,
         downside_weight=downside_weight,
+        rezero_init=rezero_init,
+        log_rezero_gates=log_rezero_gates,
+        decouple_rezero_schedule=decouple_rezero_schedule,
     )
     trainer = register.fetch_base_trainer(
         max_steps=max_steps,
@@ -484,6 +490,9 @@ def train(
     close_weight: float = 1.0,
     upside_weight: float = 0.5,
     downside_weight: float = 0.5,
+    rezero_init: float = 0.0,
+    log_rezero_gates: bool = False,
+    decouple_rezero_schedule: bool = False,
     val_identity: bool = False,
     seed: int | None = None,
 ) -> None:
@@ -528,6 +537,9 @@ def train(
         close_weight=close_weight,
         upside_weight=upside_weight,
         downside_weight=downside_weight,
+        rezero_init=rezero_init,
+        log_rezero_gates=log_rezero_gates,
+        decouple_rezero_schedule=decouple_rezero_schedule,
         val_identity=val_identity,
         seed=seed,
     )
