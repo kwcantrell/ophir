@@ -460,14 +460,18 @@ class OHLCMulitClassPredictor(nn.Module):
         OHLCMulitClassPredictorInput
             The same object with ``model_output`` and ``stock_embeddings`` filled.
         """
+        seq_len = input.feature_input.shape[1]
+        response_size = int(input.response_size)
+        if not 0 < response_size < seq_len:
+            raise ValueError(f"response_size must be in 1..{seq_len - 1}, got {response_size}")
+
         # Feature projection
         feature = input.feature_input
         x = cast("torch.Tensor", self.feature_mlp(feature))
 
         # Mask the forecast horizon so the response days carry no features that
         # would leak their own targets.
-        _, seq_len, _ = x.shape
-        x = self._apply_response_mask(x, int(input.response_size))
+        x = self._apply_response_mask(x, response_size)
 
         # Add positional encoding (safely slice to the actual length)
         pe_slice = self.pe[:, :seq_len]
@@ -486,11 +490,9 @@ class OHLCMulitClassPredictor(nn.Module):
             x = encoder_block(x, block_mask)
 
         # Extract the response embeddings and compute outputs
-        response_embeddings = x[:, -input.response_size :]
+        response_embeddings = x[:, -response_size:]
         input.model_output = apply_output_activations(
             cast("torch.Tensor", self.out_ff(response_embeddings))
         )
-        input.stock_embeddings = pool_prefix_embedding(
-            x, int(input.response_size), input.trade_occured
-        )
+        input.stock_embeddings = pool_prefix_embedding(x, response_size, input.trade_occured)
         return input
