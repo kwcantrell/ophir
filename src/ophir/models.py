@@ -385,6 +385,25 @@ def pool_prefix_embedding(
     return torch.where(has_valid.unsqueeze(-1), masked_mean, fallback)
 
 
+def rezero_gate_stats(model: nn.Module) -> dict[str, float | list[float]]:
+    """Per-layer and aggregate magnitudes of the ReZero gate scalars.
+
+    Reads every parameter whose name contains ``"rezero"`` (one scalar per
+    :class:`TransformerBlock`) and reports the raw per-layer values plus the mean
+    and max of their absolute values. Used to see whether the residual gates have
+    opened during training. Returns zeros for a model with no such parameters.
+    """
+    per_layer = [float(p.detach()) for name, p in model.named_parameters() if "rezero" in name]
+    if not per_layer:
+        return {"mean_abs": 0.0, "max_abs": 0.0, "per_layer": []}
+    abs_vals = [abs(v) for v in per_layer]
+    return {
+        "mean_abs": sum(abs_vals) / len(abs_vals),
+        "max_abs": max(abs_vals),
+        "per_layer": per_layer,
+    }
+
+
 # --------------------------------------------------------------------------- #
 # Main model
 # --------------------------------------------------------------------------- #

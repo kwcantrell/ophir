@@ -39,3 +39,30 @@ def test_upside_downside_are_non_negative():
     # upside (1) and downside (2) are forced non-negative.
     assert torch.all(out[..., 1] >= 0)
     assert torch.all(out[..., 2] >= 0)
+
+
+def test_rezero_gate_stats_aggregates_per_layer():
+    from ophir.models import OHLCMulitClassParameters, OHLCMulitClassPredictor, rezero_gate_stats
+
+    torch.manual_seed(0)
+    model = OHLCMulitClassPredictor(OHLCMulitClassParameters(emb_dim=16, num_layers=3, num_heads=2))
+    # Force known gate values.
+    vals = [0.1, -0.2, 0.3]
+    for block, v in zip(model.encoder, vals, strict=True):
+        with torch.no_grad():
+            block._rezero.fill_(v)
+    stats = rezero_gate_stats(model)
+    assert len(stats["per_layer"]) == 3
+    for actual, expected in zip(stats["per_layer"], vals, strict=True):
+        assert abs(actual - expected) < 1e-6
+    assert abs(stats["max_abs"] - 0.3) < 1e-6
+    assert abs(stats["mean_abs"] - 0.2) < 1e-6  # mean(|0.1|,|0.2|,|0.3|)
+
+
+def test_rezero_gate_stats_empty_is_zero():
+    import torch.nn as nn
+
+    from ophir.models import rezero_gate_stats
+
+    linear = nn.Linear(2, 2)
+    assert rezero_gate_stats(linear) == {"mean_abs": 0.0, "max_abs": 0.0, "per_layer": []}
