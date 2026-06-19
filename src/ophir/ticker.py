@@ -4,7 +4,7 @@ This module turns per-stock parquet files into the fixed-length feature
 windows the model consumes. The pipeline is: discover parquet files
 (:func:`get_stock_parquets`), load and filter them (:class:`StockHanlder`),
 optionally back-adjust for splits (:class:`StockSplit`), compute the
-13-feature representation (:func:`extract_features`), slice into windows
+12-feature representation (:func:`extract_features`), slice into windows
 (:class:`StockStreamer`), and expose them as ``torch`` datasets
 (:class:`StockStreamerDataset`, :class:`StockHandlerDataset`).
 """
@@ -326,14 +326,14 @@ def clean_daily_ohlcv(
 
 
 def extract_features(df: pd.DataFrame) -> pd.DataFrame:
-    """Compute the 13-feature model representation from an OHLCV frame.
+    """Compute the 12-feature model representation from an OHLCV frame.
 
-    Features: log time delta, log close return ``r_close``, and rolling
-    normalized returns / normalized volume / volatility over 10-, 20-, and
-    60-day windows, plus the ``upside`` and ``downside`` log ratios. The frame
-    is reindexed onto a daily calendar; padded days are zero-filled and flagged
-    by ``trade_occured``. All features are point-in-time (trailing rolling
-    windows only), so this introduces no lookahead.
+    Features: log close return ``r_close``, rolling normalized returns /
+    normalized volume / volatility over 10-, 20-, and 60-day windows, plus the
+    ``upside`` and ``downside`` log ratios. The frame is reindexed onto a daily
+    calendar; padded days are zero-filled and flagged by ``trade_occured``. All
+    features are point-in-time (trailing rolling windows only), so this
+    introduces no lookahead.
 
     Parameters
     ----------
@@ -346,16 +346,18 @@ def extract_features(df: pd.DataFrame) -> pd.DataFrame:
     pandas.DataFrame
         The calendar-padded feature columns (empty if ``df`` is empty).
     """
+    if df.index.has_duplicates:
+        raise ValueError(
+            "extract_features requires a unique DatetimeIndex; got duplicate "
+            "dates. Aggregate to one row per day before calling."
+        )
+
     feature_cols: list[str] = []
 
     def add_feature(feature_col: str, feature_val: Any, df: pd.DataFrame) -> pd.DataFrame:
         df = df.assign(**{feature_col: feature_val})
         feature_cols.append(feature_col)
         return df
-
-    # time delta
-    delta_days = df.index.to_series().diff().dt.days
-    df = add_feature("time_delta", np.log(delta_days), df)
 
     # returns
     prev_close = df["close"].shift(1)

@@ -11,11 +11,10 @@ import pytest
 
 from ophir.ticker import StockSplit
 
-# The 13 feature columns produced by ``extract_features`` (in order). The
+# The 12 feature columns produced by ``extract_features`` (in order). The
 # non-empty path additionally appends ``trade_occured`` (a bool flag, not a
-# feature) before slicing, so its output has 14 columns.
+# feature) before slicing, so its output has 13 columns.
 FEATURE_COLS = [
-    "time_delta",
     "r_close",
     "10_norm_returns",
     "10_norm_volume",
@@ -60,7 +59,7 @@ def _make_ohlcv(
 
 @pytest.fixture
 def feature_cols():
-    """The ordered 13 feature column names ``extract_features`` produces."""
+    """The ordered 12 feature column names ``extract_features`` produces."""
     return list(FEATURE_COLS)
 
 

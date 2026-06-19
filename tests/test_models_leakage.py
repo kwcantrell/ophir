@@ -42,7 +42,7 @@ def test_response_features_cannot_influence_masked_representation():
     """Perturbing the response-block inputs must not change anything downstream."""
     model = _predictor()
 
-    feature_a = torch.randn(BATCH, SEQ_LEN, 13)
+    feature_a = torch.randn(BATCH, SEQ_LEN, 12)
     feature_b = feature_a.clone()
     # Arbitrarily corrupt only the response-block features (incl. the target
     # columns r_close/upside/downside); the prefix is identical.

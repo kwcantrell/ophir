@@ -19,7 +19,7 @@ class OHLCMulitClassPredictorInput:
     Attributes
     ----------
     feature_input : torch.FloatTensor
-        Shape ``(B, S, 13)`` feature vector used as model input.
+        Shape ``(B, S, 12)`` feature vector used as model input.
     response_size : torch.LongTensor
         Scalar; how many trailing days the model predicts.
     trade_occured : torch.BoolTensor

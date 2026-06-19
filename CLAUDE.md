@@ -44,7 +44,7 @@ across S&P 500 tickers.
 | `sweep.py` | Optuna hyperparameter sweep: TPE + ASHA proxy search over optimizer/loss-weight/arch-tier knobs scored by `val_rank_ic`, then full-budget confirm phase via `confirm_top`. |
 | `training_models.py` | PyTorch-Lightning wrapper: AdamW + cosine warmup, per-group LRs, weighted smooth-L1 over the three targets. |
 | `model_data.py` | `OHLCMulitClassPredictorInput` dataclass; converts features/targets/predictions back into candles and PCA projections. |
-| `ticker.py` | Parquet ingest, stock-split adjustment, 13-feature extraction (log returns, rolling vol, normalized volume, upside/downside), streaming datasets. |
+| `ticker.py` | Parquet ingest, stock-split adjustment, 12-feature extraction (log returns, rolling vol, normalized volume, upside/downside), streaming datasets. |
 | `sqlite_store.py` | Single-file SQLite store: `build_sqlite_store` converter (one table per ticker + `_tickers` manifest with column-dtype JSON) and `get_stock_tables`/`read_stock_table` read helpers. Backs `StockHanlder(source="sqlite")`. |
 | `ui.py` | Gradio dashboard + LangChain–Ollama chat. Heavy import — fetches S&P 500 list, loads a CUDA checkpoint. Docs build mocks it. |
 | `trading/` | Deterministic core for the `alpaca-trader` skill: safety gate, ledger, metrics, signals, memory, exposure join, outcome scoring; CLI under `ophir trade`. |

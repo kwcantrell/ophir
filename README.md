@@ -20,7 +20,7 @@ cloud.
   with cosine warmup, per-group learning rates, weighted smooth-L1 loss over
   the three targets.
 - **Stock data pipeline** (`ophir.ticker`) — parquet ingestion, stock-split
-  adjustment, 13-feature technical extraction (log returns, rolling volatility,
+  adjustment, 12-feature technical extraction (log returns, rolling volatility,
   normalized volume, upside/downside), and streaming datasets.
 - **Structured I/O dataclass** (`ophir.model_data`) — `OHLCMulitClassPredictorInput`
   carries features, targets, and predictions, and converts them back to

@@ -146,7 +146,7 @@ def build_loss_figure(model_dir: str, granularity: str = "epoch") -> go.Figure:
 
 
 def _leakage_window(seq_len: int) -> torch.Tensor:
-    """Return a ``(1, seq_len, 13)`` feature window for the leakage check.
+    """Return a ``(1, seq_len, 12)`` feature window for the leakage check.
 
     Uses a real offline window for the first available symbol when the parquet
     tree is present; otherwise falls back to random features (the leakage
@@ -179,7 +179,7 @@ def _leakage_window(seq_len: int) -> torch.Tensor:
                     return cast("torch.Tensor", feature.unsqueeze(0))
         except (IndexError, KeyError, ValueError, OSError):
             pass
-    return torch.randn(1, seq_len, 13)
+    return torch.randn(1, seq_len, 12)
 
 
 def run_leakage_check(seq_len: int = 365, response_size: int = 90) -> str:

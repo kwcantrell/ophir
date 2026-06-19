@@ -49,7 +49,7 @@ def response_block_leakage_score(
         The predictor whose ``feature_mlp`` and ``_apply_response_mask`` are
         exercised.
     feature : torch.Tensor
-        Input features of shape ``(B, S, 13)``.
+        Input features of shape ``(B, S, 12)``.
     response_size : int
         Number of trailing positions that form the forecast horizon.
 
@@ -86,7 +86,7 @@ def end_to_end_leakage_scores(
     model : OHLCMulitClassPredictor
         The predictor to run.
     feature : torch.Tensor
-        Input features of shape ``(B, S, 13)`` on a CUDA device.
+        Input features of shape ``(B, S, 12)`` on a CUDA device.
     response_size : int
         Number of trailing positions that form the forecast horizon.
 

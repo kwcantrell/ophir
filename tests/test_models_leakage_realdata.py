@@ -60,17 +60,29 @@ def real_window():
 
 
 @pytest.fixture(scope="module")
-def model():
+def model(tmp_path_factory):
     import warnings
 
-    from ophir.register import load_base_model_ckpt
+    import torch as _torch
+
+    from ophir.register import BASE_NAME, MODEL_DIR, TIME_MODIFIER, _latest_base_ckpt
+    from ophir.training_models import LightningOHLCPredictor
 
     # strict=False: checkpoints predate the new mask_token; random init is fine
     # because the leakage property we test is architectural, not weight-dependent.
-    # Lightning warns about the extra key under strict=False -- expected here.
+    # Dropping the time_delta feature also shrank feature_mlp 13->12, so the saved
+    # feature_mlp weights no longer fit -- strip them (same fresh-init rationale)
+    # rather than fail to load. Re-train invalidates this caveat.
+    name = (BASE_NAME + TIME_MODIFIER).split("{")[0]
+    ckpt_path = os.path.join(MODEL_DIR, _latest_base_ckpt(filename=name))
+    ckpt = _torch.load(ckpt_path, map_location="cpu", weights_only=False)
+    ckpt["state_dict"] = {k: v for k, v in ckpt["state_dict"].items() if "feature_mlp" not in k}
+    filtered = tmp_path_factory.mktemp("ckpt") / "no_feature_mlp.ckpt"
+    _torch.save(ckpt, filtered)
+
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", UserWarning)
-        return load_base_model_ckpt(strict=False, time_version=True).cuda().eval()
+        return LightningOHLCPredictor.load_from_checkpoint(filtered, strict=False).cuda().eval()
 
 
 def _forward(model, window):
@@ -83,7 +95,7 @@ def _forward_perturbed(model, window, rows):
     """Run forward with ``feature_input`` rows ``rows`` replaced by large noise."""
     md = extract_model_data(window, response_size=RESPONSE_SIZE, return_date=True)
     torch.manual_seed(0)
-    # feature_input is (seq_len, 13) here; the batch dim is added downstream.
+    # feature_input is (seq_len, 12) here; the batch dim is added downstream.
     noise = torch.randn_like(md["feature_input"][rows, :]) * 1000.0
     md["feature_input"][rows, :] = noise
     with torch.no_grad():

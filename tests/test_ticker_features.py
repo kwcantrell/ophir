@@ -12,10 +12,36 @@ from ophir.ticker import extract_features, extract_model_data
 # --------------------------------------------------------------------------- #
 
 
+def test_extract_features_rejects_duplicate_dates():
+    # Duplicate timestamps otherwise crash deep inside the calendar reindex with
+    # an opaque pandas error; fail loudly at the boundary instead.
+    idx = pd.to_datetime(["2024-01-01", "2024-01-01", "2024-01-02"])
+    df = pd.DataFrame(
+        {
+            "high": [11.0, 11.0, 12.0],
+            "low": [9.0, 9.0, 10.0],
+            "close": [10.0, 10.0, 11.0],
+            "volume": [1e6, 1e6, 1e6],
+        },
+        index=idx,
+    )
+    with pytest.raises(ValueError, match="unique"):
+        extract_features(df)
+
+
+def test_extract_features_excludes_time_delta(ohlcv_df):
+    # time_delta was a near-binary, redundant (vs. positional) feature with an
+    # overloaded 0 and a log(0) hazard; dropped in favour of a 12-feature set.
+    out = extract_features(ohlcv_df)
+    assert "time_delta" not in out.columns
+    feats = [c for c in out.columns if c not in ("trade_occured", "feature_valid")]
+    assert len(feats) == 12
+
+
 def test_extract_features_column_layout(ohlcv_df, feature_cols):
     out = extract_features(ohlcv_df)
 
-    # 13 features + ``trade_occured`` + ``feature_valid`` (15 total).
+    # 12 features + ``trade_occured`` + ``feature_valid`` (14 total).
     assert list(out.columns) == [*feature_cols, "trade_occured", "feature_valid"]
     assert out["trade_occured"].dtype == np.bool_
     assert out["feature_valid"].dtype == np.bool_
@@ -55,7 +81,7 @@ def test_extract_features_single_row(make_ohlcv, feature_cols):
 def test_extract_features_empty_input_early_return(empty_ohlcv_df, feature_cols):
     # Quirk (pinned): the empty-input branch returns *before* padding/slicing,
     # so the result is the un-sliced frame -- original OHLCV columns plus the
-    # 13 intermediate feature columns, but WITHOUT ``trade_occured``.
+    # 12 intermediate feature columns, but WITHOUT ``trade_occured``.
     out = extract_features(empty_ohlcv_df)
 
     assert out.empty

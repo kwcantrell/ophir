@@ -396,7 +396,7 @@ class OHLCMulitClassPredictor(nn.Module):
         super().__init__()
         # Positional encoding - we keep it simple and trainable
         self.pe = nn.Parameter(torch.randn((1, 512, hparams.emb_dim)))
-        self.feature_mlp = nn.Linear(13, hparams.emb_dim)
+        self.feature_mlp = nn.Linear(12, hparams.emb_dim)
         # Learned token that replaces the response-block features so the model
         # cannot read the targets it is asked to forecast (see _apply_response_mask).
         self.mask_token = nn.Parameter(torch.randn(hparams.emb_dim))
@@ -440,7 +440,7 @@ class OHLCMulitClassPredictor(nn.Module):
         ----------
         input : OHLCMulitClassPredictorInput
             The input dataclass containing:
-            * ``feature_input`` - raw features of shape ``(B, L, 13)``.
+            * ``feature_input`` - raw features of shape ``(B, L, 12)``.
             * ``trade_occured`` - boolean mask of shape ``(B, L)``.
             * ``response_size`` - integer indicating the number of response tokens.
             * ``model_output`` and ``stock_embeddings`` are written in-place.

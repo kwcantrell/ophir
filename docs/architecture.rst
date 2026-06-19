@@ -17,10 +17,10 @@ Feature pipeline (:mod:`ophir.ticker`)
   back-adjusts close prices (and inversely, volume) via
   :meth:`~ophir.ticker.StockSplit.apply_splits`. Split history is fetched once
   with :func:`~ophir.ticker.get_splits` (Yahoo Finance) and cached.
-* :func:`~ophir.ticker.extract_features` turns an OHLC frame into the 13-feature
-  model input: a log time delta, the log close return ``r_close`` (optionally
-  winsorized), rolling normalized returns / normalized volume / volatility over
-  10-, 20-, and 60-day windows, and the ``upside`` / ``downside`` log ratios.
+* :func:`~ophir.ticker.extract_features` turns an OHLC frame into the 12-feature
+  model input: the log close return ``r_close`` (optionally winsorized), rolling
+  normalized returns / normalized volume / volatility over 10-, 20-, and 60-day
+  windows, and the ``upside`` / ``downside`` log ratios.
   The frame is reindexed onto a daily calendar; padded days are zero-filled and
   flagged by the boolean ``trade_occured`` column.
 * :class:`~ophir.ticker.StockStreamer` slices a preprocessed frame into
@@ -33,7 +33,7 @@ Structured I/O (:mod:`ophir.model_data`)
 -----------------------------------------
 
 :class:`~ophir.model_data.OHLCMulitClassPredictorInput` is the single object
-threaded through the model. It carries ``feature_input`` ``(B, S, 13)``, the
+threaded through the model. It carries ``feature_input`` ``(B, S, 12)``, the
 ``trade_occured`` padding mask, ``targets`` ``(B, S, 3)``, and the integer
 ``response_size``. The model writes ``model_output`` and ``stock_embeddings``
 back onto the same object. Convenience accessors expose the per-target slices
@@ -49,7 +49,7 @@ Model (:mod:`ophir.models`)
 :class:`~ophir.models.OHLCMulitClassParameters` is the frozen hyper-parameter
 dataclass (``emb_dim``, ``num_layers``, ``num_heads``). The forward path:
 
-#. A linear ``feature_mlp`` projects the 13 features to ``emb_dim`` and adds a
+#. A linear ``feature_mlp`` projects the 12 features to ``emb_dim`` and adds a
    trainable positional encoding (max length 512).
 #. :class:`~ophir.models.CausalPrefixBlockMasks` builds (and caches, keyed on
    sequence/response size) a flex-attention block mask that combines a *prefix*

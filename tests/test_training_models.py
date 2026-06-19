@@ -34,7 +34,7 @@ def _toy_model_output() -> object:
     model_output = torch.zeros(2, 4, 3)  # all-zero predictions
     trade = torch.ones(2, 4, dtype=torch.bool)
     return OHLCMulitClassPredictorInput(
-        feature_input=torch.zeros(2, 4, 13),
+        feature_input=torch.zeros(2, 4, 12),
         response_size=torch.tensor(2),
         trade_occured=trade,
         targets=targets,

@@ -9,7 +9,7 @@ from ophir.model_data import OHLCMulitClassPredictorInput
 def _make_input(stock_embeddings: torch.Tensor) -> OHLCMulitClassPredictorInput:
     b = stock_embeddings.shape[0]
     obj = OHLCMulitClassPredictorInput(
-        feature_input=torch.zeros(b, 4, 13),
+        feature_input=torch.zeros(b, 4, 12),
         response_size=torch.tensor(2),
         trade_occured=torch.ones(b, 4, dtype=torch.bool),
         targets=torch.zeros(b, 4, 3),
@@ -34,7 +34,7 @@ def test_pca_projection_uses_full_embedding_dimension():
 
 def test_optional_identity_fields_default_to_none():
     obj = OHLCMulitClassPredictorInput(
-        feature_input=torch.zeros(1, 4, 13),
+        feature_input=torch.zeros(1, 4, 12),
         response_size=torch.tensor(2),
         trade_occured=torch.ones(1, 4, dtype=torch.bool),
         targets=torch.zeros(1, 4, 3),

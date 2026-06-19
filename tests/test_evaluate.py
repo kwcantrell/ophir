@@ -51,7 +51,7 @@ def _toy_batch(response_size: int = 2) -> dict[str, object]:
     # B=1, S=4, 3 channels; prefix cols 0..1, response cols 2..3, all traded.
     targets = torch.tensor([[[0.0, 0.1, 0.2], [0.0, 0.3, 0.4], [0.0, 0.5, 0.6], [0.0, 0.7, 0.8]]])
     return {
-        "feature_input": torch.zeros(1, 4, 13),
+        "feature_input": torch.zeros(1, 4, 12),
         "targets": targets,
         "trade_occured": torch.ones(1, 4, dtype=torch.bool),
         "response_size": torch.tensor(response_size),
@@ -90,7 +90,7 @@ def _toy_identity_batch() -> dict[str, object]:
         ]
     )
     return {
-        "feature_input": torch.zeros(2, 3, 13),
+        "feature_input": torch.zeros(2, 3, 12),
         "targets": targets,
         "trade_occured": torch.ones(2, 3, dtype=torch.bool),
         "response_size": torch.tensor(1),

@@ -26,7 +26,7 @@ def _predictor() -> OHLCMulitClassPredictor:
 def test_response_block_score_is_zero() -> None:
     """Masking holds: perturbing the response block must not move anything."""
     model = _predictor()
-    feature = torch.randn(BATCH, SEQ_LEN, 13)
+    feature = torch.randn(BATCH, SEQ_LEN, 12)
 
     score = response_block_leakage_score(model, feature, RESPONSE_SIZE)
 
@@ -41,7 +41,7 @@ def test_prefix_perturbation_is_detected() -> None:
     representations differ -- i.e. the masking preserves prefix information.
     """
     model = _predictor()
-    feature = torch.randn(BATCH, SEQ_LEN, 13)
+    feature = torch.randn(BATCH, SEQ_LEN, 12)
     perturbed = feature.clone()
     perturbed[:, : SEQ_LEN - RESPONSE_SIZE] += 1000.0
 

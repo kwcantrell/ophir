@@ -100,6 +100,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   already pooled by the model, collapsing the embedding dimension to a scalar
   and making the UI PCA projection degenerate. Removed the double-mean.
 
+## [0.7.0] - 2026-06-18
+
+### Removed
+
+- Drop the `time_delta` input feature; the model feature set is now **12**
+  columns (was 13) and `feature_mlp` is `nn.Linear(12, ...)`. Existing base
+  checkpoints are architecturally incompatible and **must be retrained**.
+  `time_delta` was near-binary (effectively `{0, log 3}`), overloaded `0`
+  across consecutive / first / padding rows, largely redundant with the
+  positional + ALiBi encoding on the padded daily calendar, and carried a
+  latent `log(0) -> -inf` hazard.
+
+### Fixed
+
+- `extract_features` now rejects a duplicate-date index up front with a clear
+  `ValueError` instead of failing deep in the calendar reindex with an opaque
+  pandas error.
+
 ## [0.6.5] - 2026-06-18
 
 ### Fixed
@@ -429,7 +447,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   value yields a rotation of π.
 - Model validation and minor fixes.
 
-[Unreleased]: https://github.com/kwcantrell/ophir/compare/v0.6.5...HEAD
+[Unreleased]: https://github.com/kwcantrell/ophir/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/kwcantrell/ophir/compare/v0.6.5...v0.7.0
 [0.6.5]: https://github.com/kwcantrell/ophir/compare/v0.6.4...v0.6.5
 [0.6.4]: https://github.com/kwcantrell/ophir/compare/v0.6.3...v0.6.4
 [0.6.3]: https://github.com/kwcantrell/ophir/compare/v0.6.2...v0.6.3
