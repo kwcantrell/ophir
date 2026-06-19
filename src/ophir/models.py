@@ -57,6 +57,7 @@ class OHLCMulitClassParameters:
     emb_dim: int
     num_layers: int
     num_heads: int
+    rezero_init: float = 0.0
 
     def __post_init__(self) -> None:
         assert self.emb_dim % 4 == 0  # emb_dim must be a multiple of 4
@@ -319,7 +320,7 @@ class TransformerBlock(nn.Module):
 
     def __init__(self, hparams: OHLCMulitClassParameters) -> None:
         super().__init__()
-        self._rezero = nn.Parameter(torch.tensor(0.0, dtype=torch.float))
+        self._rezero = nn.Parameter(torch.tensor(hparams.rezero_init, dtype=torch.float))
 
         self.mha = FlexMHA(hparams=hparams)
         self.ln1 = nn.LayerNorm(hparams.emb_dim)

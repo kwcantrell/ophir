@@ -100,3 +100,15 @@ def test_loss_is_invariant_to_uniform_weight_scaling() -> None:
 def test_close_weight_defaults_to_one() -> None:
     model = _build_predictor()
     assert model.close_weight == 1.0
+
+
+def test_reset_rezero_restores_configured_init() -> None:
+    import torch
+
+    model = LightningOHLCPredictor(emb_dim=16, num_layers=2, num_heads=2, rezero_init=0.1)
+    for block in model.ohlc_predictor.encoder:
+        with torch.no_grad():
+            block._rezero.fill_(0.5)
+    model.reset_rezero()
+    for block in model.ohlc_predictor.encoder:
+        assert abs(float(block._rezero.detach()) - 0.1) < 1e-6

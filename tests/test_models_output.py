@@ -66,3 +66,22 @@ def test_rezero_gate_stats_empty_is_zero():
 
     linear = nn.Linear(2, 2)
     assert rezero_gate_stats(linear) == {"mean_abs": 0.0, "max_abs": 0.0, "per_layer": []}
+
+
+def test_rezero_init_sets_gate_values():
+    from ophir.models import OHLCMulitClassParameters, OHLCMulitClassPredictor, rezero_gate_stats
+
+    model = OHLCMulitClassPredictor(
+        OHLCMulitClassParameters(emb_dim=16, num_layers=2, num_heads=2, rezero_init=0.1)
+    )
+    per_layer = rezero_gate_stats(model)["per_layer"]
+    assert len(per_layer) == 2
+    for v in per_layer:
+        assert abs(v - 0.1) < 1e-6
+
+
+def test_rezero_init_defaults_to_zero():
+    from ophir.models import OHLCMulitClassParameters, OHLCMulitClassPredictor, rezero_gate_stats
+
+    model = OHLCMulitClassPredictor(OHLCMulitClassParameters(emb_dim=16, num_layers=2, num_heads=2))
+    assert rezero_gate_stats(model)["per_layer"] == [0.0, 0.0]

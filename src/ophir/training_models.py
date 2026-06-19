@@ -69,6 +69,7 @@ class LightningOHLCPredictor(L.LightningModule):
         emb_dim: int,
         num_layers: int,
         num_heads: int,
+        rezero_init: float = 0.0,
         lr: float = 2e-4,
         rezero_lr: float = 3e-4,
         weight_decay: float = 0.01,
@@ -91,6 +92,10 @@ class LightningOHLCPredictor(L.LightningModule):
             Number of transformer blocks.
         num_heads : int
             Number of attention heads.
+        rezero_init : float, optional
+            Initial value for every ReZero gate scalar. ``0.0`` (default) starts
+            each block as the identity; a positive value starts the residual
+            branches partially open. An experiment knob for the depth diagnostic.
         lr : float, optional
             AdamW learning rate for the decayed and bias/norm parameter groups.
             Defaults to ``2e-4``.
@@ -128,10 +133,11 @@ class LightningOHLCPredictor(L.LightningModule):
         """
         super().__init__()
         hparams: OHLCMulitClassParameters = OHLCMulitClassParameters(
-            emb_dim=emb_dim, num_layers=num_layers, num_heads=num_heads
+            emb_dim=emb_dim, num_layers=num_layers, num_heads=num_heads, rezero_init=rezero_init
         )
         self.ohlc_predictor = OHLCMulitClassPredictor(hparams=hparams)
 
+        self.rezero_init = rezero_init
         self.lr = lr
         self.rezero_lr = rezero_lr
         self.weight_decay = weight_decay
@@ -508,8 +514,8 @@ class LightningOHLCPredictor(L.LightningModule):
         }
 
     def reset_rezero(self) -> None:
-        """Re-zero every ReZero scalar in the predictor, in place."""
+        """Reset every ReZero scalar to the configured ``rezero_init``, in place."""
         with torch.no_grad():
             for name, param in self.ohlc_predictor.named_parameters():
                 if "rezero" in name:
-                    param.fill_(0)
+                    param.fill_(self.rezero_init)
