@@ -249,3 +249,22 @@ def test_run_training_passes_val_identity(
     train.run_training(emb_dim=16, num_layers=1, num_heads=2, val_identity=True)
     # Two loaders built (train, val); the val one carries identity.
     assert calls == [False, True]
+
+
+def test_run_training_forwards_close_weight(
+    monkeypatch: pytest.MonkeyPatch, patched_engine: _FakeTrainer
+) -> None:
+    captured: dict[str, Any] = {}
+
+    import ophir.training_models as tm
+
+    _orig_predictor = tm.LightningOHLCPredictor
+
+    class _CapturingPredictor(_orig_predictor):  # type: ignore[misc]
+        def __init__(self, **kwargs: Any) -> None:
+            captured.update(kwargs)
+            super().__init__(**kwargs)
+
+    monkeypatch.setattr(tm, "LightningOHLCPredictor", _CapturingPredictor)
+    train.run_training(emb_dim=16, num_layers=1, num_heads=2, close_weight=2.0)
+    assert captured["close_weight"] == 2.0
