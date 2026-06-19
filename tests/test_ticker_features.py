@@ -126,7 +126,8 @@ def test_extract_model_data_includes_identity_when_stock_id_given(feature_window
     assert payload["date_ordinal"].dtype == torch.int64
 
 
-def test_np_bool_alias_available():
-    # ``extract_model_data`` relies on ``np.bool`` (restored in numpy 2.0).
-    # The project pins numpy>=2.2.6; this guard fails loudly on a downgrade.
-    assert hasattr(np, "bool")
+def test_extract_model_data_excludes_bool_columns_from_features(feature_window, feature_cols):
+    # The dtype filter must drop both bool columns (``trade_occured`` /
+    # ``feature_valid``), leaving exactly the float feature columns.
+    md = extract_model_data(feature_window, response_size=5)
+    assert md["feature_input"].shape[1] == len(feature_cols)

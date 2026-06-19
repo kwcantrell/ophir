@@ -82,7 +82,7 @@ def get_starts(
         Integer start positions ``first_valid_row, first_valid_row+offset, …``
         up to ``len(df) - seq_len``.
     """
-    num_start = max(0, len(df) - seq_len)
+    num_start = max(0, len(df) - seq_len + 1)
     starts = np.arange(first_valid_row, num_start, offset)
     return starts
 
@@ -106,7 +106,7 @@ def get_start_dates(df: pd.DataFrame, seq_len: int, offset: int) -> np.ndarray[A
     """
     dates = df.index.to_series()
     calendar = pd.date_range(dates.min(), dates.max(), freq="D")
-    starts = np.arange(0, len(calendar) - seq_len, offset)
+    starts = np.arange(0, max(0, len(calendar) - seq_len + 1), offset)
     return np.asarray(calendar[starts].to_numpy())
 
 
@@ -449,12 +449,12 @@ class StockStreamer:
         if self.stock_split is not None:
             self.ohlc_df = self.stock_split.apply_splits(self.ohlc_df)
         self.preprocessed_ohlc_df = extract_features(self.ohlc_df)
-        self.iterator = iter(self.create_iterator())
         if self.offset == -1:
             self.offset = self.seq_len
 
         first_valid = int(self.preprocessed_ohlc_df["feature_valid"].to_numpy().argmax())
         self.starts = get_starts(self.preprocessed_ohlc_df, self.seq_len, self.offset, first_valid)
+        self.iterator = iter(self.create_iterator())
 
     @property
     def size(self) -> int:
@@ -772,7 +772,7 @@ def extract_model_data(
         ``stock_id`` / ``date_ordinal`` when ``stock_id`` is given), suitable
         for :class:`~ophir.model_data.OHLCMulitClassPredictorInput`.
     """
-    features = [c for c, d in zip(df.columns, df.dtypes, strict=False) if d != np.bool]
+    features = [c for c, d in zip(df.columns, df.dtypes, strict=False) if d != np.dtype(bool)]
     feature_input = df[features].to_numpy()
     targets = df[["r_close", "upside", "downside"]].to_numpy()
     trade_occured = df["trade_occured"].to_numpy()

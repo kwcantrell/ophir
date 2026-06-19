@@ -53,7 +53,20 @@ def _frame(n_rows):
 
 def test_get_starts_regular_stride():
     starts = get_starts(_frame(120), seq_len=30, offset=10)
-    np.testing.assert_array_equal(starts, np.arange(0, 90, 10))
+    np.testing.assert_array_equal(starts, np.arange(0, 91, 10))
+
+
+def test_get_starts_includes_final_full_window():
+    # The last full window starts at len(df) - seq_len (rows 90..119 of a
+    # 120-row frame). A half-open arange that stops at len(df) - seq_len drops
+    # it, silently losing the most-recent window of every stock.
+    starts = get_starts(_frame(120), seq_len=30, offset=10)
+    assert starts[-1] == 90
+
+
+def test_get_starts_seq_len_equals_len_yields_single_window():
+    # A frame exactly seq_len long has one valid full window at start 0.
+    np.testing.assert_array_equal(get_starts(_frame(30), seq_len=30, offset=5), np.array([0]))
 
 
 def test_get_starts_offset_larger_than_span_yields_single_start():
@@ -61,8 +74,7 @@ def test_get_starts_offset_larger_than_span_yields_single_start():
     np.testing.assert_array_equal(starts, np.array([0]))
 
 
-def test_get_starts_seq_len_ge_len_is_empty():
-    assert get_starts(_frame(30), seq_len=30, offset=5).size == 0
+def test_get_starts_seq_len_exceeds_len_is_empty():
     assert get_starts(_frame(10), seq_len=40, offset=5).size == 0
 
 
@@ -76,10 +88,20 @@ def test_get_start_dates_matches_calendar_slice(ohlcv_df):
     result = get_start_dates(ohlcv_df, seq_len, offset)
 
     calendar = pd.date_range(ohlcv_df.index.min(), ohlcv_df.index.max(), freq="D")
-    expected = calendar[np.arange(0, len(calendar) - seq_len, offset)].to_numpy()
+    expected = calendar[np.arange(0, len(calendar) - seq_len + 1, offset)].to_numpy()
 
     np.testing.assert_array_equal(result, expected)
     assert result.dtype == np.dtype("datetime64[ns]")
+
+
+def test_get_start_dates_includes_final_window(ohlcv_df):
+    # The last full window starts seq_len calendar days before the end; a
+    # half-open arange stopping at len(calendar) - seq_len drops it.
+    seq_len = 10
+    calendar = pd.date_range(ohlcv_df.index.min(), ohlcv_df.index.max(), freq="D")
+    result = get_start_dates(ohlcv_df, seq_len, offset=1)
+
+    assert result[-1] == calendar[len(calendar) - seq_len].to_numpy()
 
 
 def test_get_start_dates_seq_len_exceeds_calendar_is_empty(ohlcv_df):

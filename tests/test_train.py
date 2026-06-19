@@ -44,6 +44,41 @@ def test_validate_dims_accepts_valid_config() -> None:
     train._validate_dims(emb_dim=64, num_heads=4, seq_len=12, response_size=4)
 
 
+# --------------------------------------------------------------------------- #
+# worker RNG seeding
+# --------------------------------------------------------------------------- #
+
+
+def _numpy_draw_after_worker_seed(torch_seed: int) -> float:
+    """Seed torch as a DataLoader worker would, run the init fn, draw from numpy."""
+    import numpy as np
+    import torch
+
+    torch.manual_seed(torch_seed)
+    train._seed_worker(0)
+    return float(np.random.rand())
+
+
+def test_seed_worker_derives_numpy_seed_from_torch() -> None:
+    # DataLoader gives each worker a distinct torch seed; the init fn must turn
+    # that into a distinct numpy seed, otherwise all workers draw identically.
+    assert _numpy_draw_after_worker_seed(1) != _numpy_draw_after_worker_seed(2)
+
+
+def test_seed_worker_is_reproducible() -> None:
+    # Same per-worker torch seed -> same numpy stream (reproducible runs).
+    assert _numpy_draw_after_worker_seed(7) == _numpy_draw_after_worker_seed(7)
+
+
+def test_build_dataloader_installs_worker_seeding() -> None:
+    from unittest.mock import Mock
+
+    loader = train.build_dataloader(
+        Mock(), response_size=5, batch_size=2, num_workers=2, cache_size=1
+    )
+    assert loader.worker_init_fn is train._seed_worker
+
+
 class _FakeStreamer:
     def __init__(self, size: int) -> None:
         self.size = size

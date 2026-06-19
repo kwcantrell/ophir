@@ -242,6 +242,24 @@ def steps_for_epochs(num_windows: int, batch_size: int, epochs: int) -> int:
     return epochs * max(1, math.ceil(num_windows / batch_size))
 
 
+def _seed_worker(worker_id: int) -> None:
+    """Seed numpy and Python ``random`` per DataLoader worker.
+
+    The data pipeline shuffles windows and samples the streamer cache via
+    numpy's global RNG, but :class:`~torch.utils.data.DataLoader` only reseeds
+    ``torch`` and Python ``random`` per worker — not numpy. Without this, forked
+    workers inherit identical numpy state and draw correlated samples. Derive a
+    per-worker numpy seed from ``torch.initial_seed`` (which DataLoader already
+    sets distinctly per worker).
+    """
+    import numpy as np
+    import torch
+
+    worker_seed = torch.initial_seed() % 2**32
+    np.random.seed(worker_seed)
+    random.seed(worker_seed)
+
+
 def build_dataloader(
     handler: StockHanlder,
     response_size: int,
@@ -286,7 +304,12 @@ def build_dataloader(
         cache_size=cache_size,
         return_identity=return_identity,
     )
-    return DataLoader(dataset, batch_size=batch_size, num_workers=num_workers)
+    return DataLoader(
+        dataset,
+        batch_size=batch_size,
+        num_workers=num_workers,
+        worker_init_fn=_seed_worker,
+    )
 
 
 def run_training(

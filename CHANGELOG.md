@@ -100,6 +100,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   already pooled by the model, collapsing the embedding dimension to a scalar
   and making the UI PCA projection degenerate. Removed the double-mean.
 
+## [0.6.3] - 2026-06-18
+
+### Fixed
+
+- `get_starts` and `get_start_dates` dropped the final full window of every
+  stock (a half-open `arange` stopped at `len(df) - seq_len`, exactly the last
+  valid start). The freshest window — the one most wanted at inference — was
+  silently lost each epoch. Stops are now inclusive (`len(df) - seq_len + 1`).
+- numpy's global RNG was duplicated across DataLoader workers: the pipeline
+  shuffles windows and samples the streamer cache via numpy, but `DataLoader`
+  reseeds only `torch`/`random` per worker, and `ophir train` defaults
+  `seed=None` (so Lightning's worker seeding never engaged). Forked workers drew
+  correlated samples. `build_dataloader` now installs a `_seed_worker`
+  `worker_init_fn` that seeds numpy and `random` from `torch.initial_seed`.
+
+### Changed
+
+- Version-proof the feature dtype filter in `extract_model_data` (`np.bool` →
+  `np.dtype(bool)`) and build `StockStreamer`'s window iterator only after its
+  `starts`/`offset` are computed, removing a latent ordering dependency.
+
 ## [0.6.2] - 2026-06-18
 
 ### Changed
@@ -381,7 +402,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   value yields a rotation of π.
 - Model validation and minor fixes.
 
-[Unreleased]: https://github.com/kwcantrell/ophir/compare/v0.6.2...HEAD
+[Unreleased]: https://github.com/kwcantrell/ophir/compare/v0.6.3...HEAD
+[0.6.3]: https://github.com/kwcantrell/ophir/compare/v0.6.2...v0.6.3
 [0.6.2]: https://github.com/kwcantrell/ophir/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/kwcantrell/ophir/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/kwcantrell/ophir/compare/v0.5.0...v0.6.0
