@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- ReZero depth diagnostic: opt-in `rezero_init`, `--decouple-rezero-schedule`,
+  and `--log-rezero-gates` training knobs (all default to current behavior),
+  a `rezero_gate_stats` helper, and `dashboard.summarize_rezero_runs` to compare
+  experiment arms. See `docs/rezero-diagnostic-runbook.md`.
 - Add `ophir sweep`: an Optuna hyperparameter sweep harness that searches
   optimizer, loss-weight, and architecture-tier hyperparameters by mean
   cross-sectional rank-IC on `r_close`, with proxy-budget search (ASHA pruning,
