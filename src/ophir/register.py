@@ -126,7 +126,7 @@ def fetch_base_trainer(
 
     trainer = L.Trainer(
         max_steps=max_steps,
-        precision="16-mixed",
+        precision="bf16-mixed",
         default_root_dir=MODEL_DIR,
         accelerator="cuda",
         callbacks=callbacks,
@@ -160,7 +160,7 @@ def fetch_finetune_trainer() -> L.Trainer:
     from lightning.pytorch.loggers import CSVLogger, TensorBoardLogger
 
     trainer = L.Trainer(
-        precision="16-mixed",
+        precision="bf16-mixed",
         max_epochs=10000,
         default_root_dir=MODEL_DIR,
         accelerator="cuda",
@@ -498,7 +498,7 @@ def predict_trainer() -> L.Trainer:
     """
     import lightning as L
 
-    trainer = L.Trainer(precision="16-mixed", accelerator="cuda")
+    trainer = L.Trainer(precision="bf16-mixed", accelerator="cuda")
     return trainer
 
 

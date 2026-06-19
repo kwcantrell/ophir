@@ -18,6 +18,7 @@ Requires a CUDA GPU and the per-stock parquet tree under
 
 from __future__ import annotations
 
+import gc
 import math
 import os
 import random
@@ -335,9 +336,12 @@ def run_training(
     trials. Requires CUDA.
     """
     import lightning as L
+    import torch
 
     from ophir import register
     from ophir.training_models import LightningOHLCPredictor
+
+    torch.set_float32_matmul_precision("high")
 
     if seed is not None:
         L.seed_everything(seed, workers=True)
@@ -405,7 +409,17 @@ def run_training(
         limit_val_batches=val_batches,
         extra_callbacks=callbacks,
     )
-    trainer.fit(model, train_dataloaders=train_dl, val_dataloaders=val_dl)
+    try:
+        trainer.fit(model, train_dataloaders=train_dl, val_dataloaders=val_dl)
+    except BaseException:
+        # Drop dataloader references so multiprocessing workers shut down
+        # cleanly before the exception propagates (e.g. Optuna pruning,
+        # KeyboardInterrupt). Without this, the DataLoader's __del__ fires
+        # in an inconsistent fork state and raises AssertionError.
+        del train_dl, val_dl
+        gc.collect()
+        raise
+
     return model
 
 

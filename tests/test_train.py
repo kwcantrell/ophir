@@ -117,6 +117,27 @@ def test_build_split_handlers_requires_two_year_gap_for_long_window() -> None:
         )
 
 
+def test_build_split_handlers_enables_shuffle(parquet_dir: tuple[str, Any]) -> None:
+    # Window shuffling only happens inside the streamer (the streaming
+    # IterableDataset gives the DataLoader no shuffle knob), so both handlers
+    # must carry shuffle=True or training silently streams in chronological
+    # order.
+    base_path, _ = parquet_dir
+    train_h, val_h = train.build_split_handlers(
+        base_path=base_path,
+        seq_len=365,
+        offset=90,
+        min_volume=1000.0,
+        train_min_year=None,
+        train_max_year=2023,
+        val_min_year=2024,
+        val_max_year=None,
+        use_sp500=False,
+    )
+    assert train_h.shuffle is True
+    assert val_h.shuffle is True
+
+
 class _FakeTrainer:
     def __init__(self) -> None:
         self.fitted_model: LightningOHLCPredictor | None = None

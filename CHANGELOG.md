@@ -100,6 +100,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   already pooled by the model, collapsing the embedding dimension to a scalar
   and making the UI PCA projection degenerate. Removed the double-mean.
 
+## [0.6.2] - 2026-06-18
+
+### Changed
+
+- Switch mixed-precision training and inference from `16-mixed` (fp16) to
+  `bf16-mixed` across `fetch_base_trainer`, `fetch_finetune_trainer`, and
+  `predict_trainer`. bf16's wider dynamic range suits the ALiBi bias, ReZero
+  scaling, and `exp` candle reconstruction better than fp16, and removes the
+  fp16 gradient scaler. `run_training` now also sets
+  `torch.set_float32_matmul_precision("high")` to enable TF32 for the residual
+  fp32 matmuls.
+
 ## [0.6.1] - 2026-06-18
 
 ### Changed
@@ -369,7 +381,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   value yields a rotation of π.
 - Model validation and minor fixes.
 
-[Unreleased]: https://github.com/kwcantrell/ophir/compare/v0.6.1...HEAD
+[Unreleased]: https://github.com/kwcantrell/ophir/compare/v0.6.2...HEAD
+[0.6.2]: https://github.com/kwcantrell/ophir/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/kwcantrell/ophir/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/kwcantrell/ophir/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/kwcantrell/ophir/compare/v0.4.1...v0.5.0
