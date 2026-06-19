@@ -100,6 +100,10 @@ def sweep(
     batch_size: int = typer.Option(32, help="Batch size"),
     use_sp500: bool = typer.Option(False, help="Restrict to S&P 500 symbols"),
     data_dir: str | None = typer.Option(None, help="Override the data directory"),
+    sampler: str = typer.Option("tpe", help="Optuna sampler: 'tpe' (default) or 'random'"),
+    prune: bool = typer.Option(
+        True, help="Enable ASHA pruning (use --no-prune for a clean control study)"
+    ),
 ) -> None:
     """Run an Optuna hyperparameter sweep, then confirm the best configs.
 
@@ -135,6 +139,8 @@ def sweep(
         storage=storage,
         base_seed=base_seed,
         proxy_kwargs=proxy_kwargs,
+        sampler=sampler,
+        prune=prune,
     )
     completed = [t for t in study_obj.trials if t.state == optuna.trial.TrialState.COMPLETE]
     if completed:

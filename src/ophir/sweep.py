@@ -109,6 +109,24 @@ def objective(trial: optuna.Trial, *, proxy_kwargs: dict[str, Any], base_seed: i
     return pruning_cb.best_val_rank_ic
 
 
+def _build_sampler(name: str, seed: int) -> optuna.samplers.BaseSampler:
+    """Construct the Optuna sampler selected by ``name`` (``"tpe"`` | ``"random"``)."""
+    import optuna
+
+    if name == "tpe":
+        return optuna.samplers.TPESampler(seed=seed)
+    if name == "random":
+        return optuna.samplers.RandomSampler(seed=seed)
+    raise ValueError(f"unknown sampler {name!r}; expected 'tpe' or 'random'")
+
+
+def _build_pruner(prune: bool) -> optuna.pruners.BasePruner:
+    """ASHA pruner when ``prune``; a no-op pruner otherwise (clean control runs)."""
+    import optuna
+
+    return optuna.pruners.SuccessiveHalvingPruner() if prune else optuna.pruners.NopPruner()
+
+
 def run_sweep(
     *,
     n_trials: int,
@@ -116,16 +134,18 @@ def run_sweep(
     storage: str,
     base_seed: int,
     proxy_kwargs: dict[str, Any],
+    sampler: str = "tpe",
+    prune: bool = True,
 ) -> optuna.Study:
     """Create/resume the SQLite study and run ``n_trials`` proxy trials."""
     import optuna
 
-    sampler = optuna.samplers.TPESampler(seed=base_seed)
-    pruner = optuna.pruners.SuccessiveHalvingPruner()
+    sampler_obj = _build_sampler(sampler, base_seed)
+    pruner = _build_pruner(prune)
     study = optuna.create_study(
         study_name=study_name,
         storage=storage,
-        sampler=sampler,
+        sampler=sampler_obj,
         pruner=pruner,
         direction="maximize",
         load_if_exists=True,

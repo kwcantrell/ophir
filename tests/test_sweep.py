@@ -51,3 +51,20 @@ def test_select_top_configs_orders_by_value_desc() -> None:
         study.add_trial(trial)
     top = sweep.select_top_configs(study, k=2)
     assert [c["lr"] for c in top] == [0.5, 0.3]
+
+
+def test_build_sampler_selects_type() -> None:
+    assert isinstance(sweep._build_sampler("tpe", 0), optuna.samplers.TPESampler)
+    assert isinstance(sweep._build_sampler("random", 0), optuna.samplers.RandomSampler)
+
+
+def test_build_sampler_rejects_unknown() -> None:
+    import pytest
+
+    with pytest.raises(ValueError, match="sampler"):
+        sweep._build_sampler("nope", 0)
+
+
+def test_build_pruner_toggles() -> None:
+    assert isinstance(sweep._build_pruner(True), optuna.pruners.SuccessiveHalvingPruner)
+    assert isinstance(sweep._build_pruner(False), optuna.pruners.NopPruner)
