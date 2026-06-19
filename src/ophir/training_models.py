@@ -76,6 +76,7 @@ class LightningOHLCPredictor(L.LightningModule):
         warmup_ratio: float = 0.03,
         max_steps: int = 100000,
         loss_decay: float = 0.6,
+        close_weight: float = 1.0,
         upside_weight: float = 0.5,
         downside_weight: float = 0.5,
     ) -> None:
@@ -114,6 +115,10 @@ class LightningOHLCPredictor(L.LightningModule):
             across the response block, so errors on nearer-term days are punished
             more. ``1.0`` recovers a uniform (unweighted) loss. Defaults to
             ``0.6``.
+        close_weight : float, optional
+            Weight of the r_close channel in the combined loss. The three loss
+            weights are normalized by their sum, so only their ratios matter.
+            Defaults to ``1.0``.
         upside_weight : float, optional
             Weight of the upside channel in the combined loss. Defaults to
             ``0.5``.
@@ -134,6 +139,7 @@ class LightningOHLCPredictor(L.LightningModule):
         self.warmup_ratio = warmup_ratio
         self.max_steps = max_steps
         self.loss_decay = loss_decay
+        self.close_weight = close_weight
         self.upside_weight = upside_weight
         self.downside_weight = downside_weight
 
@@ -249,7 +255,9 @@ class LightningOHLCPredictor(L.LightningModule):
         Each target uses a smooth-L1 loss restricted to days where a trade
         occurred and weighted by a geometric time-decay over the forecast
         horizon (see :meth:`_response_weights`); the components are logged and
-        combined as ``close + upside_weight·upside + downside_weight·downside``.
+        combined as a sum-normalized weighted mean
+        ``(close_weight·close + upside_weight·upside + downside_weight·downside)
+        / (close_weight + upside_weight + downside_weight)``.
 
         Parameters
         ----------
@@ -327,7 +335,13 @@ class LightningOHLCPredictor(L.LightningModule):
             logger=True,
         )
 
-        return close_loss + self.upside_weight * upside_loss + self.downside_weight * downside_loss
+        total_weight = self.close_weight + self.upside_weight + self.downside_weight
+        combined = (
+            self.close_weight * close_loss
+            + self.upside_weight * upside_loss
+            + self.downside_weight * downside_loss
+        )
+        return combined / max(total_weight, 1e-8)
 
     def training_step(
         self,

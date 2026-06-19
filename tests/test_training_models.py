@@ -58,7 +58,7 @@ def test_loss_weights_combine_components() -> None:
         logged["val_r_close_loss"]
         + 0.4 * logged["val_upside_loss"]
         + 0.7 * logged["val_downside_loss"]
-    )
+    ) / (1.0 + 0.4 + 0.7)
     assert abs(float(loss) - expected) < 1e-6
 
 
@@ -82,3 +82,21 @@ def test_val_rank_ic_empty_is_nan() -> None:
     empty = torch.tensor([])
     result = val_rank_ic(empty, empty, empty.long(), empty.long())
     assert result != result  # NaN
+
+
+def test_loss_is_invariant_to_uniform_weight_scaling() -> None:
+    out_a = _toy_model_output()
+    out_b = _toy_model_output()
+    base = _build_predictor(close_weight=1.0, upside_weight=0.5, downside_weight=0.5)
+    scaled = _build_predictor(close_weight=3.0, upside_weight=1.5, downside_weight=1.5)
+    base.loss_state = scaled.loss_state = "val"
+    base.log = lambda *a, **k: None  # type: ignore[method-assign]
+    scaled.log = lambda *a, **k: None  # type: ignore[method-assign]
+    loss_a = base.compute_loss(out_a)  # type: ignore[arg-type]
+    loss_b = scaled.compute_loss(out_b)  # type: ignore[arg-type]
+    assert abs(float(loss_a) - float(loss_b)) < 1e-6
+
+
+def test_close_weight_defaults_to_one() -> None:
+    model = _build_predictor()
+    assert model.close_weight == 1.0
