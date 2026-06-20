@@ -6,6 +6,7 @@ lightning_logs/
 .ophir/
 oldcode/
 .claude/settings.local.json
+.claude/worktrees/
 
 ### Below are common .gitignore DO NOT EDIT ###
 # Byte-compiled / optimized / DLL files
