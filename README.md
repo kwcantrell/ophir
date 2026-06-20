@@ -1,125 +1,127 @@
 # Ophir
 
-> BERT-style masked transformer for stock OHLC prediction, with a Gradio UI and
-> a local-LLM chat panel.
+> A BERT-style masked transformer for stock OHLC prediction, paired with a
+> deterministic trading core.
 
-Ophir trains a full-encoder (BERT-style) masked transformer over sequences of
-daily OHLC (Open / High / Low / Close) candles and predicts three forward
-targets per day — relative close return, intraday upside, and intraday
-downside. Predictions are reconstructed back into candlesticks and explored in
-an interactive Gradio dashboard that also embeds every S&P 500 stock into a
-learned representation space and projects it into an interactive 3-D point
-cloud.
+Ophir has two subsystems:
 
-## Features
-
-- **Masked transformer model** (`ophir.models`) — ALiBi positional bias,
-  `torch` flex-attention with a cached causal + prefix block mask, and ReZero
-  residual scaling.
-- **Lightning training/finetuning wrapper** (`ophir.training_models`) — AdamW
-  with cosine warmup, per-group learning rates, weighted smooth-L1 loss over
-  the three targets.
-- **Stock data pipeline** (`ophir.ticker`) — parquet ingestion, stock-split
-  adjustment, 12-feature technical extraction (log returns, rolling volatility,
-  normalized volume, upside/downside), and streaming datasets.
-- **Structured I/O dataclass** (`ophir.model_data`) — `OHLCMulitClassPredictorInput`
-  carries features, targets, and predictions, and converts them back to
-  candles and PCA projections.
-- **Gradio UI + local-LLM chat** (`ophir.ui`) — candlestick comparison
-  (predicted vs. actual), a 3-D PCA stock-embedding cloud colored by predicted
-  return, and an Ollama-backed chat panel.
-- **Checkpoint / data-dir management** (`ophir.register`) — Lightning
-  `Trainer` factories and checkpoint loaders.
-- **`ophir` CLI** (Typer) — `serve` and `register` subcommands.
+1. **Forecaster** — a full-encoder (BERT-style) masked transformer over
+   sequences of daily OHLC candles. It predicts three forward targets per day:
+   relative close return, intraday upside, and intraday downside. Predictions
+   are reconstructed back into candlesticks and explored in a Gradio UI that
+   also projects a learned stock-embedding space into an interactive 3-D point
+   cloud.
+2. **Trading core** (`ophir.trading`) — deterministic, side-effect-free logic
+   for proposing, sizing, gating, recording, and scoring paper trades. A
+   non-overridable safety gate is the single authority on whether an order is
+   approved, resized, or rejected.
 
 ## Requirements
 
-- **Python >= 3.10**.
-- **A CUDA GPU.** Training and inference paths call `.cuda()` and configure
-  Lightning with `accelerator="cuda"`; the UI will not run on CPU.
-- **A trained base checkpoint.** `ophir serve` loads the latest base checkpoint
-  from the package data directory at startup; without one it will not start.
-- **Ollama running locally**, serving the `gpt-oss:20b` model, for the chat
-  panel.
-- **Network access at UI startup** — the S&P 500 constituent list is fetched
-  from Wikipedia and split history from Yahoo Finance (results are cached).
+- **Python >= 3.10.**
+- **A CUDA GPU** for the model and UI runtime paths. Training and inference
+  configure Lightning with `accelerator="cuda"` and move tensors with `.cuda()`;
+  these paths will not run on CPU.
+- **A trained base checkpoint.** `serve` loads the latest base checkpoint from
+  the package model directory at startup; without one it will not start.
+- **Network access at UI startup.** The S&P 500 constituent list and split
+  history are fetched on import (results are cached).
 
-## Installation
+## Install
 
-Using [uv](https://docs.astral.sh/uv/) (recommended):
+[uv](https://docs.astral.sh/uv/) is the supported workflow:
 
 ```bash
 uv sync                 # create the environment and install ophir
+uv sync --group dev     # add dev tooling (ruff, mypy, pytest, pre-commit)
 ```
 
-Using pip:
+## CLI
 
-```bash
-pip install .           # or: pip install -e .   (editable, for development)
-```
+All commands are exposed through the `ophir` entry point (`ophir.cli:app`).
 
-## CLI usage
+| Command | Purpose |
+| --- | --- |
+| `ophir train` | Train the base forecaster. |
+| `ophir finetune` | Finetune from an existing checkpoint. |
+| `ophir evaluate` | Score a checkpoint on the held-out validation set (includes cross-sectional rank-IC). |
+| `ophir sweep` | Run an Optuna hyperparameter sweep (proxy-budget search with ASHA pruning), then confirm the top configs at full budget. Requires CUDA. |
+| `ophir importances <study>` | Report fANOVA + MDI hyperparameter importances for a completed sweep study. |
+| `ophir curate` | Build the high-quality dataset allowlist. |
+| `ophir migrate-sqlite` | Convert the per-ticker parquet tree into a single-file SQLite store. |
+| `ophir serve` | Launch the Gradio UI (see below). |
+| `ophir dashboard` | Launch the live training dashboard. |
+| `ophir register massive-key <KEY>` | Store a [MASSIVE](https://pypi.org/project/massive/) API key for data fetching. |
+| `ophir trade gate` | Run a proposed order through the safety gate (exit non-zero on reject). |
+| `ophir trade record` | Append one decision to the ledger. |
+| `ophir trade close` | Mark a decision closed/scored with its realized P&L. |
+| `ophir trade performance` | Compute portfolio metrics and write a `performance.md` snapshot. |
 
-```bash
-ophir serve [--port 7860] [--share/--no-share] [--debug/--no-debug]
-ophir register massive-key <KEY>
-```
+### UI
 
-- `ophir serve` launches the Gradio UI (`ophir.ui.serve`). `--share` exposes a
-  public link; `--debug` (default on) launches Gradio in debug mode.
-- `ophir register massive-key <KEY>` stores a [MASSIVE](https://pypi.org/project/massive/)
-  API key (used for data fetching) under the package's `.ophir/` directory.
+- `ophir serve` launches a Gradio app with predicted-vs-actual candlesticks, a
+  3-D PCA stock-embedding cloud colored by predicted return, and a chat panel.
+- `ophir dashboard` shows per-target loss curves read live from `metrics.csv`
+  plus an on-demand response-block leakage check.
 
-## Quickstart
+## Data and checkpoints
 
-```bash
-uv sync
-ophir register massive-key <YOUR_KEY>
-# Ensure a trained base checkpoint exists in the package .ophir/model directory,
-# a CUDA GPU is available, and Ollama is serving gpt-oss:20b.
-ophir serve
-# open the local URL printed by Gradio
-```
+The package owns an on-disk layout under `src/ophir/.ophir/`:
 
-## Documentation
+- `.ophir/data/` — datasets, the `days/` stock store, and symbol allowlists.
+- `.ophir/model/` — checkpoints, TensorBoard logs, and CSV training metrics.
 
-The full documentation (overview, installation, CLI reference, architecture,
-and an autodoc-generated API reference) is published to GitHub Pages at
-**https://kwcantrell.github.io/ophir/** and is rebuilt and deployed
-automatically by the `Docs` GitHub Actions workflow on every push to `main`.
+`ophir register massive-key <KEY>` writes the MASSIVE API key under `.ophir/`
+for later data fetching.
 
-To build it locally:
+## Trading
 
-```bash
-uv sync --group docs
-uv run --group docs sphinx-build -b html docs docs/_build/html
-# open docs/_build/html/index.html
-```
+The trading core is deterministic and isolated from the model:
 
-## Development setup
+- `safety.py` is the single non-overridable pre-trade gate. It returns
+  `approve` / `resize` / `reject`; honoring its verdict is mandatory.
+- `config.py` validates `account_mode` (`paper` or `live`) and guardrail limits.
+  The system is intended for **paper** trading.
+- `ledger.py` is an append-only JSON-Lines ledger — the source of truth for
+  outcome attribution. Do not hand-edit.
+- `memories/` holds the entity-organized knowledge base (per-ticker, per-sector,
+  patterns, lessons, ledger, performance); see `memories/README.md`.
 
-```bash
-uv sync --group dev
-uv run pre-commit install   # one-time: install the mypy git hook
-uv run ruff check .
-uv run ruff format --check .
-uv run mypy src/ophir
-uv run --group docs sphinx-build -W -b html docs docs/_build/html
-```
+This is research tooling, **not financial advice**.
 
 ## Project layout
 
 | Path | Purpose |
 | --- | --- |
-| `src/ophir/__init__.py` | Package root. |
-| `src/ophir/cli.py` | Typer CLI app (`ophir` entry point). |
-| `src/ophir/models.py` | Core transformer architecture. |
+| `src/ophir/cli.py` | Typer CLI app (the `ophir` entry point). |
+| `src/ophir/models.py` | Core transformer architecture (ALiBi bias, flex-attention block mask, ReZero). |
 | `src/ophir/training_models.py` | PyTorch-Lightning training wrapper. |
-| `src/ophir/model_data.py` | Structured model input/output dataclass. |
-| `src/ophir/ticker.py` | Stock data loading, splits, feature extraction, datasets. |
-| `src/ophir/register.py` | Trainer factories, checkpoint loaders, data dirs. |
-| `src/ophir/ui.py` | Gradio UI and local-LLM chat. |
+| `src/ophir/model_data.py` | Structured model input/output container. |
+| `src/ophir/ticker.py` | Stock data ingestion, split adjustment, feature extraction, datasets. |
+| `src/ophir/register.py` | Filesystem, checkpoint, and Lightning `Trainer` helpers. |
+| `src/ophir/evaluate.py` | Validation scoring and the eval report. |
+| `src/ophir/sweep.py` | Optuna sweep harness and importance helpers. |
+| `src/ophir/curation.py` | High-quality dataset curation. |
+| `src/ophir/leakage.py` | Response-block target-leakage diagnostics. |
+| `src/ophir/sqlite_store.py` | Single-file SQLite store for per-ticker data. |
+| `src/ophir/train.py` | Training/finetuning entrypoints. |
+| `src/ophir/dashboard.py` | Live training dashboard. |
+| `src/ophir/ui.py` | Gradio UI. |
+| `src/ophir/trading/` | Deterministic trading core (gate, ledger, signals, metrics, exposure, outcomes). |
+| `memories/` | Trading knowledge base. |
+| `tests/` | Test suite. |
+
+## Development
+
+```bash
+uv sync --group dev
+uv run pre-commit install      # one-time: install the mypy git hook
+uv run pytest                  # full suite
+uv run ruff check .
+uv run ruff format --check .
+uv run mypy src/ophir
+```
 
 ## License
 
-BSD 3-Clause. Copyright (c) 2025, kwcantrell. See [LICENSE](LICENSE).
+BSD 3-Clause. See [LICENSE](LICENSE).
