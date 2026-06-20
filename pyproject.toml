@@ -83,11 +83,6 @@ dev = [
     "pytest-mock>=3.14",
     "optuna-dashboard>=0.20.0",
 ]
-docs = [
-    "sphinx>=8.1",
-    "furo>=2024.8.6",
-    "sphinx-autodoc-typehints>=2.5",
-]
 
 [tool.mypy]
 python_version = "3.10"          # lowest supported runtime, NOT ruff's py312
