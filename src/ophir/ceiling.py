@@ -14,6 +14,9 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 import pandas as pd  # type: ignore[import-untyped]
+import torch
+
+from ophir.evaluate import dedupe_by_ticker_date, rank_ic
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -154,3 +157,84 @@ def mde_for_group_difference(
         raise ValueError("need >= 2 replicates to estimate seed noise")
     s = float(arr.std(ddof=1))
     return sigmas * s * float(np.sqrt(2.0 / seeds_per_group))
+
+
+def dedupe_rows(
+    target: torch.Tensor, ids: torch.Tensor, dates: torch.Tensor
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Keep the first row per ``(ticker, date)`` (stable order).
+
+    Overlapping windows emit several rows per name per day; baselines need one.
+    """
+    seen: set[tuple[int, int]] = set()
+    keep: list[int] = []
+    for k, (sid, day) in enumerate(zip(ids.tolist(), dates.tolist(), strict=True)):
+        key = (int(sid), int(day))
+        if key not in seen:
+            seen.add(key)
+            keep.append(k)
+    idx = torch.tensor(keep, dtype=torch.long)
+    return target[idx], ids[idx], dates[idx]
+
+
+def lagged_target_signal(
+    target: torch.Tensor, ids: torch.Tensor, dates: torch.Tensor, *, lag: int = 1
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Per-ticker previous-by-date target as a naive autoregressive signal.
+
+    For each row, the signal is that ticker's target ``lag`` observations earlier
+    in date order. Rows without ``lag`` priors are flagged invalid.
+
+    Returns
+    -------
+    signal, valid : torch.Tensor, torch.Tensor
+        ``signal`` holds the lagged target (``nan`` where invalid); ``valid`` is
+        a boolean mask. Use ``signal`` directly for a momentum baseline or
+        negate it for reversal.
+    """
+    t = target.detach().cpu().numpy()
+    i = ids.detach().cpu().numpy()
+    d = dates.detach().cpu().numpy()
+    order = np.lexsort((d, i))  # primary key = id, secondary = date
+    sid = i[order]
+    st = t[order]
+    lagged = np.full(st.shape, np.nan, dtype=float)
+    for k in range(lag, len(order)):
+        if sid[k] == sid[k - lag]:
+            lagged[k] = st[k - lag]
+    signal = np.full(t.shape, np.nan, dtype=float)
+    signal[order] = lagged
+    valid = ~np.isnan(signal)
+    return torch.from_numpy(signal), torch.from_numpy(valid)
+
+
+def cross_sectional_ic(
+    signal: torch.Tensor,
+    target: torch.Tensor,
+    ids: torch.Tensor,
+    dates: torch.Tensor,
+    *,
+    valid: torch.Tensor | None = None,
+) -> dict[str, float]:
+    """Daily cross-sectional rank-IC of ``signal`` vs ``target``.
+
+    Mirrors the production metric exactly: dedupe to one row per ``(ticker,
+    date)`` then average the per-day Spearman correlation via
+    :func:`ophir.evaluate.rank_ic`. Optionally restrict to ``valid`` rows first.
+    """
+    if valid is not None:
+        signal, target, ids, dates = signal[valid], target[valid], ids[valid], dates[valid]
+    dp, dt, dd = dedupe_by_ticker_date(signal, target, ids, dates)
+    return rank_ic(dp, dt, dd)
+
+
+def shuffle_within_day(
+    target: torch.Tensor, dates: torch.Tensor, *, generator: torch.Generator
+) -> torch.Tensor:
+    """Permute ``target`` within each day — a null whose expected IC is ~0."""
+    out = target.clone()
+    for day in torch.unique(dates):
+        idx = (dates == day).nonzero(as_tuple=True)[0]
+        perm = idx[torch.randperm(idx.numel(), generator=generator)]
+        out[idx] = target[perm]
+    return out

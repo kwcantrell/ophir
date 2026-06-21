@@ -3,13 +3,18 @@ from pathlib import Path
 
 import pandas as pd
 import pytest
+import torch
 
 from ophir.ceiling import (
     ICAggregate,  # noqa: F401
     RunICSummary,
     aggregate_ic,
+    cross_sectional_ic,
+    dedupe_rows,
+    lagged_target_signal,
     mde_for_group_difference,
     run_ic_summary,
+    shuffle_within_day,
 )
 
 
@@ -71,3 +76,45 @@ def test_mde_matches_formula() -> None:
 def test_mde_needs_two_replicates() -> None:
     with pytest.raises(ValueError):
         mde_for_group_difference([0.01], seeds_per_group=3)
+
+
+def test_dedupe_rows_keeps_first_per_ticker_date() -> None:
+    target = torch.tensor([1.0, 2.0, 3.0])
+    ids = torch.tensor([10, 10, 11])
+    dates = torch.tensor([1, 1, 1])  # (10,1) duplicated
+    t, i, d = dedupe_rows(target, ids, dates)
+    assert t.tolist() == [1.0, 3.0]
+    assert i.tolist() == [10, 11]
+    assert d.tolist() == [1, 1]
+
+
+def test_lagged_signal_uses_prior_date_per_ticker() -> None:
+    # ticker 10 on dates 1,2,3 with targets 0.1,0.2,0.3
+    target = torch.tensor([0.1, 0.2, 0.3])
+    ids = torch.tensor([10, 10, 10])
+    dates = torch.tensor([1, 2, 3])
+    signal, valid = lagged_target_signal(target, ids, dates, lag=1)
+    assert valid.tolist() == [False, True, True]
+    values = signal[valid].tolist()
+    assert values[0] == pytest.approx(0.1)
+    assert values[1] == pytest.approx(0.2)  # yesterday's target
+
+
+def test_cross_sectional_ic_perfect_rank_is_one() -> None:
+    # two days, signal ranks tickers identically to target each day
+    signal = torch.tensor([1.0, 2.0, 3.0, 1.0, 2.0, 3.0])
+    target = torch.tensor([1.0, 2.0, 3.0, 1.0, 2.0, 3.0])
+    ids = torch.tensor([1, 2, 3, 1, 2, 3])
+    dates = torch.tensor([1, 1, 1, 2, 2, 2])
+    out = cross_sectional_ic(signal, target, ids, dates)
+    assert out["ic_mean"] == pytest.approx(1.0)
+    assert out["n_days"] == 2.0
+
+
+def test_shuffle_within_day_preserves_per_day_multiset() -> None:
+    target = torch.tensor([1.0, 2.0, 3.0, 4.0])
+    dates = torch.tensor([1, 1, 2, 2])
+    g = torch.Generator().manual_seed(0)
+    shuffled = shuffle_within_day(target, dates, generator=g)
+    assert sorted(shuffled[dates == 1].tolist()) == [1.0, 2.0]
+    assert sorted(shuffled[dates == 2].tolist()) == [3.0, 4.0]
