@@ -100,6 +100,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   importances for a completed sweep study, with a reliability warning for
   biased (TPE/ASHA) designs. Requires `scikit-learn` (added as a dependency
   for the Optuna importance evaluators).
+- `ophir.ceiling`: offline helpers for the forecasting-ceiling investigation —
+  run IC-trajectory summary (peak / best-checkpoint / final `val_rank_ic`),
+  multi-seed aggregation + minimum-detectable-effect, and naive cross-sectional
+  baselines reusing the production rank-IC math.
 
 ### Changed
 
