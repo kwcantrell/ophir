@@ -1,8 +1,16 @@
+import math
 from pathlib import Path
 
 import pandas as pd
+import pytest
 
-from ophir.ceiling import RunICSummary, run_ic_summary
+from ophir.ceiling import (
+    ICAggregate,  # noqa: F401
+    RunICSummary,
+    aggregate_ic,
+    mde_for_group_difference,
+    run_ic_summary,
+)
 
 
 def _write_metrics(tmp_path: Path) -> Path:
@@ -38,3 +46,28 @@ def test_run_ic_summary_best_ckpt_differs_from_peak(tmp_path: Path) -> None:
     summary = run_ic_summary(path)
     assert summary.peak_ic == 0.040
     assert summary.best_ckpt_ic == 0.012
+
+
+def test_aggregate_ic_basic() -> None:
+    agg = aggregate_ic([0.0139, 0.0109, 0.0171])
+    assert agg.n == 3
+    assert agg.min == pytest.approx(0.0109)
+    assert agg.max == pytest.approx(0.0171)
+    assert agg.mean == pytest.approx((0.0139 + 0.0109 + 0.0171) / 3)
+
+
+def test_aggregate_ic_empty_raises() -> None:
+    with pytest.raises(ValueError):
+        aggregate_ic([])
+
+
+def test_mde_matches_formula() -> None:
+    reps = [0.0139, 0.0109, 0.0171]
+    s = float(pd.Series(reps).std(ddof=1))
+    expected = 2.0 * s * math.sqrt(2.0 / 3)
+    assert mde_for_group_difference(reps, seeds_per_group=3) == pytest.approx(expected)
+
+
+def test_mde_needs_two_replicates() -> None:
+    with pytest.raises(ValueError):
+        mde_for_group_difference([0.01], seeds_per_group=3)

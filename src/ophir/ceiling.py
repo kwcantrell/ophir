@@ -12,9 +12,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+import numpy as np
 import pandas as pd  # type: ignore[import-untyped]
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
     from pathlib import Path
 
 
@@ -52,6 +54,17 @@ class RunICSummary:
     final_ic: float
 
 
+@dataclass(frozen=True)
+class ICAggregate:
+    """Mean / min / max / sample-std / count over a config's seed replicates."""
+
+    mean: float
+    min: float
+    max: float
+    std: float
+    n: int
+
+
 def run_ic_summary(metrics_csv: str | Path) -> RunICSummary:
     """Summarise a run's ``val_rank_ic`` trajectory from its ``metrics.csv``.
 
@@ -87,3 +100,57 @@ def run_ic_summary(metrics_csv: str | Path) -> RunICSummary:
         best_ckpt_ic=float(best[ic_col]),
         final_ic=float(final[ic_col]),
     )
+
+
+def aggregate_ic(values: Sequence[float]) -> ICAggregate:
+    """Aggregate one config's per-seed IC values.
+
+    Parameters
+    ----------
+    values : sequence of float
+        Per-seed IC values for a single configuration.
+
+    Returns
+    -------
+    ICAggregate
+        ``std`` is the sample standard deviation (``ddof=1``), or ``0.0`` for a
+        single value.
+
+    Raises
+    ------
+    ValueError
+        If ``values`` is empty.
+    """
+    arr = np.asarray(values, dtype=float)
+    if arr.size == 0:
+        raise ValueError("need at least one IC value")
+    return ICAggregate(
+        mean=float(arr.mean()),
+        min=float(arr.min()),
+        max=float(arr.max()),
+        std=float(arr.std(ddof=1)) if arr.size > 1 else 0.0,
+        n=int(arr.size),
+    )
+
+
+def mde_for_group_difference(
+    replicates: Sequence[float], *, seeds_per_group: int, sigmas: float = 2.0
+) -> float:
+    """Minimum detectable effect for a difference of two seed-mean ICs.
+
+    Estimates the seed-noise scale ``s`` from same-config ``replicates`` and
+    returns ``sigmas * s * sqrt(2 / seeds_per_group)`` — the half-width below
+    which a gap between two ``seeds_per_group``-seed config means is consistent
+    with seed noise. Two configs whose mean IC differ by less than this should
+    not be called different.
+
+    Raises
+    ------
+    ValueError
+        If fewer than two ``replicates`` are supplied.
+    """
+    arr = np.asarray(replicates, dtype=float)
+    if arr.size < 2:
+        raise ValueError("need >= 2 replicates to estimate seed noise")
+    s = float(arr.std(ddof=1))
+    return sigmas * s * float(np.sqrt(2.0 / seeds_per_group))
