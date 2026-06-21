@@ -232,6 +232,7 @@ def cross_sectional_ic(
     Mirrors the production metric exactly: dedupe to one row per ``(ticker,
     date)`` then average the per-day Spearman correlation via
     :func:`ophir.evaluate.rank_ic`. Optionally restrict to ``valid`` rows first.
+    Rows with non-finite signal or target are always excluded before scoring.
 
     Parameters
     ----------
@@ -241,8 +242,9 @@ def cross_sectional_ic(
     valid : torch.Tensor, optional
         Boolean mask; when given, only rows flagged ``True`` are scored.
     """
-    if valid is not None:
-        signal, target, ids, dates = signal[valid], target[valid], ids[valid], dates[valid]
+    finite = torch.isfinite(signal) & torch.isfinite(target)
+    mask = finite if valid is None else finite & valid
+    signal, target, ids, dates = signal[mask], target[mask], ids[mask], dates[mask]
     dp, dt, dd = dedupe_by_ticker_date(signal, target, ids, dates)
     return rank_ic(dp, dt, dd)
 

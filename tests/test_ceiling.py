@@ -140,3 +140,41 @@ def test_shuffle_within_day_preserves_per_day_multiset() -> None:
     shuffled = shuffle_within_day(target, dates, generator=g)
     assert sorted(shuffled[dates == 1].tolist()) == [1.0, 2.0]
     assert sorted(shuffled[dates == 2].tolist()) == [3.0, 4.0]
+
+
+def test_cross_sectional_ic_with_valid_matches_filtered() -> None:
+    # The valid= mask from lagged_target_signal must score exactly the finite
+    # rows — this is the seam the E1 experiment relies on.
+    target = torch.tensor([0.12, 0.23, 0.11, 0.21, 0.13])
+    ids = torch.tensor([1, 2, 1, 2, 1])
+    dates = torch.tensor([2, 3, 1, 1, 3])
+    sig, valid = lagged_target_signal(target, ids, dates, lag=1)
+    scored = cross_sectional_ic(sig, target, ids, dates, valid=valid)
+    manual = cross_sectional_ic(sig[valid], target[valid], ids[valid], dates[valid])
+    assert scored["n_days"] == manual["n_days"] == 1.0
+    assert scored["ic_mean"] == pytest.approx(manual["ic_mean"])
+    assert scored["ic_mean"] == pytest.approx(1.0)
+
+
+def test_cross_sectional_ic_excludes_nonfinite_without_valid() -> None:
+    # A NaN signal row must never be scored, even when valid is not passed.
+    # Day 1 has a NaN row (ticker 4) whose target would break the rank if
+    # included; excluding it leaves a perfect cross-sectional rank on both days.
+    signal = torch.tensor([1.0, 2.0, 3.0, float("nan"), 2.0, 3.0])
+    target = torch.tensor([1.0, 2.0, 3.0, 0.5, 2.0, 3.0])
+    ids = torch.tensor([1, 2, 3, 4, 2, 3])
+    dates = torch.tensor([1, 1, 1, 1, 2, 2])
+    out = cross_sectional_ic(signal, target, ids, dates)
+    assert out["n_days"] == 2.0
+    assert out["ic_mean"] == pytest.approx(1.0)
+
+
+def test_shuffle_within_day_actually_permutes() -> None:
+    # A large single day with a fixed seed must not return the identity,
+    # guarding against a regression that drops the permutation.
+    target = torch.arange(8, dtype=torch.float32)
+    dates = torch.zeros(8, dtype=torch.long)
+    g = torch.Generator().manual_seed(0)
+    shuffled = shuffle_within_day(target, dates, generator=g)
+    assert sorted(shuffled.tolist()) == target.tolist()  # still a permutation
+    assert not torch.equal(shuffled, target)  # and not the identity
