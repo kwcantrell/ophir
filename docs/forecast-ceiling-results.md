@@ -75,3 +75,63 @@ also within noise.)
 4. This sharpens E2: the proxy fully anneals by 10k, so the IC droop is a
    schedule artifact. At full budget the cosine is stretched — does peak IC sustain
    higher/longer, or plateau near ~0.027? That is the next fork.
+
+---
+
+## E1 — naive-baseline calibration (2026-06-20, CPU)
+
+Harvested the full 2024+ validation cross-section on CPU (no model, no CUDA):
+1160 batches → 2,254,083 response rows → deduped to one row per (ticker, date)
+across **301 distinct days**. Scored trivial, untrained signals with the same
+production rank-IC math the model is evaluated on (`ophir.evaluate.rank_ic`).
+
+| signal | cross-sectional IC | n_days |
+| ------ | ------------------ | ------ |
+| momentum (prev-day return) | **−0.0515** | 281 |
+| reversal (−prev-day return) | **+0.0533** | 281 |
+| null (target shuffled within day, 20 draws) | mean +0.0041, max\|·\| 0.0297 | — |
+| *(reference) model baseline PEAK IC* | *0.0271* | — |
+
+### Verdict
+
+1. **The metric is ~unbiased.** The within-day-shuffle null averages +0.0041,
+   inside the MDE of 0.0069. The cross-sectional rank-IC is not structurally
+   inflated; nonzero IC means real signal.
+
+2. **The signal exists and is large — a one-line reversal rule scores ~0.053,
+   nearly 2× the model's peak 0.027.** Daily equity returns carry strong
+   cross-sectional *short-term reversal* (a well-documented anomaly): yesterday's
+   biggest losers tend to be today's relative winners. So the ceiling is **not**
+   "there's no signal" — there is roughly double the model's current skill sitting
+   in a costless baseline.
+
+3. **The model is not capturing it — and the architecture explains why (Finding
+   C).** The comparison is horizon-confounded, and the confound *is* the result:
+   the naive reversal always predicts **1 day ahead** from the immediately prior
+   real return — the single easiest, most predictive feature. The model predicts a
+   **90-day response block whose every day is masked to a position-only token**
+   (`models.py` `_apply_response_mask`), and `val_rank_ic` pools all 1–90-day
+   horizon offsets. For response day 1 the prefix still holds yesterday's return;
+   for response day 90 the nearest real data is 90 days stale. The model's
+   architecture **structurally denies itself the short-term-reversal feature** for
+   almost its entire predicted block, then is scored on an average dominated by the
+   hard far-horizon days. ~0.027 is what leaks through.
+
+4. **Implication — this points hard at E3 (horizon/response structure) as the
+   dominant ceiling, ahead of feature work (E5) or more budget (E2).** Concretely:
+   - There is headroom (≈0.05 of cross-sectional signal demonstrably exists), but
+     it is locked behind the task framing, not the optimizer — consistent with the
+     "optimizer exhausted" premise.
+   - Future model runs must be benchmarked against the **reversal baseline at
+     matched horizon**, not against 0.027. At 1-day horizon the bar is ~0.05.
+   - E2 (full-budget) is still worth running, but its bar is now ~0.05, not 0.027,
+     and it predicts the *same* hard 90-day block — so budget alone is unlikely to
+     close the gap. E2 now mainly tests whether the schedule droop (E0 finding 3)
+     is recoverable at budget; the structural fix is E3.
+
+### Caveat
+
+momentum/reversal here are strictly 1-day-ahead (lag-1 prior trading day), an
+*upper* reference for the easiest horizon — not a like-for-like competitor to the
+model's pooled 1–90-day metric. E3 should compare model-vs-reversal at each
+horizon to quantify how much of the ~0.05 the model recovers as the horizon shrinks.
