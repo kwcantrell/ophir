@@ -166,6 +166,9 @@ def dedupe_rows(
 
     Overlapping windows emit several rows per name per day; baselines need one.
     """
+    # Not ophir.evaluate.dedupe_by_ticker_date: that helper is pred/target-shaped
+    # and returns dates as a string list for rank_ic; here we keep ids and integer
+    # dates so the lagged-signal builder can order rows per ticker by date.
     seen: set[tuple[int, int]] = set()
     keep: list[int] = []
     for k, (sid, day) in enumerate(zip(ids.tolist(), dates.tolist(), strict=True)):
@@ -184,6 +187,14 @@ def lagged_target_signal(
 
     For each row, the signal is that ticker's target ``lag`` observations earlier
     in date order. Rows without ``lag`` priors are flagged invalid.
+
+    Parameters
+    ----------
+    target, ids, dates : torch.Tensor
+        Equal-length 1-D tensors: the target value, ticker id, and integer date
+        ordinal for each response observation.
+    lag : int, optional
+        Number of prior same-ticker observations to look back (default 1).
 
     Returns
     -------
@@ -221,6 +232,14 @@ def cross_sectional_ic(
     Mirrors the production metric exactly: dedupe to one row per ``(ticker,
     date)`` then average the per-day Spearman correlation via
     :func:`ophir.evaluate.rank_ic`. Optionally restrict to ``valid`` rows first.
+
+    Parameters
+    ----------
+    signal, target, ids, dates : torch.Tensor
+        Equal-length 1-D tensors of the signal, target, ticker id, and integer
+        date ordinal for each row.
+    valid : torch.Tensor, optional
+        Boolean mask; when given, only rows flagged ``True`` are scored.
     """
     if valid is not None:
         signal, target, ids, dates = signal[valid], target[valid], ids[valid], dates[valid]
@@ -231,7 +250,10 @@ def cross_sectional_ic(
 def shuffle_within_day(
     target: torch.Tensor, dates: torch.Tensor, *, generator: torch.Generator
 ) -> torch.Tensor:
-    """Permute ``target`` within each day — a null whose expected IC is ~0."""
+    """Permute ``target`` within each day — a null whose expected IC is ~0.
+
+    The ``generator`` is advanced in place.
+    """
     out = target.clone()
     for day in torch.unique(dates):
         idx = (dates == day).nonzero(as_tuple=True)[0]

@@ -100,6 +100,28 @@ def test_lagged_signal_uses_prior_date_per_ticker() -> None:
     assert values[1] == pytest.approx(0.2)  # yesterday's target
 
 
+def test_lagged_signal_handles_interleaved_tickers_and_unsorted_dates() -> None:
+    # Two interleaved tickers, rows NOT in date order. Signal value encodes the
+    # source: tenths digit = ticker, units digit = the prior date it came from.
+    # A naive target[:-1] shift would fail this; only correct per-ticker
+    # date-ordering passes.
+    #            t1@d2  t2@d3  t1@d1  t2@d1  t1@d3
+    target = torch.tensor([0.12, 0.23, 0.11, 0.21, 0.13])
+    ids = torch.tensor([1, 2, 1, 2, 1])
+    dates = torch.tensor([2, 3, 1, 1, 3])
+    signal, valid = lagged_target_signal(target, ids, dates, lag=1)
+    # Per ticker, sorted by date, lag-1 prior target:
+    #   row0 t1@d2 -> t1@d1 = 0.11
+    #   row1 t2@d3 -> t2@d1 = 0.21
+    #   row2 t1@d1 -> invalid (no prior)
+    #   row3 t2@d1 -> invalid (no prior)
+    #   row4 t1@d3 -> t1@d2 = 0.12
+    assert valid.tolist() == [True, True, False, False, True]
+    assert signal[0].item() == pytest.approx(0.11)
+    assert signal[1].item() == pytest.approx(0.21)
+    assert signal[4].item() == pytest.approx(0.12)
+
+
 def test_cross_sectional_ic_perfect_rank_is_one() -> None:
     # two days, signal ranks tickers identically to target each day
     signal = torch.tensor([1.0, 2.0, 3.0, 1.0, 2.0, 3.0])
