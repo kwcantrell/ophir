@@ -13,8 +13,10 @@ from ophir.ceiling import (
     dedupe_rows,
     lagged_target_signal,
     mde_for_group_difference,
+    pooled_baseline_ceiling,
     run_ic_summary,
     shuffle_within_day,
+    signal_decay_curve,
 )
 
 
@@ -178,3 +180,36 @@ def test_shuffle_within_day_actually_permutes() -> None:
     shuffled = shuffle_within_day(target, dates, generator=g)
     assert sorted(shuffled.tolist()) == target.tolist()  # still a permutation
     assert not torch.equal(shuffled, target)  # and not the identity
+
+
+def test_signal_decay_curve_perfect_reversal() -> None:
+    # 3 tickers over 3 days; each day's returns are the rank-reversal of the
+    # prior day, so a 1-lead reversal signal perfectly predicts the cross-section.
+    #            d1(t1,t2,t3)  d2(reversed) d3(reversed again)
+    target = torch.tensor([1.0, 2.0, 3.0, 3.0, 2.0, 1.0, 1.0, 2.0, 3.0])
+    ids = torch.tensor([1, 2, 3, 1, 2, 3, 1, 2, 3])
+    dates = torch.tensor([1, 1, 1, 2, 2, 2, 3, 3, 3])
+    curve = signal_decay_curve(target, ids, dates, leads=(1,), kind="reversal")
+    assert curve == pytest.approx({1: 1.0})
+    mom = signal_decay_curve(target, ids, dates, leads=(1,), kind="momentum")
+    assert mom[1] == pytest.approx(-1.0)
+
+
+def test_signal_decay_curve_rejects_bad_kind() -> None:
+    target = torch.tensor([1.0, 2.0])
+    ids = torch.tensor([1, 2])
+    dates = torch.tensor([1, 1])
+    with pytest.raises(ValueError):
+        signal_decay_curve(target, ids, dates, leads=(1,), kind="trend")
+
+
+def test_pooled_baseline_ceiling_means_in_range() -> None:
+    decay = {1: 0.05, 5: 0.03, 90: 0.0}
+    assert pooled_baseline_ceiling(decay, response_size=10) == pytest.approx(0.04)
+    assert pooled_baseline_ceiling(decay, response_size=90) == pytest.approx(
+        (0.05 + 0.03 + 0.0) / 3
+    )
+
+
+def test_pooled_baseline_ceiling_empty_is_nan() -> None:
+    assert math.isnan(pooled_baseline_ceiling({90: 0.1}, response_size=10))

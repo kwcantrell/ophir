@@ -262,3 +262,65 @@ def shuffle_within_day(
         perm = idx[torch.randperm(idx.numel(), generator=generator)]
         out[idx] = target[perm]
     return out
+
+
+def signal_decay_curve(
+    target: torch.Tensor,
+    ids: torch.Tensor,
+    dates: torch.Tensor,
+    leads: Sequence[int],
+    *,
+    kind: str = "reversal",
+) -> dict[int, float]:
+    """Cross-sectional IC of a lagged-return signal at each forecast lead.
+
+    For each lead ``L`` in ``leads``, uses that ticker's return ``L`` observations
+    earlier as the signal (negated when ``kind="reversal"``) and correlates it
+    against the current return cross-sectionally via the production rank-IC. The
+    result is the achievable signal at each forecast lead — the ceiling a model
+    predicting ``L`` days ahead could reach from price history alone.
+
+    Parameters
+    ----------
+    target, ids, dates : torch.Tensor
+        Equal-length 1-D tensors of return, ticker id, and integer date ordinal,
+        one row per (ticker, date).
+    leads : sequence of int
+        Forecast leads (in trading-day observations) to evaluate.
+    kind : {"reversal", "momentum"}, optional
+        ``"reversal"`` negates the lagged signal; ``"momentum"`` uses it as-is.
+
+    Returns
+    -------
+    dict[int, float]
+        ``{lead: ic_mean}`` for each requested lead.
+    """
+    if kind not in ("reversal", "momentum"):
+        raise ValueError(f"kind must be 'reversal' or 'momentum', got {kind!r}")
+    sign = -1.0 if kind == "reversal" else 1.0
+    curve: dict[int, float] = {}
+    for lead in leads:
+        sig, valid = lagged_target_signal(target, ids, dates, lag=lead)
+        ic = cross_sectional_ic(sign * sig, target, ids, dates, valid=valid)
+        curve[int(lead)] = ic["ic_mean"]
+    return curve
+
+
+def pooled_baseline_ceiling(decay: dict[int, float], response_size: int) -> float:
+    """Matched-horizon-mix ceiling: mean IC over sampled leads in ``1..response_size``.
+
+    Approximates the horizon mix that ``val_rank_ic`` pools (offsets
+    1..``response_size``) by averaging the decay curve over its sampled leads in
+    that range. This is the fair comparand for a model whose pooled metric mixes
+    those leads — not an exact replica of the metric's per-(ticker, date) dedup.
+
+    Returns
+    -------
+    float
+        Mean of finite ``decay`` values with lead in ``1..response_size``; ``nan``
+        if none qualify.
+    """
+    vals = [v for lead, v in decay.items() if 1 <= lead <= response_size and v == v]
+    if not vals:
+        return float("nan")
+    return sum(vals) / len(vals)
