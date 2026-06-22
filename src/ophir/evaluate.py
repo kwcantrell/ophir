@@ -21,6 +21,7 @@ trade occurred, mirroring the masking in
 from __future__ import annotations
 
 import os
+from collections.abc import Sequence  # noqa: TC003 — used at runtime in rank_ic_by_offset
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
@@ -272,6 +273,47 @@ def dedupe_by_ticker_date(
     index = torch.tensor(keep, dtype=torch.long)
     kept_dates = [str(int(date_list[i])) for i in keep]
     return pred[index], target[index], kept_dates
+
+
+def rank_ic_by_offset(
+    pred: torch.Tensor,
+    target: torch.Tensor,
+    ids: torch.Tensor,
+    dates: torch.Tensor,
+    offsets: torch.Tensor,
+    buckets: Sequence[int],
+) -> dict[str, float]:
+    """Daily cross-sectional rank-IC resolved by response-position offset.
+
+    Splits predictions by forecast offset (1-based response-position lead) and
+    computes each offset's pooled-day rank-IC independently, reusing
+    :func:`dedupe_by_ticker_date` and :func:`rank_ic`. A single validation pass can
+    then reveal whether skill concentrates at near horizons.
+
+    Parameters
+    ----------
+    pred, target, ids, dates : torch.Tensor
+        Equal-length 1-D tensors, as accumulated for :func:`rank_ic`.
+    offsets : torch.Tensor
+        Same-length integer tensor: each row's response-position offset (1-based).
+    buckets : sequence of int
+        Offsets to report. For each ``h`` only rows with ``offsets == h`` are used.
+
+    Returns
+    -------
+    dict[str, float]
+        ``{"h{offset}": ic_mean}`` per bucket; ``nan`` for a bucket with no rows or
+        no day having at least two observations.
+    """
+    out: dict[str, float] = {}
+    for h in buckets:
+        sel = offsets == h
+        if not bool(sel.any()):
+            out[f"h{int(h)}"] = float("nan")
+            continue
+        dp, dt, dd = dedupe_by_ticker_date(pred[sel], target[sel], ids[sel], dates[sel])
+        out[f"h{int(h)}"] = rank_ic(dp, dt, dd)["ic_mean"]
+    return out
 
 
 def accumulate_targets(

@@ -7,6 +7,7 @@ model or a GPU.
 
 import math
 
+import pytest
 import torch
 
 from ophir.evaluate import (
@@ -17,6 +18,7 @@ from ophir.evaluate import (
     format_report,
     prefix_last_observed,
     rank_ic,
+    rank_ic_by_offset,
     skill_score,
     skill_score_vs_baseline,
     target_metrics,
@@ -297,3 +299,17 @@ def test_rank_ic_skips_constant_pred_day() -> None:
 
     assert result["n_days"] == 1.0
     assert abs(result["ic_mean"] - 1.0) < 1e-6
+
+
+def test_rank_ic_by_offset_buckets_independently() -> None:
+    # One day, 3 tickers. offset 1 rows rank perfectly with target; offset 2 rows
+    # are perfectly anti-ranked; offset 5 has no rows.
+    pred = torch.tensor([1.0, 2.0, 3.0, 1.0, 2.0, 3.0])
+    target = torch.tensor([1.0, 2.0, 3.0, 3.0, 2.0, 1.0])
+    ids = torch.tensor([1, 2, 3, 1, 2, 3])
+    dates = torch.tensor([1, 1, 1, 1, 1, 1])
+    offsets = torch.tensor([1, 1, 1, 2, 2, 2])
+    out = rank_ic_by_offset(pred, target, ids, dates, offsets, buckets=(1, 2, 5))
+    assert out["h1"] == pytest.approx(1.0)
+    assert out["h2"] == pytest.approx(-1.0)
+    assert math.isnan(out["h5"])
