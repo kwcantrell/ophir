@@ -431,6 +431,111 @@ def per_offset_shuffle_null(
     return out
 
 
+@dataclass(frozen=True)
+class OffsetVerdict:
+    """Per-offset confirmation verdict joining seed aggregate to the null band.
+
+    Attributes
+    ----------
+    offset : int
+        Trading-day-lead bucket.
+    seed_mean, seed_std : float
+        Cross-seed mean and sample std of each run's ``snapshot_mean``.
+    n_seeds : int
+        Number of runs (seeds) contributing a finite value.
+    peak : float
+        Cross-seed mean of each run's per-offset peak (diagnostic).
+    null : NullBand
+        The bucket's within-day permutation null.
+    clears_null : bool
+        ``True`` iff ``seed_mean`` exceeds the null 95th percentile.
+    """
+
+    offset: int
+    seed_mean: float
+    seed_std: float
+    n_seeds: int
+    peak: float
+    null: NullBand
+    clears_null: bool
+
+
+def confirm_offset_skill(
+    metrics_csvs: Sequence[str | Path],
+    harvest: tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor],
+    buckets: Sequence[int],
+    *,
+    n_perms: int = 500,
+    burn_in_steps: int = 0,
+    seed: int = 0,
+) -> list[OffsetVerdict]:
+    """Confirm per-offset skill across seeds against a per-offset null.
+
+    Computes the within-day permutation null once from ``harvest`` (model-free),
+    aggregates each run's ``snapshot_mean`` across seeds via
+    :func:`aggregate_ic`, and flags ``clears_null`` where the seed-mean exceeds
+    the null 95th percentile.
+
+    Parameters
+    ----------
+    metrics_csvs : sequence of str or Path
+        One ``metrics.csv`` per seed run.
+    harvest : tuple of torch.Tensor
+        ``(target, ids, dates, offsets)`` from the CPU validation harvest.
+    buckets : sequence of int
+        Offsets to report.
+    n_perms : int, optional
+        Null permutations (default 500).
+    burn_in_steps : int, optional
+        Snapshot burn-in passed to :func:`run_offset_ic` (default 0).
+    seed : int, optional
+        Seeds the null's ``torch.Generator`` (default 0).
+
+    Returns
+    -------
+    list[OffsetVerdict]
+        One verdict per bucket, in ``buckets`` order.
+    """
+    target, ids, dates, offsets = harvest
+    generator = torch.Generator().manual_seed(seed)
+    null = per_offset_shuffle_null(
+        target, ids, dates, offsets, buckets, n_perms=n_perms, generator=generator
+    )
+    per_run = [run_offset_ic(csv, buckets, burn_in_steps=burn_in_steps) for csv in metrics_csvs]
+    verdicts: list[OffsetVerdict] = []
+    for h in buckets:
+        key = f"h{int(h)}"
+        means = [
+            r[key].snapshot_mean for r in per_run if r[key].snapshot_mean == r[key].snapshot_mean
+        ]
+        peaks = [r[key].peak for r in per_run if r[key].peak == r[key].peak]
+        band = null[key]
+        if means:
+            agg = aggregate_ic(means)
+            seed_mean, seed_std, n_seeds = agg.mean, agg.std, agg.n
+        else:
+            seed_mean, seed_std, n_seeds = float("nan"), float("nan"), 0
+        peak = float(sum(peaks) / len(peaks)) if peaks else float("nan")
+        clears = bool(seed_mean == seed_mean and band.p95 == band.p95 and seed_mean > band.p95)
+        verdicts.append(OffsetVerdict(int(h), seed_mean, seed_std, n_seeds, peak, band, clears))
+    return verdicts
+
+
+def format_verdict_table(verdicts: Sequence[OffsetVerdict]) -> str:
+    """Render :func:`confirm_offset_skill` verdicts as a fixed-width table."""
+    header = (
+        f"{'offset':>6} {'seed_mean':>10} {'seed_std':>9} {'n':>3} "
+        f"{'peak':>8} {'null_p95':>9} {'clears':>7}"
+    )
+    lines = [header]
+    for v in verdicts:
+        lines.append(
+            f"{v.offset:>6} {v.seed_mean:>10.4f} {v.seed_std:>9.4f} {v.n_seeds:>3} "
+            f"{v.peak:>8.4f} {v.null.p95:>9.4f} {'yes' if v.clears_null else 'no':>7}"
+        )
+    return "\n".join(lines)
+
+
 def signal_decay_curve(
     target: torch.Tensor,
     ids: torch.Tensor,

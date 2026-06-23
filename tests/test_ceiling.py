@@ -9,10 +9,13 @@ from ophir.ceiling import (
     ICAggregate,  # noqa: F401
     NullBand,  # noqa: F401
     OffsetRunIC,  # noqa: F401
+    OffsetVerdict,  # noqa: F401
     RunICSummary,
     aggregate_ic,
+    confirm_offset_skill,
     cross_sectional_ic,
     dedupe_rows,
+    format_verdict_table,
     lagged_target_signal,
     mde_for_group_difference,
     per_offset_shuffle_null,
@@ -288,3 +291,51 @@ def test_run_offset_ic_missing_bucket_is_nan(tmp_path: Path) -> None:
     out = run_offset_ic(path, [1, 90])
     assert out["h1"].snapshot_mean == pytest.approx(0.05)
     assert math.isnan(out["h90"].snapshot_mean) and out["h90"].n_snapshots == 0
+
+
+def _planted_harvest() -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    # 20 days x 8 names in EACH of buckets h1 and h2, so both get a real null
+    # band (~p95 0.14); wide enough that 0.29 clears and 0.05 does not.
+    n_days, n_names = 20, 8
+    n = n_days * n_names
+    tg = torch.Generator().manual_seed(7)
+    base_ids = torch.arange(n_names).repeat(n_days)
+    base_dates = torch.arange(n_days).repeat_interleave(n_names)
+    target = torch.randn(2 * n, generator=tg)
+    ids = torch.cat([base_ids, base_ids])
+    dates = torch.cat([base_dates, base_dates])
+    offsets = torch.cat([torch.ones(n, dtype=torch.long), torch.full((n,), 2, dtype=torch.long)])
+    return target, ids, dates, offsets
+
+
+def _write_offset_metrics(path: Path, h1: float, h2: float) -> Path:
+    pd.DataFrame(
+        [
+            {"step": 200, "val_rank_ic_h1": h1, "val_rank_ic_h2": h2},
+            {"step": 400, "val_rank_ic_h1": h1, "val_rank_ic_h2": h2},
+        ]
+    ).to_csv(path, index=False)
+    return path
+
+
+def test_confirm_offset_skill_flags_signal_vs_noise(tmp_path: Path) -> None:
+    csvs = [
+        _write_offset_metrics(tmp_path / "s0.csv", h1=0.30, h2=0.04),
+        _write_offset_metrics(tmp_path / "s1.csv", h1=0.28, h2=0.06),
+    ]
+    verdicts = confirm_offset_skill(csvs, _planted_harvest(), [1, 2], n_perms=200, seed=0)
+    by_offset = {v.offset: v for v in verdicts}
+    assert by_offset[1].n_seeds == 2
+    assert by_offset[1].seed_mean == pytest.approx(0.29, abs=1e-6)
+    assert by_offset[1].clears_null is True  # 0.29 > h1 null p95
+    assert by_offset[2].clears_null is False  # ~0.05 inside its null band
+
+
+def test_format_verdict_table_has_header_and_row_per_offset(tmp_path: Path) -> None:
+    csvs = [_write_offset_metrics(tmp_path / "s0.csv", h1=0.30, h2=0.04)]
+    verdicts = confirm_offset_skill(csvs, _planted_harvest(), [1, 2], n_perms=50)
+    table = format_verdict_table(verdicts)
+    lines = table.splitlines()
+    assert "offset" in lines[0] and "clears" in lines[0]
+    assert len(lines) == 3  # header + 2 offsets
+    assert "yes" in lines[1]  # offset 1 clears
