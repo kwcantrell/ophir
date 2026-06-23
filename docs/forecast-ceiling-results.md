@@ -135,3 +135,52 @@ momentum/reversal here are strictly 1-day-ahead (lag-1 prior trading day), an
 *upper* reference for the easiest horizon — not a like-for-like competitor to the
 model's pooled 1–90-day metric. E3 should compare model-vs-reversal at each
 horizon to quantify how much of the ~0.05 the model recovers as the horizon shrinks.
+
+---
+
+## E3 — horizon diagnostic
+
+Spec: `docs/superpowers/specs/2026-06-21-forecast-horizon-diagnostic-design.md`.
+Tooling: `ophir.ceiling.signal_decay_curve` / `pooled_baseline_ceiling`,
+`ophir.evaluate.rank_ic_by_offset`, gated `ophir train --log-offset-ic`.
+
+### Step A — signal-decay curve + matched-horizon ceiling (2026-06-22, CPU)
+
+Same harvested val cross-section as E1 (2,254,083 rows, 301 days). Reversal IC by
+forecast lead (trading days):
+
+| lead | 1 | 2 | 3 | 5 | 10 | 20 | 40 | 90 |
+| ---- | - | - | - | - | -- | -- | -- | -- |
+| reversal IC | **+0.0533** | +0.0028 | +0.0194 | −0.0159 | −0.0315 | −0.0216 | −0.0182 | +0.0031 |
+
+- **1-day ceiling: +0.0533.**
+- **90-day pooled (matched-horizon) ceiling: −0.0011 ≈ 0.**
+- Reference: model baseline pooled peak IC = 0.0271; MDE = 0.0069.
+
+### Step A verdict — E1 reframed (not overturned)
+
+1. **The signal is almost entirely at lead 1.** Reversal IC is +0.053 at lead 1,
+   collapses to ~0 by lead 2, then **flips sign to momentum** (negative reversal IC)
+   across leads 5–40, returning to ~0 by lead 90 — the classic short-reversal /
+   medium-momentum autocorrelation structure. Pooled across 1–90 it averages to ~0.
+
+2. **The model's +0.027 is ABOVE the fair matched-horizon ceiling, not below it.**
+   The apples-to-oranges in E1 is now quantified: the matched-horizon-mix naive
+   ceiling at the model's 90-day-pooled operating point is ≈ 0 (−0.0011), while the
+   model gets +0.0271 — beating matched-horizon naive by ~0.027 (≈ 4× the MDE). So
+   "the model loses to a one-liner" was the horizon confound; at its real operating
+   point the model *adds* cross-sectional skill beyond any single-lag reversal/
+   momentum signal.
+
+3. **The opportunity is the short horizon, not the pooled one.** ~0.05 of skill is
+   locked at lead 1; the 90-day pooling dilutes it (and the sign-flip cancels it).
+   A model operating at lead 1 could target ~0.05 vs the pooled 0.027 — *if* it can
+   capture the lead-1 reversal.
+
+4. **This sharpens Step B's question.** Does the existing 90-day model's IC at
+   offset 1 already approach ~0.05 (→ it captures the reversal and the pooled 0.027
+   is dilution → **world 1**, operate-short / collapse-horizon fix), or does it stay
+   ~flat near 0.027 across offsets (→ its +0.027 is uniform cross-sectional
+   structure, *not* reversal; it does not grab the lead-1 signal even at offset 1 →
+   **world 2**, reversal-aware architectural fix)? Step B's per-offset model IC,
+   overlaid on this curve, decides it.
