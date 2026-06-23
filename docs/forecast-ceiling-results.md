@@ -184,3 +184,70 @@ forecast lead (trading days):
    structure, *not* reversal; it does not grab the lead-1 signal even at offset 1 →
    **world 2**, reversal-aware architectural fix)? Step B's per-offset model IC,
    overlaid on this curve, decides it.
+
+### Step B — per-offset model IC (2026-06-22, one 10k run, `version_260`)
+
+Trained one 10k model with `--log-offset-ic` (6 min on the 3090). Single-snapshot
+per-offset IC is very noisy (each day's cross-section split 7 ways leaves few
+tickers per offset), so the table below averages each offset's IC across the 20
+logged validation snapshots (and, as a maturity check, across the 10 highest
+pooled-IC snapshots). Offset is the **trading-day lead** within the response block,
+matching the Step-A ceiling's lead unit.
+
+| offset h | model IC (mean of 20) | model IC (top-10) | reversal ceiling |
+| -------- | --------------------- | ----------------- | ---------------- |
+| 1  | +0.0958 | +0.0607 | +0.0533 |
+| 2  | +0.1010 | +0.1448 | +0.0028 |
+| 5  | +0.0665 | +0.1045 | −0.0159 |
+| 10 | +0.0398 | +0.0359 | −0.0315 |
+| 20 | +0.0191 | +0.0152 | −0.0216 |
+| 40 | −0.0266 | −0.0386 | −0.0182 |
+| 90 | (empty) | (empty) | +0.0031 |
+
+Pooled `val_rank_ic`: peak 0.0300, mean-over-snapshots 0.0115.
+(Offset 90 is empty — a 90-*calendar*-day response block holds only ~64 trading
+days; this confirms the trading-day-offset instrumentation.)
+
+### E3 verdict — WORLD 1 (diluted-but-captured)
+
+1. **The model's near-horizon skill is 3–5× its pooled metric.** Per-offset IC is
+   ~+0.06 to +0.10 at offsets 1–5 and decays monotonically to ~0 by offset ~30 and
+   negative beyond — while the pooled `val_rank_ic` is only ~0.012–0.02. The 90-day
+   pooling (plus the per-`(ticker,date)` dedup that mixes incomparable offsets into
+   one daily cross-section) dilutes the model's real skill ~3–5×. The skill *is*
+   captured; the operating point and metric hide it.
+
+2. **The model beats the matched-horizon naive ceiling at every near offset**, not
+   just at lead 1 (offset 1 ≈ the reversal ceiling; offsets 2–20 are solidly
+   positive where naive reversal/momentum is negative or zero). So the +0.027 the
+   model earns is genuine cross-sectional structure beyond any single-lag signal —
+   refuting world 2.
+
+3. **Decision — operating-point/metric fix; collapse to a short horizon.** No
+   reversal-aware architecture is required. The usable skill lives at offsets 1–10;
+   predicting/scoring there (a short `response_size`, or a near-offset-weighted
+   readout) should expose ~0.05–0.10 of cross-sectional IC versus the ~0.02 pooled
+   today. The deferred **path-preserve-vs-collapse** question resolves to **collapse**:
+   the trading seam needs only the near-horizon forecast anyway, and the skill
+   isn't in the far block. (A multi-day path can still be emitted via a
+   near-offset-weighted readout if the UI ever needs it — but it carries no skill
+   past offset ~30.)
+
+### Caveats / confirmation before banking
+
+- Single seed, 6-min proxy, 50 val batches. The per-offset **shape** (near≫far,
+  decaying, beats-ceiling) is robust across both the 20-snapshot and top-10 reads,
+  but absolute magnitudes are noisy (per-offset std ~0.08–0.17 per snapshot).
+- The striking "pooled 0.012 vs per-offset 0.10" gap and the absolute per-offset
+  ICs should be confirmed with a multi-seed run, more val batches, and a *per-offset*
+  shuffle null (E1's null was on the pooled metric) before locking the magnitudes.
+  The qualitative verdict (world 1; collapse-horizon) does not depend on the exact
+  numbers.
+
+### Hand-off
+
+Next is the **fix spec**: a short-horizon (or near-offset-weighted) operating
+point — train/eval at small `response_size`, benchmark against the
+reversal-at-matched-horizon ceiling and a per-offset null, targeting usable IC
+~0.05–0.10 vs the current pooled ~0.02. The E0 free win (checkpoint/early-stop on
+`val_rank_ic`) folds in there too.
