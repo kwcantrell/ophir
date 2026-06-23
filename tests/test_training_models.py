@@ -5,7 +5,7 @@ import torch
 from ophir.model_data import OHLCMulitClassPredictorInput
 from ophir.training_models import (
     LightningOHLCPredictor,
-    _trading_day_offsets,
+    trading_day_offsets,
     robust_scale,
     val_rank_ic,
 )
@@ -193,5 +193,5 @@ def test_trading_day_offsets_counts_only_trading_days() -> None:
     # (non-trading) positions, so it matches signal_decay_curve's trading-day
     # leads. Non-trading positions are dropped by the response mask downstream.
     mask = torch.tensor([[True, False, True, True], [False, True, False, True]])
-    offsets = _trading_day_offsets(mask)
+    offsets = trading_day_offsets(mask)
     assert offsets[mask].tolist() == [1, 2, 3, 1, 2]

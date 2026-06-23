@@ -21,7 +21,7 @@ from .models import OHLCMulitClassParameters, OHLCMulitClassPredictor, rezero_ga
 _OFFSET_BUCKETS = (1, 2, 5, 10, 20, 40, 90)
 
 
-def _trading_day_offsets(trade_occured: torch.Tensor) -> torch.Tensor:
+def trading_day_offsets(trade_occured: torch.Tensor) -> torch.Tensor:
     """1-based trading-day rank of each position within its row.
 
     Counts only real trading days (``trade_occured``), so a surviving response
@@ -462,7 +462,7 @@ class LightningOHLCPredictor(L.LightningModule):
             mask = model_output.trade_occured[:, -rs:]
             resp_dates = model_output.date_ordinal[:, -rs:]
             ids_br = model_output.stock_id.view(-1, 1).expand(-1, rs)
-            offsets = _trading_day_offsets(mask)
+            offsets = trading_day_offsets(mask)
             self._val_ic_buffers["pred"].append(
                 model_output.predicted_r_close[mask].reshape(-1).cpu()
             )
