@@ -21,7 +21,6 @@ trade occurred, mirroring the masking in
 from __future__ import annotations
 
 import os
-from collections.abc import Sequence  # noqa: TC003 — used at runtime in rank_ic_by_offset
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
@@ -29,7 +28,7 @@ import torch
 import typer
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Sequence
 
     from torch.utils.data import DataLoader
 
