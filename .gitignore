@@ -226,3 +226,9 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Graphify local caches + generated outputs — rebuild with `/graphify .`
+# (this also covers the .graphify_* temp files and manifest.json it writes inside)
+graphify-out/
+# NOTE: .graphifyignore is intentionally committed (it holds the corpus exclusion
+# rules), so do NOT add a `.graphify*` glob here — it would hide that file.

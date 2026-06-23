@@ -1,0 +1,4 @@
+# SDD task ledger — per-task process briefs/reports. Useful as a work log,
+# but they flood the graph with task-N nodes that crowd out the real
+# architecture. Excluded from the knowledge map.
+.superpowers/sdd/

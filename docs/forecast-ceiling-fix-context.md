@@ -4,6 +4,34 @@ Handoff for picking up the **fix** after the diagnostic investigation (E0/E1/E3)
 concluded. Read this, then start a brainstorm → spec → plan cycle for the fix.
 Everything referenced lives in the repo unless noted.
 
+## Next session: start here
+
+1. `cd /home/kalen/ophir` and start the session (so `CLAUDE.md` loads).
+2. **Pick the branch first**, before the agent does anything: the built tooling
+   lives on `forecast-ceiling-gate`, but `main` currently has unpushed commits.
+   `git checkout` the branch the fix should land on so the agent doesn't guess.
+   (It will otherwise leave `.claude/settings.json` and
+   `docs/rezero-init-sweep-runbook.md` alone per the branch-hygiene note below —
+   but it cannot pick your working branch for you.)
+3. Have the **RTX 3090 ready via `uv run`** — the confirmation run can't happen on
+   CPU. The session writes + CPU-tests the harness; you run the GPU training seeds.
+4. Paste this opening prompt:
+
+   > Read `docs/forecast-ceiling-fix-context.md` — it's a handoff for the
+   > forecast-ceiling fix after the E0/E1/E3 diagnostics concluded. Let's start the
+   > brainstorm → spec → plan cycle for the fix. The first deliverable is the
+   > **confirmation harness** (design-space item 1): a per-offset shuffle null in
+   > `ophir.ceiling` plus an analysis script to average `val_rank_ic_h*` across
+   > seeds/snapshots, since Step B was single-seed and noisy. I'll run the GPU
+   > training; you build the CPU-testable analysis. Brainstorm first.
+
+**Optional — navigate the structure with the knowledge graph.** A graphify graph
+of this repo is built at `graphify-out/graph.json`. A new session can run
+`/graphify query "<question>"` to trace the leakage↔ceiling structure without
+re-reading files — e.g. `/graphify query "how does response_size connect the
+response-block mask to the pooled val_rank_ic metric?"`. The handoff doc is the
+faster path for the fix itself; the graph is for orienting in the surrounding code.
+
 ## TL;DR — what was found and what the fix is
 
 `val_rank_ic` was floored at ~0.014 and would not move under any optimizer tuning.
