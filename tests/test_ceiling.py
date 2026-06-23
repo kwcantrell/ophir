@@ -7,12 +7,14 @@ import torch
 
 from ophir.ceiling import (
     ICAggregate,  # noqa: F401
+    NullBand,  # noqa: F401
     RunICSummary,
     aggregate_ic,
     cross_sectional_ic,
     dedupe_rows,
     lagged_target_signal,
     mde_for_group_difference,
+    per_offset_shuffle_null,
     pooled_baseline_ceiling,
     run_ic_summary,
     shuffle_within_day,
@@ -213,3 +215,29 @@ def test_pooled_baseline_ceiling_means_in_range() -> None:
 
 def test_pooled_baseline_ceiling_empty_is_nan() -> None:
     assert math.isnan(pooled_baseline_ceiling({90: 0.1}, response_size=10))
+
+
+def test_per_offset_shuffle_null_brackets_zero_and_widens_when_thin() -> None:
+    n_days, n_names = 20, 8
+    tg = torch.Generator().manual_seed(1)
+    target = torch.randn(n_days * n_names, generator=tg)
+    ids = torch.arange(n_names).repeat(n_days)
+    dates = torch.arange(n_days).repeat_interleave(n_names)
+    offsets = torch.ones(n_days * n_names, dtype=torch.long)
+    g = torch.Generator().manual_seed(0)
+    bands = per_offset_shuffle_null(target, ids, dates, offsets, [1, 2], n_perms=200, generator=g)
+    assert abs(bands["h1"].mean) < bands["h1"].std  # null centered on ~0
+    assert bands["h1"].p05 < 0.0 < bands["h1"].p95
+    assert bands["h1"].n_rows == n_days * n_names
+    assert bands["h1"].n_perms == 200
+
+
+def test_per_offset_shuffle_null_empty_bucket_is_nan() -> None:
+    target = torch.tensor([0.1, 0.2, 0.3, 0.4])
+    ids = torch.tensor([1, 2, 1, 2])
+    dates = torch.tensor([1, 1, 2, 2])
+    offsets = torch.tensor([1, 1, 1, 1])
+    g = torch.Generator().manual_seed(0)
+    bands = per_offset_shuffle_null(target, ids, dates, offsets, [1, 90], n_perms=50, generator=g)
+    assert bands["h90"].n_rows == 0
+    assert math.isnan(bands["h90"].mean) and math.isnan(bands["h90"].p95)

@@ -68,6 +68,30 @@ class ICAggregate:
     n: int
 
 
+@dataclass(frozen=True)
+class NullBand:
+    """Within-day permutation-null IC distribution for one offset bucket.
+
+    Attributes
+    ----------
+    mean, std : float
+        Mean and sample std (``ddof=1``) of the null cross-sectional IC over
+        ``n_perms`` within-day target shuffles. ``mean`` is expected near 0.
+    p05, p95 : float
+        5th / 95th percentiles of the null IC distribution — the chance band a
+        real per-offset IC must clear to be called signal.
+    n_perms, n_rows : int
+        Permutation count and the number of rows in this offset bucket.
+    """
+
+    mean: float
+    std: float
+    p05: float
+    p95: float
+    n_perms: int
+    n_rows: int
+
+
 def run_ic_summary(metrics_csv: str | Path) -> RunICSummary:
     """Summarise a run's ``val_rank_ic`` trajectory from its ``metrics.csv``.
 
@@ -261,6 +285,78 @@ def shuffle_within_day(
         idx = (dates == day).nonzero(as_tuple=True)[0]
         perm = idx[torch.randperm(idx.numel(), generator=generator)]
         out[idx] = target[perm]
+    return out
+
+
+def per_offset_shuffle_null(
+    target: torch.Tensor,
+    ids: torch.Tensor,
+    dates: torch.Tensor,
+    offsets: torch.Tensor,
+    buckets: Sequence[int],
+    *,
+    n_perms: int,
+    generator: torch.Generator,
+) -> dict[str, NullBand]:
+    """Per-offset within-day permutation null for cross-sectional rank-IC.
+
+    For each bucket ``h`` the rows with ``offsets == h`` are isolated and the
+    target is permuted within each day ``n_perms`` times (via
+    :func:`shuffle_within_day`); each shuffle's cross-sectional IC (via
+    :func:`cross_sectional_ic`, the production metric) forms the null. The band
+    depends only on the per-day cross-section group sizes, not on the identity
+    of the signal, so correlating the target against a within-day shuffle of
+    itself yields the same band as shuffling against model predictions — no
+    model is needed. Thinner near-offset cross-sections give wider bands.
+
+    Parameters
+    ----------
+    target, ids, dates, offsets : torch.Tensor
+        Equal-length 1-D tensors: target value, ticker id, integer date ordinal,
+        and 1-based trading-day offset for each response observation.
+    buckets : sequence of int
+        Offsets to report; ``"h{offset}"`` keys mirror
+        :func:`ophir.evaluate.rank_ic_by_offset`.
+    n_perms : int
+        Number of within-day shuffles.
+    generator : torch.Generator
+        Advanced in place; seed it for reproducibility.
+
+    Returns
+    -------
+    dict[str, NullBand]
+        One band per bucket; an empty bucket yields a ``nan`` band.
+    """
+    out: dict[str, NullBand] = {}
+    for h in buckets:
+        key = f"h{int(h)}"
+        sel = offsets == int(h)
+        n_rows = int(sel.sum())
+        if n_rows == 0:
+            out[key] = NullBand(float("nan"), float("nan"), float("nan"), float("nan"), n_perms, 0)
+            continue
+        t_h, i_h, d_h = target[sel], ids[sel], dates[sel]
+        ics = [
+            cross_sectional_ic(t_h, shuffle_within_day(t_h, d_h, generator=generator), i_h, d_h)[
+                "ic_mean"
+            ]
+            for _ in range(n_perms)
+        ]
+        finite = np.asarray(ics, dtype=float)
+        finite = finite[np.isfinite(finite)]
+        if finite.size == 0:
+            out[key] = NullBand(
+                float("nan"), float("nan"), float("nan"), float("nan"), n_perms, n_rows
+            )
+            continue
+        out[key] = NullBand(
+            mean=float(finite.mean()),
+            std=float(finite.std(ddof=1)) if finite.size > 1 else 0.0,
+            p05=float(np.percentile(finite, 5)),
+            p95=float(np.percentile(finite, 95)),
+            n_perms=n_perms,
+            n_rows=n_rows,
+        )
     return out
 
 
