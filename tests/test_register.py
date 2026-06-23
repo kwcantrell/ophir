@@ -14,6 +14,7 @@ import lightning.pytorch.loggers as lp_loggers
 import pytest
 
 from ophir import register
+from ophir.register import _best_checkpoint_callback
 
 
 class _CapturedTrainer:
@@ -53,3 +54,15 @@ def test_predict_trainer_uses_bf16() -> None:
     trainer = register.predict_trainer()
     assert trainer.kwargs["precision"] == "bf16-mixed"  # type: ignore[attr-defined]
     assert trainer.kwargs["accelerator"] == "cuda"  # type: ignore[attr-defined]
+
+
+def test_best_checkpoint_monitors_near_ic_when_flagged() -> None:
+    cb = _best_checkpoint_callback("model", monitor_near_ic=True)
+    assert cb.monitor == "val_rank_ic_near"
+    assert cb.mode == "max"
+
+
+def test_best_checkpoint_defaults_to_val_loss() -> None:
+    cb = _best_checkpoint_callback("model", monitor_near_ic=False)
+    assert cb.monitor == "val_loss"
+    assert cb.mode == "min"

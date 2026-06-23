@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterable
 
     import lightning as L
+    from lightning.pytorch.callbacks import ModelCheckpoint
 
     from ophir.training_models import LightningOHLCPredictor
 
@@ -50,19 +51,54 @@ if not os.path.exists(MODEL_DIR):
     os.makedirs(MODEL_DIR)
 
 
+def _best_checkpoint_callback(file_name: str, monitor_near_ic: bool) -> ModelCheckpoint:
+    """Build the best-checkpoint callback, monitoring near-IC or ``val_loss``.
+
+    ``val_loss`` is anti-aligned with cross-sectional IC (IC peaks mid-run then
+    droops as the cosine LR anneals), so when the validation loader carries
+    identity we select on ``val_rank_ic_near`` (maximising) instead. Without
+    identity that metric is never logged, so we fall back to ``val_loss``
+    (minimising).
+
+    Parameters
+    ----------
+    file_name : str
+        Base name for the checkpoint files.
+    monitor_near_ic : bool
+        When ``True`` monitor ``val_rank_ic_near`` (``mode="max"``); otherwise
+        monitor ``val_loss`` (``mode="min"``).
+
+    Returns
+    -------
+    ModelCheckpoint
+        The configured best-checkpoint callback.
+    """
+    from lightning.pytorch.callbacks import ModelCheckpoint
+
+    monitor, mode = ("val_rank_ic_near", "max") if monitor_near_ic else ("val_loss", "min")
+    return ModelCheckpoint(
+        monitor=monitor,
+        mode=mode,
+        dirpath=MODEL_DIR,
+        filename=file_name + EPOCH_MODIFIER,
+        save_top_k=1,
+        save_on_train_epoch_end=False,
+    )
+
+
 def fetch_base_trainer(
     file_name: str | None = None,
     max_steps: int = 100000,
     val_check_interval: int | float = 1.0,
     limit_val_batches: int | float = 1.0,
     extra_callbacks: list[L.Callback] | None = None,
+    monitor_near_ic: bool = False,
 ) -> L.Trainer:
     """Build the :class:`lightning.Trainer` used for base pre-training.
 
     Configures mixed precision, CUDA acceleration, gradient clipping, both a
     TensorBoard and a CSV logger, and two checkpoint callbacks: one that saves
-    on a fixed wall-clock interval and one that saves the best ``val_loss``
-    epoch.
+    on a fixed wall-clock interval and one that saves the best epoch.
 
     Parameters
     ----------
@@ -83,6 +119,11 @@ def fetch_base_trainer(
     extra_callbacks : list[lightning.Callback], optional
         Additional callbacks appended to the default set (e.g. a sweep's
         pruning callback). Defaults to ``None``.
+    monitor_near_ic : bool, optional
+        When ``True`` the best-checkpoint callback selects on
+        ``val_rank_ic_near`` (``mode="max"``) instead of ``val_loss``. Only
+        valid when the validation loader logs that metric (identity present).
+        Defaults to ``False``.
 
     Returns
     -------
@@ -106,15 +147,9 @@ def fetch_base_trainer(
         save_on_train_epoch_end=False,  # Prevents this callback from also saving at epoch end
     )
 
-    # 2. Best-``val_loss`` checkpoint, evaluated whenever validation runs
-    # (step-based when ``val_check_interval`` is an int), not only at epoch end.
-    epoch_checkpoint_callback = ModelCheckpoint(
-        monitor="val_loss",
-        dirpath=MODEL_DIR,
-        filename=file_name + EPOCH_MODIFIER,
-        save_top_k=1,  # keep only the best val_loss checkpoint
-        save_on_train_epoch_end=False,
-    )
+    # 2. Best-checkpoint callback: monitors ``val_rank_ic_near`` (max) when
+    # identity is present, otherwise ``val_loss`` (min).
+    epoch_checkpoint_callback = _best_checkpoint_callback(file_name, monitor_near_ic)
 
     callbacks: list[L.Callback] = [
         time_checkpoint_callback,

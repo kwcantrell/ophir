@@ -442,6 +442,7 @@ def run_training(
         val_check_interval=val_every_steps,
         limit_val_batches=val_batches,
         extra_callbacks=callbacks,
+        monitor_near_ic=val_identity,
     )
     try:
         trainer.fit(model, train_dataloaders=train_dl, val_dataloaders=val_dl)
