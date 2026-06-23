@@ -307,3 +307,61 @@ even on drooped checkpoints → true peak likely ~0.10+. Signal concentrates in 
   — it exposes the near-band skill the 90-day pooling dilutes. (A naive 1-day reversal
   likely still beats the model at this horizon — E3 Step-A's per-lead reversal is the
   clean ceiling — so architectural headroom may remain beyond the operating-point fix.)
+
+## 2026-06-23 — Operating-point experiment (read-near vs short-horizon retrain)
+
+Settles the operating point chosen after the confirmation. Spec/plan:
+`docs/superpowers/specs/2026-06-23-forecast-ceiling-operating-point-fix-design.md`,
+`docs/superpowers/plans/2026-06-23-forecast-ceiling-operating-point-fix.md`.
+Components A (productionized `val_rank_ic_near` + checkpoint-on-near-IC) and B
+(this experiment) landed on branch `forecast-ceiling-operating-point-fix`.
+
+### Setup
+
+Trained a **short-horizon** model at `response_size=10` (calendar days ≈ trading
+leads 1–8; the band covers offsets 1–5), 3 seeds {0,1,2}, same proxy config as the
+confirmation (`--emb-dim 128 --num-heads 8 --num-layers 6 --max-steps 10000
+--val-identity --log-offset-ic --val-batches 200`). Best checkpoint now selected on
+`val_rank_ic_near` (mode=max) via the new gating. Offline eval forwards each seed's
+best checkpoint over the val set built at `response_size=10`, pools offsets into one
+daily cross-section, dedups by `(ticker,date)`, and scores with production rank-IC vs
+a within-day-shuffle null on the same rows.
+
+### Results
+
+| band | per-seed IC | mean | null p95 | clears |
+|---|---|---|---|---|
+| **1–5** | 0.0666, 0.0676, 0.0232 | **+0.0524** (std 0.021) | 0.041 | YES |
+| 1–7 | 0.0785, 0.0499, 0.0103 | +0.0463 (std 0.028) | 0.038 | YES |
+
+Benchmarks:
+- **90-day near-slice** (offsets 1–5, from the confirmation): **+0.0665**, seed-stable
+  (std ~0.004).
+- **Clean near-band reversal ceiling** (offsets 1–5, via the new productionized
+  `ophir.ceiling.near_band_reversal_ceiling` = mean per-lead reversal IC over leads
+  1–5): **+0.0139**. This **corrects** the confirmation eval's inflated ~0.119, which
+  used `lagged_target_signal(lag=1)` on mixed-offset pooled rows (not a clean
+  1-trading-day reversal).
+
+### Decision — READ-NEAR (no short-horizon retrain)
+
+- The short-horizon retrain did **not** beat the 90-day model's near slice (mean
+  **0.052 vs 0.066**) and was markedly **less seed-stable** (seed 2 collapsed to
+  0.023; std 0.021 vs 0.004). Spending all capacity on the near band did not improve
+  near-band skill. Per the pre-agreed rule (adopt retrain only on a seed-stable win
+  over 0.066), retraining earns nothing.
+- **Operate offset-1 of the existing 90-day model** and report `val_rank_ic_near`.
+
+### Ceiling verdict — the operating-point fix is the whole story
+
+The model's near-band IC (**+0.066**) beats the clean near-band reversal ceiling
+(**+0.014**) by ~5×. This **contradicts the handoff's tentative worry** that naive
+reversal might still beat the model: on the clean pooled-1–5 ceiling, it does not. No
+architectural headroom is indicated by the reversal comparison — the operating-point
+/ metric collapse is sufficient; no new architecture is warranted on this evidence.
+
+### Follow-up (Component C, separate spec)
+
+Wire `trading/forecast.py` `load_forecasts` to read the 90-day model's **offset-1**
+prediction (the seam is horizon-agnostic, so the collapse is safe). Deferred per the
+A+B spec scope.
