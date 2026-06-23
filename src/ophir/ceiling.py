@@ -495,6 +495,17 @@ def confirm_offset_skill(
     -------
     list[OffsetVerdict]
         One verdict per bucket, in ``buckets`` order.
+
+    Notes
+    -----
+    ``clears_null`` is a per-bucket one-sided test (``seed_mean > null.p95``).
+    Across the seven offset buckets the family-wise false-positive probability
+    is ``1 - 0.95**7 ~ 0.30``, so the verdict should rest on the near-vs-far
+    *pattern* (near offsets clearing their bands while far offsets stay inside
+    theirs) rather than any single ``clears_null`` flag. Seeds are equal-weighted:
+    each run contributes one ``snapshot_mean`` regardless of its snapshot count,
+    so reusing a differently-configured run (e.g. a different ``max-steps``)
+    weights its noisier estimate the same as the others.
     """
     target, ids, dates, offsets = harvest
     generator = torch.Generator().manual_seed(seed)
