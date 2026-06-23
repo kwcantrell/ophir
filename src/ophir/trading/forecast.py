@@ -1,12 +1,13 @@
 """Adapter seam for ophir model forecasts.
 
 This module defines the contract the trading loop uses to obtain per-symbol
-forecasts. Actual CUDA inference (loading a checkpoint and running the model) is
-a future enhancement implemented behind :func:`load_forecasts`; until then the
-function reports availability only and never raises, so the loop degrades to the
-non-ophir signals when no checkpoint is present.
+forecasts. CUDA inference (loading a checkpoint and running the model) is wired
+behind :func:`load_forecasts` and guarded by availability checks; the function
+degrades to ``{}`` when forecasts are unavailable and logs the reason, so the
+trading loop falls back to non-ophir signals without raising.
 """
 
+import logging
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -35,9 +36,13 @@ def load_forecasts(
     Builds the most-recent inference window per symbol, loads the IC-best base
     checkpoint, and runs the model's day-1 (``response_size=1``) forward,
     returning the raw log-space ``r_close`` / ``upside`` / ``downside`` channels.
-    Never raises: returns ``{}`` when the model directory has no checkpoint, when
-    CUDA is unavailable (the flex-attention forward is CUDA-only), or when no
-    requested symbol has data — so the trading loop degrades to non-ophir signals.
+
+    Returns ``{}`` — and logs a ``WARNING`` — when forecasts are *unavailable*:
+    no ``model_dir`` or checkpoint is present, CUDA is unavailable (the
+    flex-attention forward is CUDA-only), or the data tree is absent.
+    Availability failures are caught and logged rather than swallowed silently;
+    inference-time errors (shape mismatches, RuntimeErrors from the forward) are
+    *not* caught and will propagate.
 
     Parameters
     ----------
@@ -64,16 +69,19 @@ def load_forecasts(
     from ophir import register
     from ophir.ticker import build_latest_inputs
 
+    _log = logging.getLogger(__name__)
     try:
         inputs = build_latest_inputs(symbols)
-    except Exception:
+    except (FileNotFoundError, OSError) as exc:
+        _log.warning("load_forecasts: %s", exc)
         return {}
     if not inputs:
         return {}
 
     try:
         model = register.load_base_model_ckpt(strict=False, time_version=False)
-    except Exception:
+    except (IndexError, FileNotFoundError, OSError) as exc:
+        _log.warning("load_forecasts: %s", exc)
         return {}
 
     model = model.cuda().eval()
