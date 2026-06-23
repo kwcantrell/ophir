@@ -228,3 +228,25 @@ def test_val_rank_ic_near_empty_is_nan() -> None:
     empty = torch.tensor([])
     result = val_rank_ic_near(empty, empty, empty.long(), empty.long(), empty.long(), k=5)
     assert result != result  # NaN
+
+
+def test_on_validation_epoch_end_logs_near_ic_ungated() -> None:
+    # log_offset_ic stays False (default); near-IC must still be logged.
+    model = _build_predictor()
+    logged: dict[str, float] = {}
+    model.log = lambda name, value, **kw: logged.__setitem__(name, float(value))  # type: ignore[method-assign]
+    # One day, three tickers, perfect near-band (offset 1) ranking.
+    model._val_ic_buffers["pred"] = [torch.tensor([3.0, 2.0, 1.0])]
+    model._val_ic_buffers["target"] = [torch.tensor([0.3, 0.2, 0.1])]
+    model._val_ic_buffers["ids"] = [torch.tensor([1, 2, 3])]
+    model._val_ic_buffers["dates"] = [torch.tensor([10, 10, 10])]
+    model._val_ic_buffers["offsets"] = [torch.tensor([1, 1, 1])]
+
+    model.on_validation_epoch_end()
+
+    assert "val_rank_ic_near" in logged
+    assert logged["val_rank_ic_near"] > 0.99
+
+
+def test_near_offset_k_defaults_to_five() -> None:
+    assert _build_predictor().near_offset_k == 5

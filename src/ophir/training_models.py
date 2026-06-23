@@ -155,6 +155,7 @@ class LightningOHLCPredictor(L.LightningModule):
         downside_weight: float = 0.5,
         log_rezero_gates: bool = False,
         log_offset_ic: bool = False,
+        near_offset_k: int = 5,
         decouple_rezero_schedule: bool = False,
     ) -> None:
         """Build the wrapped predictor and save hyper-parameters.
@@ -215,6 +216,10 @@ class LightningOHLCPredictor(L.LightningModule):
             validation epoch end, showing rank-IC broken out by forecast
             offset bucket. Defaults to ``False`` (default CSV columns
             unchanged).
+        near_offset_k : int, optional
+            Inclusive upper bound (in trading-day offsets) of the near band
+            scored by ``val_rank_ic_near``. Defaults to ``5`` (the validated
+            band where cross-sectional skill concentrates).
         decouple_rezero_schedule : bool, optional
             When ``True``, the ReZero param group uses a flat (warmup-then-
             constant) LR while the other groups keep the cosine decay, so the
@@ -240,6 +245,7 @@ class LightningOHLCPredictor(L.LightningModule):
         self.downside_weight = downside_weight
         self.log_rezero_gates = log_rezero_gates
         self.log_offset_ic = log_offset_ic
+        self.near_offset_k = near_offset_k
         self.decouple_rezero_schedule = decouple_rezero_schedule
 
         self.save_hyperparameters()
@@ -541,6 +547,15 @@ class LightningOHLCPredictor(L.LightningModule):
                 torch.cat(self._val_ic_buffers["dates"]),
             )
             self.log("val_rank_ic", ic, prog_bar=False, on_epoch=True, logger=True)
+            near_ic = val_rank_ic_near(
+                torch.cat(preds),
+                torch.cat(self._val_ic_buffers["target"]),
+                torch.cat(self._val_ic_buffers["ids"]),
+                torch.cat(self._val_ic_buffers["dates"]),
+                torch.cat(self._val_ic_buffers["offsets"]),
+                self.near_offset_k,
+            )
+            self.log("val_rank_ic_near", near_ic, prog_bar=False, on_epoch=True, logger=True)
         if self.log_offset_ic and preds:
             from .evaluate import rank_ic_by_offset
 
