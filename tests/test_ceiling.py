@@ -222,6 +222,29 @@ def test_pooled_baseline_ceiling_empty_is_nan() -> None:
     assert math.isnan(pooled_baseline_ceiling({90: 0.1}, response_size=10))
 
 
+def test_near_band_reversal_ceiling_matches_mean_of_decay_curve() -> None:
+    import torch
+
+    from ophir.ceiling import near_band_reversal_ceiling, signal_decay_curve
+
+    # Build a small reversal-flavoured panel: returns alternate sign per step
+    # per ticker, so a negated lag-1 signal correlates with the next return.
+    torch.manual_seed(0)
+    n_tickers, n_days = 6, 30
+    ids = torch.arange(n_tickers).repeat(n_days)
+    dates = torch.arange(n_days).repeat_interleave(n_tickers)
+    base = torch.randn(n_tickers)
+    rows = []
+    for d in range(n_days):
+        rows.append(((-1.0) ** d) * base + 0.01 * torch.randn(n_tickers))
+    target = torch.cat(rows)
+
+    curve = signal_decay_curve(target, ids, dates, leads=[1, 2, 3, 4, 5], kind="reversal")
+    expected = sum(curve.values()) / len(curve)
+    got = near_band_reversal_ceiling(target, ids, dates, k=5)
+    assert abs(got - expected) < 1e-9
+
+
 def test_per_offset_shuffle_null_brackets_zero_and_widens_when_thin() -> None:
     n_days = 20
     wide_n, thin_n = 8, 3

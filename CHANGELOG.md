@@ -114,6 +114,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `confirm_offset_skill` + `scripts/confirm_offset_skill.py` (multi-seed
   per-offset verdict table). Promote `_trading_day_offsets` to public
   `trading_day_offsets`.
+- `val_rank_ic_near`: logged each validation pass alongside the pooled
+  `val_rank_ic`; drives best-checkpoint selection when identity tensors are
+  present, giving a short-horizon (leads 1–5) operating-point metric that is
+  not diluted by the full 90-day horizon mix.
+- `near_band_reversal_ceiling` (`ophir.ceiling`): clean near-band naive-reversal
+  ceiling — mean per-lead reversal IC over leads 1–``k`` (default 5) via
+  :func:`signal_decay_curve`. Rigorous comparand for a near-band model
+  operating point; avoids the mixed-offset pooled-lag=1 artifact (~0.119) that
+  does not isolate a 1-trading-day reversal.
 
 ### Changed
 

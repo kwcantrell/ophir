@@ -599,6 +599,41 @@ def signal_decay_curve(
     return curve
 
 
+def near_band_reversal_ceiling(
+    target: torch.Tensor,
+    ids: torch.Tensor,
+    dates: torch.Tensor,
+    k: int = 5,
+) -> float:
+    """Clean near-band naive-reversal ceiling: mean per-lead reversal IC over ``1..k``.
+
+    Averages :func:`signal_decay_curve`'s clean per-lead reversal IC across
+    forecast leads ``1..k`` (in trading-day observations). Each lead uses a
+    proper single-lag reversal signal, so this is the rigorous comparand for a
+    near-band model operating point — unlike a pooled ``lag=1`` over mixed
+    offsets, which does not isolate a 1-trading-day reversal.
+
+    Parameters
+    ----------
+    target, ids, dates : torch.Tensor
+        Equal-length 1-D tensors of return, ticker id, and integer date
+        ordinal, one row per (ticker, date).
+    k : int, optional
+        Inclusive upper bound of the near band, in trading-day leads. Defaults
+        to ``5``.
+
+    Returns
+    -------
+    float
+        Mean reversal IC over leads ``1..k`` (``nan`` if every lead is ``nan``).
+    """
+    curve = signal_decay_curve(target, ids, dates, leads=list(range(1, k + 1)), kind="reversal")
+    values = [v for v in curve.values() if v == v]  # drop nan leads
+    if not values:
+        return float("nan")
+    return sum(values) / len(values)
+
+
 def pooled_baseline_ceiling(decay: dict[int, float], response_size: int) -> float:
     """Matched-horizon-mix ceiling: mean IC over sampled leads in ``1..response_size``.
 
