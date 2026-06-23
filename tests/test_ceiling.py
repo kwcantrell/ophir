@@ -361,5 +361,7 @@ def test_load_harvest_round_trips(tmp_path: Path) -> None:
     path = tmp_path / "harvest.pt"
     torch.save(harvest, path)
     target, ids, dates, offsets = mod.load_harvest(path)
-    assert [v for v in target.tolist()] == pytest.approx([0.1, 0.2, 0.3, 0.4])
+    assert target.tolist() == pytest.approx([0.1, 0.2, 0.3, 0.4])
+    assert ids.tolist() == [1, 2, 1, 2]
+    assert dates.tolist() == [1, 1, 2, 2]
     assert offsets.tolist() == [1, 1, 1, 1]

@@ -5,8 +5,8 @@ import torch
 from ophir.model_data import OHLCMulitClassPredictorInput
 from ophir.training_models import (
     LightningOHLCPredictor,
-    trading_day_offsets,
     robust_scale,
+    trading_day_offsets,
     val_rank_ic,
 )
 
