@@ -506,6 +506,16 @@ def confirm_offset_skill(
     each run contributes one ``snapshot_mean`` regardless of its snapshot count,
     so reusing a differently-configured run (e.g. a different ``max-steps``)
     weights its noisier estimate the same as the others.
+
+    Two further limitations matter when ``seed_mean`` is itself a multi-snapshot,
+    multi-seed average: (1) ``clears_null`` compares that denoised estimate against
+    a *single-draw* ``null.p95``, a scale mismatch — the correct comparand for an
+    ``n``-seed mean is roughly ``null`` scaled by ``1/sqrt(n)``. (2) When a bucket's
+    daily cross-sections are thin (few names per day), the equal-day-weighted
+    per-offset rank-IC has a wide null and cannot resolve small skill; pooling
+    several near offsets into one daily cross-section (a denser, tighter-null
+    measure) is preferred over the per-offset split in that regime. See the
+    confirmation section of ``docs/forecast-ceiling-results.md``.
     """
     target, ids, dates, offsets = harvest
     generator = torch.Generator().manual_seed(seed)
