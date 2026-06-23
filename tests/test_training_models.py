@@ -149,6 +149,17 @@ def test_lr_factor_helpers() -> None:
     assert abs(_cosine_factor(10, 10, 100) - 1.0) < 1e-6
 
 
+def test_log_offset_ic_flag_stored_and_buffer_present() -> None:
+    model = _build_predictor(log_offset_ic=True)
+    assert model.log_offset_ic is True
+    assert "offsets" in model._val_ic_buffers
+
+
+def test_log_offset_ic_defaults_off() -> None:
+    model = _build_predictor()
+    assert model.log_offset_ic is False
+
+
 def test_decoupled_schedule_keeps_rezero_flat() -> None:
     model = LightningOHLCPredictor(
         emb_dim=16, num_layers=2, num_heads=2, warmup_ratio=0.1, decouple_rezero_schedule=True

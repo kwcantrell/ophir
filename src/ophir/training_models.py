@@ -18,6 +18,8 @@ if TYPE_CHECKING:
 from .model_data import OHLCMulitClassPredictorInput
 from .models import OHLCMulitClassParameters, OHLCMulitClassPredictor, rezero_gate_stats
 
+_OFFSET_BUCKETS = (1, 2, 5, 10, 20, 40, 90)
+
 
 def _cosine_factor(step: int, warmup: int, total: int) -> float:
     """Cosine-with-warmup LR factor matching ``get_cosine_schedule_with_warmup``."""
@@ -97,6 +99,7 @@ class LightningOHLCPredictor(L.LightningModule):
         upside_weight: float = 0.5,
         downside_weight: float = 0.5,
         log_rezero_gates: bool = False,
+        log_offset_ic: bool = False,
         decouple_rezero_schedule: bool = False,
     ) -> None:
         """Build the wrapped predictor and save hyper-parameters.
@@ -152,6 +155,11 @@ class LightningOHLCPredictor(L.LightningModule):
             When ``True``, log ``rezero_mean_abs`` / ``rezero_max_abs`` each
             validation pass so the gate magnitudes are visible. Defaults to
             ``False`` (default CSV columns unchanged).
+        log_offset_ic : bool, optional
+            When ``True``, log ``val_rank_ic_h{1,2,5,10,20,40,90}`` at each
+            validation epoch end, showing rank-IC broken out by forecast
+            offset bucket. Defaults to ``False`` (default CSV columns
+            unchanged).
         decouple_rezero_schedule : bool, optional
             When ``True``, the ReZero param group uses a flat (warmup-then-
             constant) LR while the other groups keep the cosine decay, so the
@@ -176,6 +184,7 @@ class LightningOHLCPredictor(L.LightningModule):
         self.upside_weight = upside_weight
         self.downside_weight = downside_weight
         self.log_rezero_gates = log_rezero_gates
+        self.log_offset_ic = log_offset_ic
         self.decouple_rezero_schedule = decouple_rezero_schedule
 
         self.save_hyperparameters()
@@ -185,6 +194,7 @@ class LightningOHLCPredictor(L.LightningModule):
             "target": [],
             "ids": [],
             "dates": [],
+            "offsets": [],
         }
 
     def _input_obj(
@@ -440,6 +450,9 @@ class LightningOHLCPredictor(L.LightningModule):
             mask = model_output.trade_occured[:, -rs:]
             resp_dates = model_output.date_ordinal[:, -rs:]
             ids_br = model_output.stock_id.view(-1, 1).expand(-1, rs)
+            offsets = (
+                torch.arange(1, rs + 1, device=mask.device).unsqueeze(0).expand(mask.shape[0], rs)
+            )
             self._val_ic_buffers["pred"].append(
                 model_output.predicted_r_close[mask].reshape(-1).cpu()
             )
@@ -448,6 +461,7 @@ class LightningOHLCPredictor(L.LightningModule):
             )
             self._val_ic_buffers["ids"].append(ids_br[mask].reshape(-1).cpu())
             self._val_ic_buffers["dates"].append(resp_dates[mask].reshape(-1).cpu())
+            self._val_ic_buffers["offsets"].append(offsets[mask].reshape(-1).cpu())
 
         return loss
 
@@ -474,6 +488,19 @@ class LightningOHLCPredictor(L.LightningModule):
                 torch.cat(self._val_ic_buffers["dates"]),
             )
             self.log("val_rank_ic", ic, prog_bar=False, on_epoch=True, logger=True)
+        if self.log_offset_ic and preds:
+            from .evaluate import rank_ic_by_offset
+
+            offset_ics = rank_ic_by_offset(
+                torch.cat(self._val_ic_buffers["pred"]),
+                torch.cat(self._val_ic_buffers["target"]),
+                torch.cat(self._val_ic_buffers["ids"]),
+                torch.cat(self._val_ic_buffers["dates"]),
+                torch.cat(self._val_ic_buffers["offsets"]),
+                _OFFSET_BUCKETS,
+            )
+            for key, ic in offset_ics.items():
+                self.log(f"val_rank_ic_{key}", ic, on_epoch=True, logger=True)
         for buf in self._val_ic_buffers.values():
             buf.clear()
 
