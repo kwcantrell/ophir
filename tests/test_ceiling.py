@@ -8,6 +8,7 @@ import torch
 from ophir.ceiling import (
     ICAggregate,  # noqa: F401
     NullBand,  # noqa: F401
+    OffsetRunIC,  # noqa: F401
     RunICSummary,
     aggregate_ic,
     cross_sectional_ic,
@@ -17,6 +18,7 @@ from ophir.ceiling import (
     per_offset_shuffle_null,
     pooled_baseline_ceiling,
     run_ic_summary,
+    run_offset_ic,
     shuffle_within_day,
     signal_decay_curve,
 )
@@ -251,3 +253,38 @@ def test_per_offset_shuffle_null_empty_bucket_is_nan() -> None:
     bands = per_offset_shuffle_null(target, ids, dates, offsets, [1, 90], n_perms=50, generator=g)
     assert bands["h90"].n_rows == 0
     assert math.isnan(bands["h90"].mean) and math.isnan(bands["h90"].p95)
+
+
+def test_run_offset_ic_means_snapshots_and_reports_peak(tmp_path: Path) -> None:
+    rows = [
+        {"step": 100, "val_rank_ic_h1": 0.02},
+        {"step": 200, "val_rank_ic_h1": 0.10},
+        {"step": 300, "val_rank_ic_h1": 0.06},
+    ]
+    path = tmp_path / "m.csv"
+    pd.DataFrame(rows).to_csv(path, index=False)
+    out = run_offset_ic(path, [1], burn_in_steps=0)
+    assert out["h1"].n_snapshots == 3
+    assert out["h1"].peak == pytest.approx(0.10)
+    assert out["h1"].snapshot_mean == pytest.approx(0.06)
+
+
+def test_run_offset_ic_burn_in_excludes_early_steps(tmp_path: Path) -> None:
+    rows = [
+        {"step": 50, "val_rank_ic_h1": 0.0},
+        {"step": 500, "val_rank_ic_h1": 0.08},
+    ]
+    path = tmp_path / "m.csv"
+    pd.DataFrame(rows).to_csv(path, index=False)
+    out = run_offset_ic(path, [1], burn_in_steps=100)
+    assert out["h1"].n_snapshots == 1
+    assert out["h1"].snapshot_mean == pytest.approx(0.08)
+
+
+def test_run_offset_ic_missing_bucket_is_nan(tmp_path: Path) -> None:
+    rows = [{"step": 100, "val_rank_ic_h1": 0.05, "val_rank_ic_h90": float("nan")}]
+    path = tmp_path / "m.csv"
+    pd.DataFrame(rows).to_csv(path, index=False)
+    out = run_offset_ic(path, [1, 90])
+    assert out["h1"].snapshot_mean == pytest.approx(0.05)
+    assert math.isnan(out["h90"].snapshot_mean) and out["h90"].n_snapshots == 0

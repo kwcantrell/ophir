@@ -58,6 +58,26 @@ class RunICSummary:
 
 
 @dataclass(frozen=True)
+class OffsetRunIC:
+    """Per-offset ``val_rank_ic_h*`` summary for one training run.
+
+    Attributes
+    ----------
+    snapshot_mean : float
+        Mean ``val_rank_ic_h{offset}`` over the run's non-burn-in validation
+        snapshots — the denoised headline estimate.
+    peak : float
+        Max over those snapshots (the ceiling; also flags the E0 mid-run droop).
+    n_snapshots : int
+        Number of snapshots averaged.
+    """
+
+    snapshot_mean: float
+    peak: float
+    n_snapshots: int
+
+
+@dataclass(frozen=True)
 class ICAggregate:
     """Mean / min / max / sample-std / count over a config's seed replicates."""
 
@@ -127,6 +147,57 @@ def run_ic_summary(metrics_csv: str | Path) -> RunICSummary:
         best_ckpt_ic=float(best[ic_col]),
         final_ic=float(final[ic_col]),
     )
+
+
+def run_offset_ic(
+    metrics_csv: str | Path,
+    buckets: Sequence[int],
+    *,
+    burn_in_steps: int = 0,
+) -> dict[str, OffsetRunIC]:
+    """Summarise per-offset ``val_rank_ic_h*`` from a run's ``metrics.csv``.
+
+    Averages each ``val_rank_ic_h{offset}`` column over validation snapshots
+    (dropping NaN rows and rows with ``step < burn_in_steps``) and records the
+    peak. A bucket whose column is absent or all-NaN yields a ``nan`` summary
+    with ``n_snapshots == 0`` rather than raising.
+
+    Parameters
+    ----------
+    metrics_csv : str or Path
+        Lightning CSVLogger ``metrics.csv`` from an ``--log-offset-ic`` run.
+    buckets : sequence of int
+        Offsets to summarise (``_OFFSET_BUCKETS`` in production).
+    burn_in_steps : int, optional
+        Exclude validation rows logged before this global step (default 0).
+
+    Returns
+    -------
+    dict[str, OffsetRunIC]
+        One summary per bucket, keyed ``"h{offset}"``.
+    """
+    df = pd.read_csv(metrics_csv)
+    step_col = _pick_column(df, ("step",))
+    out: dict[str, OffsetRunIC] = {}
+    for h in buckets:
+        key = f"h{int(h)}"
+        try:
+            col = _pick_column(df, (f"val_rank_ic_{key}", f"val_rank_ic_{key}_epoch"))
+        except KeyError:
+            out[key] = OffsetRunIC(float("nan"), float("nan"), 0)
+            continue
+        sub = df.dropna(subset=[col])
+        sub = sub[sub[step_col] >= burn_in_steps]
+        if sub.empty:
+            out[key] = OffsetRunIC(float("nan"), float("nan"), 0)
+            continue
+        vals = sub[col].to_numpy(dtype=float)
+        out[key] = OffsetRunIC(
+            snapshot_mean=float(vals.mean()),
+            peak=float(vals.max()),
+            n_snapshots=int(vals.size),
+        )
+    return out
 
 
 def aggregate_ic(values: Sequence[float]) -> ICAggregate:
