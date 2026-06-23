@@ -364,6 +364,19 @@ def test_format_verdict_table_has_header_and_row_per_offset(tmp_path: Path) -> N
     assert "yes" in lines[1]  # offset 1 clears
 
 
+def test_near_band_reversal_ceiling_empty_band_is_nan() -> None:
+    import torch
+
+    from ophir.ceiling import near_band_reversal_ceiling
+
+    # k=0 -> no leads -> empty curve -> nan (the empty/all-nan branch).
+    target = torch.tensor([0.1, 0.2, 0.3, 0.4, 0.5, 0.6])
+    ids = torch.tensor([0, 1, 2, 0, 1, 2])
+    dates = torch.tensor([0, 0, 0, 1, 1, 1])
+    result = near_band_reversal_ceiling(target, ids, dates, k=0)
+    assert result != result  # NaN
+
+
 def test_load_harvest_round_trips(tmp_path: Path) -> None:
     import importlib.util
 
