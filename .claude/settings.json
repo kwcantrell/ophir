@@ -1,22 +1,25 @@
 {
-    "includeCoAuthoredBy": false,
-    "gitAttribution": false,
-    "attribution": {
-        "commit": "false",
-        "pr": "false"
-    },
-    "hooks": {
-        "PostToolUse": [
-            {
-                "matcher": "Write|Edit|MultiEdit",
-                "hooks": [
-                    {
-                        "type": "command",
-                        "command": "python3 -c \"\nimport json, sys, subprocess, os\ndata = json.load(sys.stdin)\ninp = data.get('tool_input', {})\npath = inp.get('file_path', '')\nif not path.endswith('.py'):\n    sys.exit(0)\nvenv_ruff = '/workspace/ophir/.venv/bin/ruff'\nif not os.path.exists(venv_ruff):\n    sys.exit(0)\nr1 = subprocess.run([venv_ruff, 'check', '--fix', path], capture_output=True, text=True)\nr2 = subprocess.run([venv_ruff, 'format', path], capture_output=True, text=True)\nout = (r1.stdout + r1.stderr + r2.stdout + r2.stderr).strip()\nif r1.returncode != 0:\n    print(f'ruff: {out}', file=sys.stderr)\n    sys.exit(2)\nelif out:\n    print(f'ruff: {out}')\n\"",
-                        "timeout": 15
-                    }
-                ]
-            }
+  "attribution": {
+    "commit": "false",
+    "pr": "false"
+  },
+  "includeCoAuthoredBy": false,
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -c \"\nimport json, sys, subprocess, os\ndata = json.load(sys.stdin)\ninp = data.get('tool_input', {})\npath = inp.get('file_path', '')\nif not path.endswith('.py'):\n    sys.exit(0)\nvenv_ruff = '/workspace/ophir/.venv/bin/ruff'\nif not os.path.exists(venv_ruff):\n    sys.exit(0)\nr1 = subprocess.run([venv_ruff, 'check', '--fix', path], capture_output=True, text=True)\nr2 = subprocess.run([venv_ruff, 'format', path], capture_output=True, text=True)\nout = (r1.stdout + r1.stderr + r2.stdout + r2.stderr).strip()\nif r1.returncode != 0:\n    print(f'ruff: {out}', file=sys.stderr)\n    sys.exit(2)\nelif out:\n    print(f'ruff: {out}')\n\"",
+            "timeout": 15
+          }
         ]
-    }
+      }
+    ]
+  },
+  "gitAttribution": false,
+  "enabledPlugins": {
+    "code-simplifier@claude-plugins-official": true
+  }
 }
