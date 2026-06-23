@@ -131,6 +131,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Best-checkpoint filename now embeds the monitored metric
+  (`val_rank_ic_near` when selecting on near-IC, else `val_loss`) instead of
+  always labelling it `val_loss`.
 - Normalized the three multi-target loss weights (`r_close`, `upside`,
   `downside`) by their sum so the weights control task balance only and no
   longer co-vary with total loss scale. Added a tunable `close_weight`

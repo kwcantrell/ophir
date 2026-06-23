@@ -66,3 +66,14 @@ def test_best_checkpoint_defaults_to_val_loss() -> None:
     cb = _best_checkpoint_callback("model", monitor_near_ic=False)
     assert cb.monitor == "val_loss"
     assert cb.mode == "min"
+
+
+def test_best_checkpoint_filename_embeds_near_ic_when_flagged() -> None:
+    cb = _best_checkpoint_callback("model", monitor_near_ic=True)
+    assert "val_rank_ic_near" in cb.filename
+    assert "val_loss" not in cb.filename
+
+
+def test_best_checkpoint_filename_embeds_val_loss_by_default() -> None:
+    cb = _best_checkpoint_callback("model", monitor_near_ic=False)
+    assert "val_loss" in cb.filename

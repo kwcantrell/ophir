@@ -76,11 +76,12 @@ def _best_checkpoint_callback(file_name: str, monitor_near_ic: bool) -> ModelChe
     from lightning.pytorch.callbacks import ModelCheckpoint
 
     monitor, mode = ("val_rank_ic_near", "max") if monitor_near_ic else ("val_loss", "min")
+    suffix = "best-{epoch:02d}-{val_rank_ic_near:.5f}" if monitor_near_ic else EPOCH_MODIFIER
     return ModelCheckpoint(
         monitor=monitor,
         mode=mode,
         dirpath=MODEL_DIR,
-        filename=file_name + EPOCH_MODIFIER,
+        filename=file_name + suffix,
         save_top_k=1,
         save_on_train_epoch_end=False,
     )
