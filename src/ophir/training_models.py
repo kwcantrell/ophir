@@ -540,35 +540,28 @@ class LightningOHLCPredictor(L.LightningModule):
             self.log("rezero_max_abs", cast("float", stats["max_abs"]), on_epoch=True, logger=True)
         preds = self._val_ic_buffers["pred"]
         if preds:
-            ic = val_rank_ic(
-                torch.cat(preds),
-                torch.cat(self._val_ic_buffers["target"]),
-                torch.cat(self._val_ic_buffers["ids"]),
-                torch.cat(self._val_ic_buffers["dates"]),
-            )
+            cat_pred = torch.cat(preds)
+            cat_target = torch.cat(self._val_ic_buffers["target"])
+            cat_ids = torch.cat(self._val_ic_buffers["ids"])
+            cat_dates = torch.cat(self._val_ic_buffers["dates"])
+            cat_offsets = torch.cat(self._val_ic_buffers["offsets"])
+
+            ic = val_rank_ic(cat_pred, cat_target, cat_ids, cat_dates)
             self.log("val_rank_ic", ic, prog_bar=False, on_epoch=True, logger=True)
+
             near_ic = val_rank_ic_near(
-                torch.cat(preds),
-                torch.cat(self._val_ic_buffers["target"]),
-                torch.cat(self._val_ic_buffers["ids"]),
-                torch.cat(self._val_ic_buffers["dates"]),
-                torch.cat(self._val_ic_buffers["offsets"]),
-                self.near_offset_k,
+                cat_pred, cat_target, cat_ids, cat_dates, cat_offsets, self.near_offset_k
             )
             self.log("val_rank_ic_near", near_ic, prog_bar=False, on_epoch=True, logger=True)
-        if self.log_offset_ic and preds:
-            from .evaluate import rank_ic_by_offset
 
-            offset_ics = rank_ic_by_offset(
-                torch.cat(self._val_ic_buffers["pred"]),
-                torch.cat(self._val_ic_buffers["target"]),
-                torch.cat(self._val_ic_buffers["ids"]),
-                torch.cat(self._val_ic_buffers["dates"]),
-                torch.cat(self._val_ic_buffers["offsets"]),
-                _OFFSET_BUCKETS,
-            )
-            for key, ic in offset_ics.items():
-                self.log(f"val_rank_ic_{key}", ic, on_epoch=True, logger=True)
+            if self.log_offset_ic:
+                from .evaluate import rank_ic_by_offset
+
+                offset_ics = rank_ic_by_offset(
+                    cat_pred, cat_target, cat_ids, cat_dates, cat_offsets, _OFFSET_BUCKETS
+                )
+                for key, off_ic in offset_ics.items():
+                    self.log(f"val_rank_ic_{key}", off_ic, on_epoch=True, logger=True)
         for buf in self._val_ic_buffers.values():
             buf.clear()
 
