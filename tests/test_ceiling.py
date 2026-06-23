@@ -339,3 +339,27 @@ def test_format_verdict_table_has_header_and_row_per_offset(tmp_path: Path) -> N
     assert "offset" in lines[0] and "clears" in lines[0]
     assert len(lines) == 3  # header + 2 offsets
     assert "yes" in lines[1]  # offset 1 clears
+
+
+def test_load_harvest_round_trips(tmp_path: Path) -> None:
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "confirm_offset_skill_script",
+        Path(__file__).resolve().parents[1] / "scripts" / "confirm_offset_skill.py",
+    )
+    assert spec is not None and spec.loader is not None
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    harvest = {
+        "target": torch.tensor([0.1, 0.2, 0.3, 0.4]),
+        "ids": torch.tensor([1, 2, 1, 2]),
+        "dates": torch.tensor([1, 1, 2, 2]),
+        "offsets": torch.tensor([1, 1, 1, 1]),
+    }
+    path = tmp_path / "harvest.pt"
+    torch.save(harvest, path)
+    target, ids, dates, offsets = mod.load_harvest(path)
+    assert [v for v in target.tolist()] == pytest.approx([0.1, 0.2, 0.3, 0.4])
+    assert offsets.tolist() == [1, 1, 1, 1]
