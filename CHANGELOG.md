@@ -108,6 +108,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `pooled_baseline_ceiling` (reversal IC vs forecast lead + matched-horizon
   ceiling), `ophir.evaluate.rank_ic_by_offset` (per-horizon IC decomposition), and
   a gated `ophir train --log-offset-ic` flag that logs `val_rank_ic_h{N}`.
+- Forecast-ceiling confirmation harness in `ophir.ceiling`:
+  `per_offset_shuffle_null` (per-offset within-day permutation null),
+  `run_offset_ic` (multi-snapshot `val_rank_ic_h*` aggregation), and
+  `confirm_offset_skill` + `scripts/confirm_offset_skill.py` (multi-seed
+  per-offset verdict table). Promote `_trading_day_offsets` to public
+  `trading_day_offsets`.
 
 ### Changed
 
