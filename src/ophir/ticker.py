@@ -21,7 +21,7 @@ import torch
 from torch.utils.data import Dataset, IterableDataset, get_worker_info
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Iterator
+    from collections.abc import Iterable, Iterator, Sequence
 
 
 def get_stock_parquets(base_path: str) -> dict[str, str]:
@@ -813,6 +813,59 @@ def extract_model_data(
         ordinals = df.index.to_numpy().astype("datetime64[D]").astype(np.int64)
         model_data["date_ordinal"] = torch.from_numpy(ordinals)
     return model_data
+
+
+def build_latest_inputs(
+    symbols: Sequence[str],
+    seq_len: int = 365,
+    base_path: str | None = None,
+) -> dict[str, dict[str, Any]]:
+    """Build the most-recent inference window per symbol at ``response_size=1``.
+
+    For each requested symbol, loads its history from the parquet tree, takes the
+    single most-recent ``seq_len``-row feature window, and packages it with
+    :func:`extract_model_data` for an offset-1 (day-1) forecast. Symbols absent
+    from the tree, or with too little history to form one window, are silently
+    skipped — the live forecast seam degrades rather than raising.
+
+    Parameters
+    ----------
+    symbols : sequence of str
+        Ticker symbols to build inference windows for.
+    seq_len : int, optional
+        Window length the model consumes. Defaults to ``365``.
+    base_path : str, optional
+        Root of the Hive-partitioned parquet tree. When ``None``, defaults to
+        ``register.get_default_data_days_dir()/stocks``.
+
+    Returns
+    -------
+    dict[str, dict[str, Any]]
+        ``{symbol: extract_model_data payload}`` for each symbol that produced a
+        window. Empty when no requested symbol is available.
+    """
+    if base_path is None:
+        from ophir import register
+
+        base_path = os.path.join(register.get_default_data_days_dir(), "stocks")
+
+    handler = StockHanlder(
+        seq_len=seq_len,
+        base_path=base_path,
+        return_stock_id=False,
+        return_streamer=True,
+    )
+    out: dict[str, dict[str, Any]] = {}
+    for symbol in symbols:
+        try:
+            streamer = handler[symbol]
+        except ValueError:
+            continue  # symbol not in the tree
+        if not isinstance(streamer, StockStreamer) or streamer.size == 0:
+            continue  # too little history to form a window
+        window = streamer[int(streamer.starts[-1])]  # most-recent window
+        out[symbol] = extract_model_data(window, 1)
+    return out
 
 
 class StockStreamerDataset(Dataset[dict[str, Any]]):
