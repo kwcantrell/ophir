@@ -337,7 +337,7 @@ def per_offset_shuffle_null(
             continue
         t_h, i_h, d_h = target[sel], ids[sel], dates[sel]
         ics = [
-            cross_sectional_ic(t_h, shuffle_within_day(t_h, d_h, generator=generator), i_h, d_h)[
+            cross_sectional_ic(shuffle_within_day(t_h, d_h, generator=generator), t_h, i_h, d_h)[
                 "ic_mean"
             ]
             for _ in range(n_perms)

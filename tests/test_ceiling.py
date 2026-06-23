@@ -218,17 +218,27 @@ def test_pooled_baseline_ceiling_empty_is_nan() -> None:
 
 
 def test_per_offset_shuffle_null_brackets_zero_and_widens_when_thin() -> None:
-    n_days, n_names = 20, 8
+    n_days = 20
+    wide_n, thin_n = 8, 3
+    wide, thin = wide_n * n_days, thin_n * n_days
     tg = torch.Generator().manual_seed(1)
-    target = torch.randn(n_days * n_names, generator=tg)
-    ids = torch.arange(n_names).repeat(n_days)
-    dates = torch.arange(n_days).repeat_interleave(n_names)
-    offsets = torch.ones(n_days * n_names, dtype=torch.long)
+    target = torch.randn(wide + thin, generator=tg)
+    ids = torch.cat([torch.arange(wide_n).repeat(n_days), torch.arange(thin_n).repeat(n_days)])
+    dates = torch.cat(
+        [
+            torch.arange(n_days).repeat_interleave(wide_n),
+            torch.arange(n_days).repeat_interleave(thin_n),
+        ]
+    )
+    offsets = torch.cat(
+        [torch.ones(wide, dtype=torch.long), torch.full((thin,), 2, dtype=torch.long)]
+    )
     g = torch.Generator().manual_seed(0)
     bands = per_offset_shuffle_null(target, ids, dates, offsets, [1, 2], n_perms=200, generator=g)
     assert abs(bands["h1"].mean) < bands["h1"].std  # null centered on ~0
     assert bands["h1"].p05 < 0.0 < bands["h1"].p95
-    assert bands["h1"].n_rows == n_days * n_names
+    assert bands["h1"].n_rows == wide and bands["h2"].n_rows == thin
+    assert bands["h2"].std > bands["h1"].std  # thinner cross-section -> wider null
     assert bands["h1"].n_perms == 200
 
 
