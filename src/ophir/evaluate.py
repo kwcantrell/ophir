@@ -294,7 +294,8 @@ def rank_ic_by_offset(
     pred, target, ids, dates : torch.Tensor
         Equal-length 1-D tensors, as accumulated for :func:`rank_ic`.
     offsets : torch.Tensor
-        Same-length integer tensor: each row's response-position offset (1-based).
+        Same-length integer tensor: each row's 1-based forecast offset in trading
+        days (the trading-day lead within the response block).
     buckets : sequence of int
         Offsets to report. For each ``h`` only rows with ``offsets == h`` are used.
 
