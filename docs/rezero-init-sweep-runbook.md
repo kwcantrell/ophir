@@ -1,5 +1,10 @@
 # ReZero init sweep — runbook
 
+> **Resolved 2026-06-20 — NEGATIVE.** The sweep ran in full; the seed-0 advantage
+> of `rezero_init=0.1` did **not** survive multi-seed confirmation. The default
+> stays `rezero_init=0.0`; do not raise it. See **Result** at the bottom. The
+> procedure below is kept for reproducibility.
+
 Find the best `rezero_init` and confirm the depth gain is real, not seed noise.
 
 Background: the gate-opening diagnostic (`docs/rezero-diagnostic-runbook.md`)
@@ -107,3 +112,40 @@ print(agg)
   full training budget before locking it in as a default.
 - Keep `rezero_lr` at its default throughout; the diagnostic showed raising it to
   open the gates backfires. This sweep isolates initialization.
+
+## Result (2026-06-20) — negative; default stays 0.0
+
+**Phase 1 — init grid at seed 0** (10k steps; `val_rank_ic`):
+
+| rezero_init | val_rank_ic | gate mean\|·\| | version |
+| ----------- | ----------- | -------------- | ------- |
+| 0.00        | 0.0139      | 0.018          | 247     |
+| 0.05        | 0.0141      | 0.044          | 253     |
+| **0.10**    | **0.0216**  | 0.072          | 252     |
+| 0.20        | 0.0167      | 0.139          | 254     |
+| 0.40        | 0.0210      | 0.269          | 255     |
+
+Picked `I* = 0.10` (highest seed-0 `val_rank_ic`). Peak is bracketed: it turns
+over by `0.20` and `0.40` is not the best, so no `0.8` run was needed. (`0.40`
+bumps back to 0.0210, nearly tying `0.10` — a hint that single-seed values are
+noisy here.)
+
+**Phase 2 — multi-seed confirmation** (`0.0` and `I*=0.1` at seeds 0/1/2):
+
+| init    | seed 0 | seed 1 | seed 2 | mean       | min    | max    |
+| ------- | ------ | ------ | ------ | ---------- | ------ | ------ |
+| **0.0** | 0.0139 | 0.0109 | 0.0171 | **0.0139** | 0.0109 | 0.0171 |
+| 0.1     | 0.0216 | 0.0068 | 0.0106 | 0.0130     | 0.0068 | 0.0216 |
+
+Phase-2 versions: `0.0` s1/s2 = 256/258; `0.1` s1/s2 = 257/259.
+
+**Verdict — `I*` fails confirmation.** Across seeds, `0.1` does **not** beat the
+`0.0` baseline: baseline has the slightly higher mean (0.0139 vs 0.0130) and a
+notably higher minimum (0.0109 vs 0.0068), and the ranges overlap almost
+entirely. The seed-0 `0.0216` was a high outlier — at seeds 1–2, `rezero_init=0.1`
+landed *below* baseline. The ~56% single-seed "gain" from the depth diagnostic was
+seed noise, exactly what this phase exists to catch (absolute IC ~0.007–0.022).
+
+**Action:** keep `rezero_init=0.0`. Do not raise it, and do not tune the rezero
+family further — `rezero_lr` is already near its sweet spot (cranking it hurts)
+and `rezero_init` is noise. No default change to spec.
