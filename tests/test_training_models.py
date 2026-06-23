@@ -8,6 +8,7 @@ from ophir.training_models import (
     robust_scale,
     trading_day_offsets,
     val_rank_ic,
+    val_rank_ic_near,
 )
 
 
@@ -195,3 +196,35 @@ def test_trading_day_offsets_counts_only_trading_days() -> None:
     mask = torch.tensor([[True, False, True, True], [False, True, False, True]])
     offsets = trading_day_offsets(mask)
     assert offsets[mask].tolist() == [1, 2, 3, 1, 2]
+
+
+def test_val_rank_ic_near_filters_to_band() -> None:
+    # Two days, three tickers each. Offset-1 rows rank the same as targets
+    # (IC=1); out-of-band offset-9 rows are deliberately anti-ranked. With
+    # k=5 only the offset-1 rows count, so the pooled near-IC is ~1.0.
+    pred = torch.tensor([3.0, 2.0, 1.0, 1.0, 2.0, 3.0, 1.0, 2.0, 3.0])
+    target = torch.tensor([0.3, 0.2, 0.1, 0.1, 0.2, 0.3, 0.3, 0.2, 0.1])
+    ids = torch.tensor([1, 2, 3, 1, 2, 3, 1, 2, 3])
+    dates = torch.tensor([10, 10, 10, 11, 11, 11, 12, 12, 12])
+    offsets = torch.tensor([1, 1, 1, 1, 1, 1, 9, 9, 9])
+    assert val_rank_ic_near(pred, target, ids, dates, offsets, k=5) > 0.99
+
+
+def test_val_rank_ic_near_k_boundary_is_inclusive() -> None:
+    # Single day, three tickers, all at offset 5. With k=5 the row is in band
+    # (perfect ranking -> ~1.0); with k=4 it is excluded -> nan.
+    pred = torch.tensor([3.0, 2.0, 1.0])
+    target = torch.tensor([0.3, 0.2, 0.1])
+    ids = torch.tensor([1, 2, 3])
+    dates = torch.tensor([10, 10, 10])
+    offsets = torch.tensor([5, 5, 5])
+    assert val_rank_ic_near(pred, target, ids, dates, offsets, k=5) > 0.99
+    assert val_rank_ic_near(pred, target, ids, dates, offsets, k=4) != val_rank_ic_near(
+        pred, target, ids, dates, offsets, k=4
+    )  # NaN
+
+
+def test_val_rank_ic_near_empty_is_nan() -> None:
+    empty = torch.tensor([])
+    result = val_rank_ic_near(empty, empty, empty.long(), empty.long(), empty.long(), k=5)
+    assert result != result  # NaN

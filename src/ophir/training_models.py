@@ -83,6 +83,49 @@ def val_rank_ic(
     return rank_ic(dp, dt, dd)["ic_mean"]
 
 
+def val_rank_ic_near(
+    pred: torch.Tensor,
+    target: torch.Tensor,
+    ids: torch.Tensor,
+    dates: torch.Tensor,
+    offsets: torch.Tensor,
+    k: int = 5,
+) -> float:
+    """Pooled cross-sectional rank-IC over near forecast offsets ``1..k``.
+
+    Restricts the validation rows to trading-day offsets ``1 <= offset <= k``
+    (the near band where cross-sectional skill concentrates), then dedupes to
+    one prediction per ``(ticker, date)`` and averages the daily Spearman
+    rank correlation, reusing the eval module's helpers so the live metric and
+    the offline report agree. Pooling the near offsets keeps each day's
+    cross-section dense (overlapping windows are sparse, so the dedup drops
+    almost nothing). Returns ``nan`` when no rows fall in the band.
+
+    Parameters
+    ----------
+    pred, target, ids, dates : torch.Tensor
+        Equal-length 1-D tensors, as accumulated for :func:`val_rank_ic`.
+    offsets : torch.Tensor
+        Same-length integer tensor of 1-based trading-day forecast offsets.
+    k : int, optional
+        Inclusive upper bound of the near band. Defaults to ``5``.
+
+    Returns
+    -------
+    float
+        Mean daily rank-IC over the near band, or ``nan`` if empty.
+    """
+    from .evaluate import dedupe_by_ticker_date, rank_ic
+
+    if pred.numel() == 0:
+        return float("nan")
+    sel = (offsets >= 1) & (offsets <= k)
+    if not bool(sel.any()):
+        return float("nan")
+    dp, dt, dd = dedupe_by_ticker_date(pred[sel], target[sel], ids[sel], dates[sel])
+    return rank_ic(dp, dt, dd)["ic_mean"]
+
+
 # --------------------------------------------------------------------------- #
 #  Lightning wrapper
 # --------------------------------------------------------------------------- #
