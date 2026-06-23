@@ -27,11 +27,9 @@ if TYPE_CHECKING:
 
 # Get the absolute path of the current file
 current_file_path = os.path.abspath(__file__)
-print(f"current file path {current_file_path}")
 
 # Get the directory containing the current file
 current_dir = os.path.dirname(current_file_path)
-print(f"current dir path {current_dir}")
 OPHIR_DIR = os.path.join(current_dir, ".ophir")
 DATA_DIR = os.path.join(OPHIR_DIR, "data")
 MODEL_DIR = os.path.join(OPHIR_DIR, "model")
