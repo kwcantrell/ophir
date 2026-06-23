@@ -251,3 +251,59 @@ point — train/eval at small `response_size`, benchmark against the
 reversal-at-matched-horizon ceiling and a per-offset null, targeting usable IC
 ~0.05–0.10 vs the current pooled ~0.02. The E0 free win (checkpoint/early-stop on
 `val_rank_ic`) folds in there too.
+
+## Confirmation harness — multi-seed + per-offset null (2026-06-23)
+
+Closes the E3 "confirm before banking" caveat. Setup: 3 seeds (0/1/2) of the 6-min
+proxy (`--emb-dim 128 --num-heads 8 --num-layers 6 --max-steps 10000 --val-identity
+--log-offset-ic --val-batches 200`, versions 261/262/263), a model-free CPU harvest
+of the val cross-section (`target/ids/dates/offsets`, capped at the same 200 batches),
+and `ophir.ceiling.per_offset_shuffle_null` / `confirm_offset_skill`.
+
+### Finding 1 — the per-offset metric is underpowered (Step B magnitudes were noise)
+
+At a *fixed* offset the daily cross-sections are tiny — **median 3 names/day** (a
+ticker contributes only ~3.6 windows per offset over 278 val days). The
+equal-day-weighted `rank_ic` is then dominated by n=2,3 days whose within-day-shuffle
+Spearman std is ~0.7, giving a per-offset null **p95 ≈ 0.10**. Across 3 seeds the
+denoised per-offset IC (snapshot-mean) is 0.03–0.08 near, and **no offset clears its
+own null**. Step B's single-snapshot per-offset IC of ~0.06–0.10 sat *inside* this
+~0.10 null band — it was within-noise. The per-offset decomposition cannot resolve
+~0.05 skill on this val set.
+
+(Caveat on the tool: `confirm_offset_skill`'s `clears_null` compares the *denoised*
+seed-mean against a *single-draw* null p95 — a scale mismatch. The correct comparand
+for a 3-seed mean is the across-seed null ≈ single-draw/√3 ≈ 0.035 (p95 ≈ 0.058);
+even under that, only offset 2 clears, consistent with chance across 6 buckets — the
+~30% family-wise rate. Verdict unchanged.)
+
+### Finding 2 — pooled near-band confirms the skill (the right instrument)
+
+Pooling offsets **1–5** into one daily cross-section multiplies density without loss
+(windows are sparse → `(ticker,date)` dedup drops ~0 rows): median **12 names/day**,
+null **p95 = 0.036** (1–10: 23/day, p95 0.031) — now powered to detect ~0.05.
+
+Pooled near-band model IC (offline eval of the 3 best-`val_loss` checkpoints, which
+catch ~½ peak IC per E0, so **conservative**):
+
+| band | per-seed IC | mean | null p95 | clears |
+|---|---|---|---|---|
+| **1–5**  | 0.0665, 0.0620, 0.0709 | **+0.0665** | 0.039 | **YES (all 3 seeds)** |
+| 1–10 | 0.0443, 0.0098, 0.0208 | +0.0250 | 0.029 | no (dilutes) |
+
+The pooled-1–5 IC is seed-stable (std ~0.004) and clears its null on *every* seed,
+even on drooped checkpoints → true peak likely ~0.10+. Signal concentrates in 1–5
+(1–10 already dilutes below significance).
+
+### Reconciled verdict
+
+- **E3 "world 1" holds**: the model carries genuine, seed-stable near-horizon
+  cross-sectional skill — confirmed multi-seed at **~0.066+ (conservative) over
+  offsets 1–5, clearing a 0.036 null**, versus the diluted pooled `val_rank_ic`
+  ~0.012–0.02 (the predicted 3–5×).
+- **Correction to Step B**: its *per-offset* magnitudes were single-snapshot noise on
+  an underpowered split; the well-powered measure is the **pooled near-band**.
+- **The operating-point fix (collapse to short horizon / read offset-1) is justified**
+  — it exposes the near-band skill the 90-day pooling dilutes. (A naive 1-day reversal
+  likely still beats the model at this horizon — E3 Step-A's per-lead reversal is the
+  clean ceiling — so architectural headroom may remain beyond the operating-point fix.)
