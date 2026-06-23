@@ -104,6 +104,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   run IC-trajectory summary (peak / best-checkpoint / final `val_rank_ic`),
   multi-seed aggregation + minimum-detectable-effect, and naive cross-sectional
   baselines reusing the production rank-IC math.
+- E3 forecast-horizon diagnostic: `ophir.ceiling.signal_decay_curve` /
+  `pooled_baseline_ceiling` (reversal IC vs forecast lead + matched-horizon
+  ceiling), `ophir.evaluate.rank_ic_by_offset` (per-horizon IC decomposition), and
+  a gated `ophir train --log-offset-ic` flag that logs `val_rank_ic_h{N}`.
 
 ### Changed
 
