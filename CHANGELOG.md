@@ -123,6 +123,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   :func:`signal_decay_curve`. Rigorous comparand for a near-band model
   operating point; avoids the mixed-offset pooled-lag=1 artifact (~0.119) that
   does not isolate a 1-trading-day reversal.
+- `ophir.trading.forecast.load_forecasts` now returns per-symbol offset-1
+  forecasts (raw log-space `r_close`/`upside`/`downside`) from the IC-best
+  checkpoint when CUDA and data are available; still degrades to `{}` otherwise.
+- `ophir.ticker.build_latest_inputs` builds the most-recent `response_size=1`
+  inference window per symbol.
 
 ### Changed
 
