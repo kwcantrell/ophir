@@ -55,7 +55,8 @@ def _parse_symbols(value: str) -> list[str]:
     """Parse ``--symbols`` as a path to a file of symbols, else a comma list."""
     candidate = Path(value)
     text = candidate.read_text() if candidate.is_file() else value
-    return [s.strip() for s in text.replace("\n", ",").split(",") if s.strip()]
+    parsed = [s.strip() for s in text.replace("\n", ",").split(",") if s.strip()]
+    return list(dict.fromkeys(parsed))  # de-duplicate, preserving first-seen order
 
 
 def _order_to_dict(order: ProposedOrder) -> dict[str, object]:

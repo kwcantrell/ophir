@@ -147,3 +147,31 @@ def test_propose_reads_symbols_from_file(tmp_path: Path, monkeypatch: pytest.Mon
     )
     assert result.exit_code == 0, result.output
     assert {o["symbol"] for o in json.loads(result.stdout)} == {"AAA", "BBB"}
+
+
+def test_propose_deduplicates_repeated_symbols(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cfg = _config_file(tmp_path)
+    monkeypatch.setattr(
+        "ophir.trading.forecast.load_forecasts",
+        lambda symbols, model_dir: {"AAA": _fc("AAA", 0.05), "BBB": _fc("BBB", -0.05)},
+    )
+    result = runner.invoke(
+        app,
+        [
+            "propose",
+            "--symbols",
+            "AAA,AAA,BBB",
+            "--model-dir",
+            str(tmp_path),
+            "--base-notional",
+            "1000",
+            "--config",
+            str(cfg),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    orders = json.loads(result.stdout)
+    # A repeated symbol must not produce a duplicate order.
+    assert [o["symbol"] for o in orders] == ["AAA", "BBB"]
