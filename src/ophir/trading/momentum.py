@@ -5,9 +5,11 @@ loader plus pure metrics. Momentum is a mechanical function of recent price
 bars, so it lives as a reproducible primitive rather than an LLM judgment.
 """
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from math import log
 from statistics import fmean, stdev
+
+from ophir.trading.signals import cross_sectional_normalize
 
 
 def momentum_score(closes: Sequence[float], lookback: int = 63, skip: int = 5) -> float | None:
@@ -46,3 +48,37 @@ def momentum_score(closes: Sequence[float], lookback: int = 63, skip: int = 5) -
     if spread == 0.0:
         return None
     return fmean(rets) / spread
+
+
+def momentum_signals(
+    closes_by_symbol: Mapping[str, Sequence[float]],
+    lookback: int = 63,
+    skip: int = 5,
+) -> dict[str, float]:
+    """Cross-sectionally score per-symbol momentum into ``[-1, 1]``.
+
+    Computes :func:`momentum_score` per symbol, drops symbols whose score is
+    ``None`` (insufficient history or zero variance), and normalizes the
+    survivors with :func:`ophir.trading.signals.cross_sectional_normalize`.
+
+    Parameters
+    ----------
+    closes_by_symbol : mapping of str to sequence of float
+        Per-symbol daily closing prices, oldest first.
+    lookback : int, optional
+        Window length in daily returns. Defaults to ``63``.
+    skip : int, optional
+        Most-recent bars to exclude. Defaults to ``5``.
+
+    Returns
+    -------
+    dict[str, float]
+        Per-symbol momentum score in ``[-1, 1]``; symbols without a defined
+        score are omitted. Empty input or all-``None`` yields ``{}``.
+    """
+    raw: dict[str, float] = {}
+    for symbol, closes in closes_by_symbol.items():
+        score = momentum_score(closes, lookback=lookback, skip=skip)
+        if score is not None:
+            raw[symbol] = score
+    return cross_sectional_normalize(raw)

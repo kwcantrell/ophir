@@ -1,4 +1,6 @@
-from ophir.trading.momentum import momentum_score
+import pytest
+
+from ophir.trading.momentum import momentum_score, momentum_signals
 
 
 def _series(n: int, drift: float, base: float = 100.0, noise: float = 0.003) -> list[float]:
@@ -40,3 +42,25 @@ def test_momentum_score_skip_excludes_recent_spike() -> None:
 def test_momentum_score_lookback_below_two_is_none() -> None:
     # A window of <2 daily returns has undefined sample std -> degrade to None.
     assert momentum_score(_series(80, 0.01), lookback=1, skip=5) is None
+
+
+def test_momentum_signals_cross_sectional_sign() -> None:
+    out = momentum_signals(
+        {"UP": _series(80, 0.01), "DOWN": _series(80, -0.01)}, lookback=63, skip=5
+    )
+    assert out["UP"] > 0.0
+    assert out["DOWN"] < 0.0
+    assert out["UP"] == pytest.approx(-out["DOWN"])
+
+
+def test_momentum_signals_drops_short_history() -> None:
+    short = _series(40, 0.01)  # < 69 closes -> momentum_score is None -> dropped
+    out = momentum_signals({"UP": _series(80, 0.01), "SHORT": short}, lookback=63, skip=5)
+    assert "SHORT" not in out
+    # Only one survivor -> zero cross-sectional dispersion -> neutral.
+    assert out == {"UP": 0.0}
+
+
+def test_momentum_signals_empty_and_all_none() -> None:
+    assert momentum_signals({}, lookback=63, skip=5) == {}
+    assert momentum_signals({"SHORT": _series(40, 0.01)}, lookback=63, skip=5) == {}
