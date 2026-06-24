@@ -35,3 +35,8 @@ def test_momentum_score_skip_excludes_recent_spike() -> None:
     spiked = [*base[:-3], base[-3] * 0.5, base[-2] * 0.5, base[-1] * 0.5]
     # The crash lands inside the skipped 5-bar tail, so the score is unchanged.
     assert momentum_score(spiked, lookback=63, skip=5) == momentum_score(base, lookback=63, skip=5)
+
+
+def test_momentum_score_lookback_below_two_is_none() -> None:
+    # A window of <2 daily returns has undefined sample std -> degrade to None.
+    assert momentum_score(_series(80, 0.01), lookback=1, skip=5) is None

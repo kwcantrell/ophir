@@ -34,6 +34,8 @@ def momentum_score(closes: Sequence[float], lookback: int = 63, skip: int = 5) -
         (``len(closes) < lookback + skip + 1``) or the window's return variance
         is zero.
     """
+    if lookback < 2:
+        return None
     if len(closes) < lookback + skip + 1:
         return None
     end = len(closes) - skip
