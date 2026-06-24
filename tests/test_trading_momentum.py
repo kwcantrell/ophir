@@ -1,6 +1,6 @@
 import pytest
 
-from ophir.trading.momentum import momentum_score, momentum_signals
+from ophir.trading.momentum import load_recent_closes, momentum_score, momentum_signals
 
 
 def _series(n: int, drift: float, base: float = 100.0, noise: float = 0.003) -> list[float]:
@@ -64,3 +64,25 @@ def test_momentum_signals_drops_short_history() -> None:
 def test_momentum_signals_empty_and_all_none() -> None:
     assert momentum_signals({}, lookback=63, skip=5) == {}
     assert momentum_signals({"SHORT": _series(40, 0.01)}, lookback=63, skip=5) == {}
+
+
+def test_load_recent_closes_reads_full_history(parquet_dir) -> None:
+    from ophir.ticker import StockHanlder
+
+    base_path, _paths = parquet_dir
+    result = load_recent_closes(["AAA", "ZZZ"], base_path)
+    # Present symbol loads; absent symbol is skipped.
+    assert "AAA" in result
+    assert "ZZZ" not in result
+    # Matches the model's own read path exactly.
+    handler = StockHanlder(
+        seq_len=365, base_path=base_path, return_stock_id=False, return_streamer=False
+    )
+    expected = [float(c) for c in handler.stock_df("AAA")["close"].tolist()]
+    assert result["AAA"] == expected
+    assert all(isinstance(c, float) for c in result["AAA"])
+
+
+def test_load_recent_closes_missing_tree_returns_empty(tmp_path) -> None:
+    missing = tmp_path / "nope" / "stocks"
+    assert load_recent_closes(["AAA"], str(missing)) == {}
