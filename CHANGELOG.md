@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Deterministic momentum signal producer (`ophir.trading.momentum`): an
+  information-ratio momentum metric over recent price bars (`momentum_score`),
+  cross-sectional scoring (`momentum_signals`), and a `load_recent_closes` data
+  seam reusing the model's parquet read path. Wired into `ophir trade propose`
+  (new `--base-path` / `--momentum-lookback` / `--momentum-skip` options),
+  replacing the neutral momentum stub. Sentiment remains the skill's judgment.
+  Also extracts `signals.cross_sectional_normalize`, now shared by the ophir and
+  momentum scorers.
 - `ophir trade propose`: orchestration command wiring the ophir forecast seam
   into the trading signal flow. Loads per-symbol offset-1 forecasts, scores them
   cross-sectionally (`signals.ophir_signals` — demean/scale/clamp on `r_close`),

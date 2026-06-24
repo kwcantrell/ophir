@@ -5,7 +5,7 @@ from pathlib import Path
 
 import typer
 
-from ophir.trading import forecast, metrics
+from ophir.trading import forecast, metrics, momentum
 from ophir.trading.config import load_config
 from ophir.trading.ledger import (
     append_decision,
@@ -87,25 +87,32 @@ def propose(
     min_abs_signal: float = typer.Option(
         0.0, help="Skip orders whose |blended signal| is at or below this"
     ),
+    base_path: Path | None = typer.Option(
+        None, help="Parquet tree root for momentum closes; default tree if unset"
+    ),
+    momentum_lookback: int = typer.Option(63, help="Momentum window length (daily returns)"),
+    momentum_skip: int = typer.Option(5, help="Most-recent bars excluded from momentum"),
 ) -> None:
-    """Emit ProposedOrder JSON from ophir forecasts (no gate, no ledger).
+    """Emit ProposedOrder JSON from ophir + momentum signals (no gate, no ledger).
 
-    Runs the seam end to end: load forecasts, cross-sectionally normalize them,
-    blend with neutral momentum/sentiment, and size by ``base_notional``. Prints
-    a JSON array of proposed orders for piping into ``gate``. Degrades to an
-    empty array when forecasts are unavailable; never invokes the safety gate or
-    writes the ledger.
+    Runs the seam end to end: load forecasts and recent closes, cross-sectionally
+    normalize each, blend (sentiment stubbed neutral), and size by
+    ``base_notional``. Prints a JSON array of proposed orders for piping into
+    ``gate``. Degrades to an empty array when no signals are available; never
+    invokes the safety gate or writes the ledger.
     """
     load_config(config)  # validate account_mode/limits; not used for sizing here
     names = _parse_symbols(symbols)
     forecasts = forecast.load_forecasts(names, model_dir)
     scores = ophir_signals(forecasts)
+    closes = momentum.load_recent_closes(names, None if base_path is None else str(base_path))
+    msig = momentum.momentum_signals(closes, lookback=momentum_lookback, skip=momentum_skip)
     weights = CORE_WEIGHTS if sleeve is Sleeve.CORE else TACTICAL_WEIGHTS
     orders: list[dict[str, object]] = []
     for symbol in names:
         blended = blend_signals(
             ophir=scores.get(symbol),
-            momentum=0.0,
+            momentum=msig.get(symbol, 0.0),
             sentiment=0.0,
             weights=weights,
         )
