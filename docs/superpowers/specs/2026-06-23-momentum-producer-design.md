@@ -104,17 +104,25 @@ def load_recent_closes(
 ) -> dict[str, list[float]]:
 ```
 
-Reads **split-adjusted, cleaned** daily closes per symbol (oldest → newest) from
-the parquet tree, reusing `ticker`'s existing split-adjustment and
-`clean_daily_ohlcv` so momentum sees the same adjusted prices the model does
-(**correctness requirement:** the raw tree is *not* pre-adjusted; an unadjusted
-split would manufacture a huge fake return). `base_path=None` resolves to
-`register.get_default_data_days_dir()/stocks`, matching `build_latest_inputs`.
-Lazy-imports `ophir.ticker`/`register` inside the function (keeps module import
-cheap and offline, like `forecast.py`). Degrades to `{}` — and skips individual
-unavailable symbols — when the tree or a symbol's data is absent; raises only on
-genuinely unexpected errors (not missing-data). Unlike `load_forecasts` (CUDA),
-this is CPU + offline, so it is unit-tested against a fixture parquet tree.
+Reads daily closes per symbol (oldest → newest) by **reusing the exact read
+path the model's inference seam uses** — `ticker.StockHanlder.stock_df(symbol)`,
+the same accessor reached by `build_latest_inputs` — and taking its `close`
+column. That path reads the parquet, daily-aggregates (`groupby("date").agg(close="last")`),
+and applies `StockHanlder`'s default cleaning (`clean_rows=False`, matching
+`build_latest_inputs`). **Correctness principle: momentum must see the same
+prices the model does, not a separately-adjusted series.** The tree is read
+as-stored; no live `get_splits`/`StockSplit` call is made (that hits the network
+and is *not* part of the inference read path). Any split artifact is therefore a
+known limitation shared identically with the model — not something momentum
+corrects here.
+
+`base_path=None` resolves to `register.get_default_data_days_dir()/stocks`,
+matching `build_latest_inputs`. Lazy-imports `ophir.ticker`/`register` inside the
+function (keeps module import cheap and offline, like `forecast.py`). Degrades to
+`{}` when the tree is absent, and skips individual symbols that are absent from
+the tree or yield an empty frame (e.g. `StockHanlder`'s history/volume filters);
+it does not raise on missing data. Unlike `load_forecasts` (CUDA), this is
+CPU + offline, so it is unit-tested against the `parquet_dir` conftest fixture.
 
 ## Wiring into `ophir trade propose`
 
@@ -165,10 +173,12 @@ All CPU + offline (`filterwarnings = error`); never touch network/CUDA/`.ophir/`
   stay green unchanged (behavior-preserving refactor).
 - `momentum_signals`: cross-sectional sign across symbols, `None`-drop (a
   short-history symbol is absent from the result), empty/all-`None` → `{}`.
-- `load_recent_closes`: fixture parquet tree → expected closes (oldest→newest,
-  split-adjusted); missing tree → `{}`; a symbol absent from the tree is skipped
-  while present symbols still load. Use `tmp_path` + a small built fixture in the
-  spirit of `tests/conftest.py`.
+- `load_recent_closes`: the `parquet_dir` conftest fixture → closes for a
+  full-history symbol (`AAA`, oldest→newest, matching its daily-aggregated
+  `close` column); a symbol absent from the tree (e.g. `"ZZZ"`) is skipped while
+  present symbols still load; a missing/absent tree → `{}`. (Defaults match
+  `build_latest_inputs` — no volume/history filtering at load; a too-short series
+  still loads and is dropped downstream by `momentum_score` → `None`.)
 - `propose`: monkeypatch `load_recent_closes` (and `load_forecasts`) so a symbol
   with rising prices and **no** ophir forecast still produces a correctly-signed,
   correctly-sized order driven by momentum alone; and the all-unavailable path
