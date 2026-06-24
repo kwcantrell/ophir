@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `ophir trade propose`: orchestration command wiring the ophir forecast seam
+  into the trading signal flow. Loads per-symbol offset-1 forecasts, scores them
+  cross-sectionally (`signals.ophir_signals` — demean/scale/clamp on `r_close`),
+  blends with neutral momentum/sentiment, sizes by `--base-notional`, and emits
+  `ProposedOrder` JSON for the existing `gate` command. Degrades to an empty
+  array when forecasts are unavailable; does not call the gate or write the
+  ledger.
 - ReZero depth diagnostic: opt-in `rezero_init`, `--decouple-rezero-schedule`,
   and `--log-rezero-gates` training knobs (all default to current behavior),
   a `rezero_gate_stats` helper, and `dashboard.summarize_rezero_runs` to compare

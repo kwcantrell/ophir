@@ -5,7 +5,7 @@ from pathlib import Path
 
 import typer
 
-from ophir.trading import metrics
+from ophir.trading import forecast, metrics
 from ophir.trading.config import load_config
 from ophir.trading.ledger import (
     append_decision,
@@ -15,6 +15,12 @@ from ophir.trading.ledger import (
     record_to_dict,
 )
 from ophir.trading.safety import evaluate_order
+from ophir.trading.signals import (
+    CORE_WEIGHTS,
+    TACTICAL_WEIGHTS,
+    blend_signals,
+    ophir_signals,
+)
 from ophir.trading.types import (
     AccountSnapshot,
     AssetClass,
@@ -43,6 +49,79 @@ def _order_from(data: dict[str, object]) -> ProposedOrder:
         is_defined_risk=bool(data["is_defined_risk"]),
         is_short_option=bool(data["is_short_option"]),
     )
+
+
+def _parse_symbols(value: str) -> list[str]:
+    """Parse ``--symbols`` as a path to a file of symbols, else a comma list."""
+    candidate = Path(value)
+    text = candidate.read_text() if candidate.is_file() else value
+    return [s.strip() for s in text.replace("\n", ",").split(",") if s.strip()]
+
+
+def _order_to_dict(order: ProposedOrder) -> dict[str, object]:
+    """Serialize a proposed order to the dict shape ``gate`` consumes."""
+    return {
+        "symbol": order.symbol,
+        "side": order.side.value,
+        "sleeve": order.sleeve.value,
+        "asset_class": order.asset_class.value,
+        "notional": order.notional,
+        "sector": order.sector,
+        "is_defined_risk": order.is_defined_risk,
+        "is_short_option": order.is_short_option,
+    }
+
+
+@app.command()
+def propose(
+    symbols: str = typer.Option(
+        ..., help="Comma-separated symbols, or a path to a file of symbols"
+    ),
+    model_dir: Path = typer.Option(..., help="Directory holding the base checkpoint"),
+    base_notional: float = typer.Option(
+        ..., help="Sizing base in dollars; notional = base_notional * |blended|"
+    ),
+    config: Path = typer.Option(..., help="Path to config.json"),
+    sleeve: Sleeve = typer.Option(Sleeve.CORE, help="Strategy sleeve for the orders"),
+    min_abs_signal: float = typer.Option(
+        0.0, help="Skip orders whose |blended signal| is at or below this"
+    ),
+) -> None:
+    """Emit ProposedOrder JSON from ophir forecasts (no gate, no ledger).
+
+    Runs the seam end to end: load forecasts, cross-sectionally normalize them,
+    blend with neutral momentum/sentiment, and size by ``base_notional``. Prints
+    a JSON array of proposed orders for piping into ``gate``. Degrades to an
+    empty array when forecasts are unavailable; never invokes the safety gate or
+    writes the ledger.
+    """
+    load_config(config)  # validate account_mode/limits; not used for sizing here
+    names = _parse_symbols(symbols)
+    forecasts = forecast.load_forecasts(names, model_dir)
+    scores = ophir_signals(forecasts)
+    weights = CORE_WEIGHTS if sleeve is Sleeve.CORE else TACTICAL_WEIGHTS
+    orders: list[dict[str, object]] = []
+    for symbol in names:
+        blended = blend_signals(
+            ophir=scores.get(symbol),
+            momentum=0.0,
+            sentiment=0.0,
+            weights=weights,
+        )
+        if abs(blended) <= min_abs_signal:
+            continue
+        order = ProposedOrder(
+            symbol=symbol,
+            side=Side.BUY if blended > 0 else Side.SELL,
+            sleeve=sleeve,
+            asset_class=AssetClass.EQUITY,
+            notional=base_notional * abs(blended),
+            sector=None,
+            is_defined_risk=True,
+            is_short_option=False,
+        )
+        orders.append(_order_to_dict(order))
+    typer.echo(json.dumps(orders))
 
 
 def _snapshot_from(data: dict[str, object]) -> AccountSnapshot:
