@@ -5,6 +5,7 @@ from ophir.trading.signals import (
     CORE_WEIGHTS,
     TACTICAL_WEIGHTS,
     blend_signals,
+    cross_sectional_normalize,
     normalize,
     ophir_signals,
 )
@@ -76,3 +77,24 @@ def test_ophir_signals_clamps_to_unit_interval() -> None:
     out = ophir_signals({f"S{i}": _fc(f"S{i}", v) for i, v in enumerate([0.0, 0.0, 0.0, 1.0])})
     assert all(-1.0 <= s <= 1.0 for s in out.values())
     assert out["S3"] == pytest.approx(1.0)
+
+
+def test_cross_sectional_normalize_empty() -> None:
+    assert cross_sectional_normalize({}) == {}
+
+
+def test_cross_sectional_normalize_single_is_neutral() -> None:
+    assert cross_sectional_normalize({"A": 0.05}) == {"A": 0.0}
+
+
+def test_cross_sectional_normalize_all_identical_is_neutral() -> None:
+    assert cross_sectional_normalize({"A": 0.01, "B": 0.01}) == {"A": 0.0, "B": 0.0}
+
+
+def test_cross_sectional_normalize_sign_and_clamp() -> None:
+    out = cross_sectional_normalize({"HI": 0.05, "MID": 0.0, "LO": -0.05})
+    assert out["HI"] > 0.0
+    assert out["LO"] < 0.0
+    assert out["MID"] == pytest.approx(0.0)
+    assert out["HI"] == pytest.approx(-out["LO"])
+    assert all(-1.0 <= v <= 1.0 for v in out.values())
