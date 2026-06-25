@@ -44,6 +44,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Base/finetuned checkpoint resolution (`register._latest_base_ckpt`,
+  `_latest_finetuned_ckpt`, hence `load_base_model_ckpt(time_version=True)`) now
+  selects the most recently *modified* checkpoint instead of the numerically
+  highest `-v<N>`. Lightning's `-v<N>` suffix is a filename-collision counter,
+  not a monotonic run counter, so a partial cleanup of older versions could leave
+  the newest run with a lower `N` (e.g. an old `-v124` kept while a fresh run
+  writes `-v1`), causing `time_version=True` to resolve a stale checkpoint. mtime
+  ties fall back to the highest `-v<N>`, then the sorted-last name, so the result
+  stays deterministic. `_latest_finetuned_ckpt` now raises `FileNotFoundError`
+  (not `IndexError`) when no finetuned checkpoint exists.
 - `ophir.trading.forecast.load_forecasts` now degrades to an empty result (the
   documented "no signals available" fallback) when the canonical checkpoint
   fails to load with a `RuntimeError` — e.g. an architecturally stale checkpoint

@@ -14,6 +14,37 @@ if TYPE_CHECKING:
     from ophir.training_models import LightningOHLCPredictor
 
 
+def _recency_key(filename: str, marker: str) -> tuple[float, int, str]:
+    """Sort key ranking a checkpoint filename by recency, newest greatest.
+
+    Primary key is the file's modification time — the only reliable signal of
+    "latest", because Lightning's ``-v<N>`` suffix is a filename-collision
+    counter, not a monotonic run counter (a partial cleanup of older versions
+    can leave the newest file with the lowest ``N``). The ``-v<N>`` integer
+    (``-1`` when unversioned) breaks mtime ties so equal-timestamp versioned
+    files still order by version, and the name breaks any remaining tie so the
+    result is deterministic.
+
+    Parameters
+    ----------
+    filename : str
+        The checkpoint filename within :data:`MODEL_DIR`.
+    marker : str
+        The base substring; the ``-v<N>`` suffix is parsed after ``{marker}-v``.
+
+    Returns
+    -------
+    tuple[float, int, str]
+        ``(mtime, version, filename)`` — compared lexicographically by ``max``.
+    """
+    stem = filename.removesuffix(".ckpt")
+    tag = f"{marker}-v"
+    suffix = stem.split(tag, 1)[1] if tag in stem else ""
+    version = int(suffix) if suffix.isdigit() else -1
+    mtime = os.path.getmtime(os.path.join(layout.MODEL_DIR, filename))
+    return (mtime, version, filename)
+
+
 def _latest_base_ckpt(filename: str) -> str:
     """Return the filename of the most recent base checkpoint.
 
@@ -25,23 +56,18 @@ def _latest_base_ckpt(filename: str) -> str:
     Returns
     -------
     str
-        The highest ``-v<N>`` version among matches, or the sorted-last match
-        when none carry a ``-v<N>`` suffix.
+        The most recently modified match (see :func:`_recency_key`); mtime ties
+        fall back to the highest ``-v<N>`` version, then the sorted-last name.
 
     Raises
     ------
     FileNotFoundError
         When no file in :data:`MODEL_DIR` contains ``filename``.
     """
-    base_paths = sorted(path for path in os.listdir(layout.MODEL_DIR) if filename in path)
+    base_paths = [path for path in os.listdir(layout.MODEL_DIR) if filename in path]
     if not base_paths:
         raise FileNotFoundError(f"no checkpoint matching {filename!r} in {layout.MODEL_DIR}")
-    versioned = sorted(
-        (int(version.removeprefix(f"{filename}-v").removesuffix(".ckpt")), version)
-        for version in base_paths
-        if f"{filename}-v" in version
-    )
-    return versioned[-1][1] if versioned else base_paths[-1]
+    return max(base_paths, key=lambda path: _recency_key(path, filename))
 
 
 def _latest_finetuned_ckpt() -> str:
@@ -50,28 +76,21 @@ def _latest_finetuned_ckpt() -> str:
     Returns
     -------
     str
-        The latest :data:`FINETUNE_NAME` checkpoint filename (highest
-        ``-v<N>`` version, or the sole match) within :data:`MODEL_DIR`.
-    """
-    fintune_paths = sorted(
-        [path for path in os.listdir(layout.MODEL_DIR) if layout.FINETUNE_NAME in path]
-    )
-    if len(fintune_paths) > 1:
-        base_versions = sorted(
-            [
-                (
-                    int(version.removeprefix(f"{layout.FINETUNE_NAME}-v").removesuffix(".ckpt")),
-                    version,
-                )
-                for version in fintune_paths
-                if f"{layout.FINETUNE_NAME}-v" in version
-            ]
-        )
-        latest_version = base_versions[-1][1]
-    else:
-        latest_version = fintune_paths[0]
+        The most recently modified :data:`FINETUNE_NAME` checkpoint within
+        :data:`MODEL_DIR` (see :func:`_recency_key`); mtime ties fall back to the
+        highest ``-v<N>`` version, then the sorted-last name.
 
-    return latest_version
+    Raises
+    ------
+    FileNotFoundError
+        When no file in :data:`MODEL_DIR` contains :data:`FINETUNE_NAME`.
+    """
+    fintune_paths = [path for path in os.listdir(layout.MODEL_DIR) if layout.FINETUNE_NAME in path]
+    if not fintune_paths:
+        raise FileNotFoundError(
+            f"no checkpoint matching {layout.FINETUNE_NAME!r} in {layout.MODEL_DIR}"
+        )
+    return max(fintune_paths, key=lambda path: _recency_key(path, layout.FINETUNE_NAME))
 
 
 def _resolve_base_ckpt_path(file_name: str | None = None, time_version: bool = True) -> str:

@@ -88,6 +88,25 @@ def test_latest_base_ckpt_picks_highest_version(
     assert register._latest_base_ckpt("m-time-check") == "m-time-check-v10.ckpt"
 
 
+def test_latest_base_ckpt_newest_mtime_wins_over_higher_version(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Regression: Lightning's ``-v<N>`` suffix is a collision counter, not a
+    # recency counter. A partial cleanup can leave the newest run with a *lower*
+    # N (e.g. old ``-v124`` kept, today's run writes ``-v1``). Resolution must
+    # follow modification time, not the integer, so the newest file wins.
+    import os
+
+    monkeypatch.setattr(register.layout, "MODEL_DIR", str(tmp_path))
+    old = tmp_path / "m-time-check-v124.ckpt"
+    new = tmp_path / "m-time-check-v1.ckpt"
+    old.write_text("")
+    new.write_text("")
+    os.utime(old, (1_000_000, 1_000_000))  # older mtime, higher version
+    os.utime(new, (2_000_000, 2_000_000))  # newer mtime, lower version
+    assert register._latest_base_ckpt("m-time-check") == "m-time-check-v1.ckpt"
+
+
 def test_latest_base_ckpt_no_match_raises(tmp_path: Any, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(register.layout, "MODEL_DIR", str(tmp_path))
     with pytest.raises(FileNotFoundError):
