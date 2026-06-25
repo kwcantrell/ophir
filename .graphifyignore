@@ -20,3 +20,9 @@
 .vscode/
 .claude/settings.json
 .pre-commit-config.yaml
+
+# Project docs that are churn/meta rather than architecture: CHANGELOG.md is a
+# high-churn release log, CLAUDE.md is agent operating guidance — neither
+# describes the codebase structure the graph is meant to map.
+CHANGELOG.md
+CLAUDE.md
