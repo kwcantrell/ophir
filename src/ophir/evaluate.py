@@ -574,7 +574,7 @@ def evaluate(
 
     loaders: list[tuple[str, Callable[[], LightningOHLCPredictor]]]
     if finetuned:
-        loaders = [("finetuned", lambda: register.load_fintuned_ckpt(strict=strict))]
+        loaders = [("finetuned", lambda: register.load_finetuned_ckpt(strict=strict))]
     else:
         loaders = [
             ("best-val", lambda: register.load_base_model_ckpt(strict=strict, time_version=False)),

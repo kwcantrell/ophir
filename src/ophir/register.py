@@ -560,21 +560,21 @@ def load_base_model_ckpt(
 
 
 @overload
-def load_fintuned_ckpt(
+def load_finetuned_ckpt(
     strict: bool = ...,
     return_ckpt_path: Literal[False] = ...,
 ) -> LightningOHLCPredictor: ...
 
 
 @overload
-def load_fintuned_ckpt(
+def load_finetuned_ckpt(
     strict: bool = ...,
     *,
     return_ckpt_path: Literal[True],
 ) -> tuple[LightningOHLCPredictor, str]: ...
 
 
-def load_fintuned_ckpt(
+def load_finetuned_ckpt(
     strict: bool = True,
     return_ckpt_path: bool = False,
 ) -> LightningOHLCPredictor | tuple[LightningOHLCPredictor, str]:
