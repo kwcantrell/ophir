@@ -166,7 +166,7 @@ def get_splits(tickers: list[str], cache_path: str | None = None) -> dict[str, S
     from tqdm import tqdm
 
     if cache_path is None:
-        from .register import DATA_DIR
+        from ophir.register import DATA_DIR
 
         cache_path = os.path.join(DATA_DIR, "yf_splits_cache.pkl")
 
