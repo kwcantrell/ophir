@@ -82,14 +82,14 @@ def test_best_checkpoint_filename_embeds_val_loss_by_default() -> None:
 def test_latest_base_ckpt_picks_highest_version(
     tmp_path: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(register, "MODEL_DIR", str(tmp_path))
+    monkeypatch.setattr(register.layout, "MODEL_DIR", str(tmp_path))
     for v in (1, 2, 10):
         (tmp_path / f"m-time-check-v{v}.ckpt").write_text("")
     assert register._latest_base_ckpt("m-time-check") == "m-time-check-v10.ckpt"
 
 
 def test_latest_base_ckpt_no_match_raises(tmp_path: Any, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(register, "MODEL_DIR", str(tmp_path))
+    monkeypatch.setattr(register.layout, "MODEL_DIR", str(tmp_path))
     with pytest.raises(FileNotFoundError):
         register._latest_base_ckpt("nothing")
 
@@ -98,7 +98,7 @@ def test_latest_base_ckpt_unversioned_matches_no_indexerror(
     tmp_path: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # Regression: many matches, none with a `-v<N>` suffix -> sorted-last, no IndexError.
-    monkeypatch.setattr(register, "MODEL_DIR", str(tmp_path))
+    monkeypatch.setattr(register.layout, "MODEL_DIR", str(tmp_path))
     for name in ("p-a.ckpt", "p-b.ckpt", "p-c.ckpt"):
         (tmp_path / name).write_text("")
     assert register._latest_base_ckpt("p-") == "p-c.ckpt"
@@ -109,7 +109,7 @@ def test_base_best_ckpt_constant_name() -> None:
 
 
 def test_resolve_canonical_present(tmp_path: Any, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(register, "MODEL_DIR", str(tmp_path))
+    monkeypatch.setattr(register.layout, "MODEL_DIR", str(tmp_path))
     (tmp_path / "ophir-ohlc-base-best.ckpt").write_text("")
     assert register._resolve_base_ckpt_path(time_version=False) == str(
         tmp_path / "ophir-ohlc-base-best.ckpt"
@@ -117,13 +117,13 @@ def test_resolve_canonical_present(tmp_path: Any, monkeypatch: pytest.MonkeyPatc
 
 
 def test_resolve_canonical_absent_raises(tmp_path: Any, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(register, "MODEL_DIR", str(tmp_path))
+    monkeypatch.setattr(register.layout, "MODEL_DIR", str(tmp_path))
     with pytest.raises(FileNotFoundError):
         register._resolve_base_ckpt_path(time_version=False)
 
 
 def test_resolve_custom_file_name(tmp_path: Any, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(register, "MODEL_DIR", str(tmp_path))
+    monkeypatch.setattr(register.layout, "MODEL_DIR", str(tmp_path))
     (tmp_path / "foo-best.ckpt").write_text("")
     assert register._resolve_base_ckpt_path("foo", time_version=False) == str(
         tmp_path / "foo-best.ckpt"
@@ -133,7 +133,7 @@ def test_resolve_custom_file_name(tmp_path: Any, monkeypatch: pytest.MonkeyPatch
 def test_resolve_ignores_val_loss_zoo(tmp_path: Any, monkeypatch: pytest.MonkeyPatch) -> None:
     # Regression for the reported bug: the canonical file resolves even with the
     # ~125-file val_loss zoo present (previously an IndexError -> load_forecasts {}).
-    monkeypatch.setattr(register, "MODEL_DIR", str(tmp_path))
+    monkeypatch.setattr(register.layout, "MODEL_DIR", str(tmp_path))
     (tmp_path / "ophir-ohlc-base-best.ckpt").write_text("")
     for vl in ("0.011", "0.012", "0.013"):
         (tmp_path / f"ophir-ohlc-basebest-epoch=00-val_loss={vl}.ckpt").write_text("")
@@ -143,7 +143,7 @@ def test_resolve_ignores_val_loss_zoo(tmp_path: Any, monkeypatch: pytest.MonkeyP
 
 
 def test_resolve_time_version_picks_latest(tmp_path: Any, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(register, "MODEL_DIR", str(tmp_path))
+    monkeypatch.setattr(register.layout, "MODEL_DIR", str(tmp_path))
     (tmp_path / "ophir-ohlc-base-time-check-v1.ckpt").write_text("")
     (tmp_path / "ophir-ohlc-base-time-check-v2.ckpt").write_text("")
     assert register._resolve_base_ckpt_path(time_version=True) == str(
@@ -154,7 +154,7 @@ def test_resolve_time_version_picks_latest(tmp_path: Any, monkeypatch: pytest.Mo
 def test_best_checkpoint_saves_to_candidates_subdir(
     tmp_path: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(register, "MODEL_DIR", str(tmp_path))
+    monkeypatch.setattr(register.layout, "MODEL_DIR", str(tmp_path))
     cb = _best_checkpoint_callback("model", monitor_near_ic=True)
     assert cb.dirpath is not None
     assert str(cb.dirpath).endswith("candidates")

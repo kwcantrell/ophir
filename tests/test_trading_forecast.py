@@ -20,7 +20,7 @@ def test_present_checkpoint_does_not_raise(tmp_path: Path, monkeypatch: pytest.M
     # point MODEL_DIR at tmp_path, which has no canonical ``-best.ckpt``, so
     # ``load_base_model_ckpt(time_version=False)`` raises FileNotFoundError and
     # ``load_forecasts`` degrades to {} — deterministically, on any host.
-    monkeypatch.setattr(register, "MODEL_DIR", str(tmp_path))
+    monkeypatch.setattr(register.layout, "MODEL_DIR", str(tmp_path))
     (tmp_path / "base.ckpt").write_bytes(b"")
     # Inference is wired behind CUDA + data + checkpoint guards; the adapter
     # returns {} without raising when the canonical checkpoint is absent.
