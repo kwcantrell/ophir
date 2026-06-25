@@ -15,10 +15,12 @@ from ophir.evaluate import (
     accumulate_targets,
     dedupe_by_ticker_date,
     directional_accuracy,
+    format_offset_decay,
     format_report,
     prefix_last_observed,
     rank_ic,
     rank_ic_by_offset,
+    rank_ic_near,
     skill_score,
     skill_score_vs_baseline,
     target_metrics,
@@ -111,6 +113,117 @@ def test_evaluate_model_reports_rank_ic() -> None:
     # One day, two names, perfectly ranked -> IC is 1.0 (two distinct tickers on
     # day 12 survive dedupe). float32 Spearman lands a hair above 1.0.
     assert abs(out["r_close"]["rank_ic_mean"] - 1.0) < 1e-6
+
+
+def _toy_offset_batch() -> dict[str, object]:
+    # B=2 tickers, S=3, response_size=2 -> response cols 1,2 give offsets 1 and 2.
+    # r_close (channel 0) ranks ticker 5 above ticker 6 on both response days.
+    targets = torch.tensor(
+        [
+            [[0.0, 0.1, 0.1], [0.2, 0.1, 0.1], [0.3, 0.1, 0.1]],
+            [[0.0, 0.1, 0.1], [0.1, 0.1, 0.1], [0.1, 0.1, 0.1]],
+        ]
+    )
+    return {
+        "feature_input": torch.zeros(2, 3, 12),
+        "targets": targets,
+        "trade_occured": torch.ones(2, 3, dtype=torch.bool),
+        "response_size": torch.tensor(2),
+        "stock_id": torch.tensor([5, 6]),
+        "date_ordinal": torch.tensor([[10, 11, 12], [10, 11, 12]]),
+    }
+
+
+def test_accumulate_targets_carries_offsets() -> None:
+    model = _FakeModel()
+    acc = accumulate_targets(model, [_toy_offset_batch()], max_batches=1)  # type: ignore[arg-type]
+
+    assert acc.r_close_offsets is not None
+    pred, _ = acc.channels["r_close"]
+    # One offset per r_close prediction row, aligned with ids.
+    assert acc.r_close_offsets.shape == pred.shape
+    assert acc.r_close_ids is not None
+    # Row-major over (B, R): ticker5@off1, ticker5@off2, ticker6@off1, ticker6@off2.
+    assert acc.r_close_ids.tolist() == [5, 5, 6, 6]
+    assert acc.r_close_offsets.tolist() == [1, 2, 1, 2]
+
+
+def test_accumulate_targets_offsets_none_without_identity() -> None:
+    model = _FakeModel()
+    acc = accumulate_targets(model, [_toy_batch()], max_batches=1)  # type: ignore[arg-type]
+    assert acc.r_close_offsets is None
+
+
+def test_rank_ic_near_matches_val_rank_ic_near() -> None:
+    from ophir.training_models import val_rank_ic_near
+
+    # offsets 1 (perfect rank) and 2 (anti-rank) are in-band; offset 6 is out.
+    pred = torch.tensor([1.0, 2.0, 3.0, 1.0, 2.0, 3.0, 5.0, 6.0])
+    target = torch.tensor([1.0, 2.0, 3.0, 3.0, 2.0, 1.0, 1.0, 2.0])
+    ids = torch.tensor([1, 2, 3, 1, 2, 3, 1, 2])
+    dates = torch.tensor([1, 1, 1, 2, 2, 2, 3, 3])
+    offsets = torch.tensor([1, 1, 1, 2, 2, 2, 6, 6])
+
+    near = rank_ic_near(pred, target, ids, dates, offsets, k=5)
+    # day1 IC = +1, day2 IC = -1 -> mean 0; offset-6 rows excluded.
+    assert near == pytest.approx(0.0, abs=1e-6)
+    # Reconciles exactly with the live training-side metric.
+    assert near == pytest.approx(val_rank_ic_near(pred, target, ids, dates, offsets, k=5))
+
+
+def test_rank_ic_near_empty_band_is_nan_without_warning() -> None:
+    pred = torch.tensor([1.0, 2.0])
+    target = torch.tensor([1.0, 2.0])
+    ids = torch.tensor([1, 2])
+    dates = torch.tensor([1, 1])
+    offsets = torch.tensor([10, 10])  # all outside the 1..5 band
+    assert math.isnan(rank_ic_near(pred, target, ids, dates, offsets, k=5))
+
+
+def test_evaluate_model_reports_near_and_offset_curve() -> None:
+    from ophir import evaluate as ev
+
+    model = _FakeModel()  # perfect predictions
+    out = ev.evaluate_model(model, [_toy_offset_batch()], max_batches=1)  # type: ignore[arg-type]
+    rc = out["r_close"]
+
+    # Headline operating point and the near offsets resolve to perfect IC.
+    assert rc["rank_ic_near"] == pytest.approx(1.0, abs=1e-5)
+    assert rc["h1"] == pytest.approx(1.0, abs=1e-5)
+    assert rc["h2"] == pytest.approx(1.0, abs=1e-5)
+    # Offsets with no rows in this toy batch are nan.
+    assert math.isnan(rc["h5"])
+
+
+def test_evaluate_model_pooled_rank_ic_unchanged_with_offsets() -> None:
+    from ophir import evaluate as ev
+
+    out = ev.evaluate_model(_FakeModel(), [_toy_identity_batch()], max_batches=1)  # type: ignore[arg-type]
+    # The pooled metric is computed exactly as before adding offsets.
+    assert abs(out["r_close"]["rank_ic_mean"] - 1.0) < 1e-6
+
+
+def test_format_report_includes_rank_ic_near() -> None:
+    md = format_report(
+        {"best-val": {"r_close": {"rank_ic_near": 0.066}, "upside": {}, "downside": {}}}
+    )
+    assert "rank_ic_near" in md
+    assert "0.06600" in md
+
+
+def test_format_offset_decay_renders_curve() -> None:
+    results = {
+        "best-val": {"r_close": {"rank_ic_near": 0.066, "h1": 0.08, "h2": 0.07, "h5": float("nan")}}
+    }
+    md = format_offset_decay(results)
+    assert "Near-horizon IC decay" in md
+    assert "h1" in md
+    assert "0.08000" in md
+    assert "n/a" in md  # h5 is nan
+
+
+def test_format_offset_decay_empty_without_curve() -> None:
+    assert format_offset_decay({"best-val": {"r_close": {"rank_ic_mean": 0.02}}}) == ""
 
 
 def test_target_metrics_perfect_prediction_is_zero() -> None:

@@ -50,7 +50,14 @@ _METRIC_ORDER = (
     "skill_vs_persistence",
     "rank_ic_mean",
     "rank_ic_ir",
+    "rank_ic_near",
 )
+
+#: Inclusive upper bound (in 1-based trading-day forecast offsets) of the near
+#: band where cross-sectional skill concentrates. Mirrors the training-side
+#: ``LightningOHLCPredictor.near_offset_k`` default so the offline report and the
+#: live ``val_rank_ic_near`` metric agree.
+_NEAR_OFFSET_K = 5
 
 
 @dataclass
@@ -61,6 +68,7 @@ class AccumulatedEval:
     baselines: dict[str, torch.Tensor] = field(default_factory=dict)
     r_close_ids: torch.Tensor | None = None
     r_close_dates: torch.Tensor | None = None
+    r_close_offsets: torch.Tensor | None = None
 
 
 def target_metrics(pred: torch.Tensor, target: torch.Tensor) -> dict[str, float]:
@@ -316,6 +324,46 @@ def rank_ic_by_offset(
     return out
 
 
+def rank_ic_near(
+    pred: torch.Tensor,
+    target: torch.Tensor,
+    ids: torch.Tensor,
+    dates: torch.Tensor,
+    offsets: torch.Tensor,
+    k: int = _NEAR_OFFSET_K,
+) -> float:
+    """Pooled cross-sectional rank-IC over near forecast offsets ``1..k``.
+
+    Restricts the rows to 1-based trading-day offsets ``1 <= offset <= k`` (the
+    near band where cross-sectional skill concentrates), dedupes to one
+    prediction per ``(ticker, date)``, and averages the daily Spearman rank-IC.
+    Reuses :func:`dedupe_by_ticker_date` and :func:`rank_ic` so the offline
+    report and the live :func:`ophir.training_models.val_rank_ic_near` metric
+    share identical math.
+
+    Parameters
+    ----------
+    pred, target, ids, dates : torch.Tensor
+        Equal-length 1-D tensors, as accumulated for :func:`rank_ic`.
+    offsets : torch.Tensor
+        Same-length integer tensor of 1-based trading-day forecast offsets.
+    k : int, optional
+        Inclusive upper bound of the near band. Defaults to ``_NEAR_OFFSET_K``.
+
+    Returns
+    -------
+    float
+        Mean daily rank-IC over the near band, or ``nan`` when no rows fall in it.
+    """
+    if pred.numel() == 0:
+        return float("nan")
+    sel = (offsets >= 1) & (offsets <= k)
+    if not bool(sel.any()):
+        return float("nan")
+    dp, dt, dd = dedupe_by_ticker_date(pred[sel], target[sel], ids[sel], dates[sel])
+    return rank_ic(dp, dt, dd)["ic_mean"]
+
+
 def accumulate_targets(
     model: LightningOHLCPredictor,
     dataloader: DataLoader[dict[str, object]],
@@ -353,7 +401,10 @@ def accumulate_targets(
         row-for-row with the predictions. When the loader carries identity
         (``return_identity=True``), ``r_close_ids`` / ``r_close_dates`` hold the
         per-prediction ticker id and calendar-day ordinal aligned row-for-row
-        with the ``r_close`` channel (else ``None``).
+        with the ``r_close`` channel (else ``None``). ``r_close_offsets`` carries
+        each prediction's 1-based forecast offset (trading-day lead within the
+        response block), aligned with ``r_close_ids`` (also ``None`` without
+        identity).
     """
     model = model.cuda().eval()
     collected: dict[str, tuple[list[torch.Tensor], list[torch.Tensor]]] = {
@@ -362,6 +413,7 @@ def accumulate_targets(
     baseline_lists: dict[str, list[torch.Tensor]] = {"upside": [], "downside": []}
     id_lists: list[torch.Tensor] = []
     date_lists: list[torch.Tensor] = []
+    offset_lists: list[torch.Tensor] = []
     with torch.no_grad():
         for index, batch in enumerate(dataloader):
             if index >= max_batches:
@@ -385,10 +437,14 @@ def accumulate_targets(
                 baseline_lists[name].append(base[mask].reshape(-1).cpu())
             # Opt-in identity, collected parallel to the r_close pred/target above.
             if output.stock_id is not None and output.date_ordinal is not None:
+                from ophir.training_models import trading_day_offsets
+
                 resp_dates = output.date_ordinal[:, -rs:]  # (B, R)
                 ids_br = output.stock_id.view(-1, 1).expand(-1, rs)  # (B, R)
+                offsets = trading_day_offsets(mask)  # (B, R) cumulative trading-day rank
                 id_lists.append(ids_br[mask].reshape(-1).cpu())
                 date_lists.append(resp_dates[mask].reshape(-1).cpu())
+                offset_lists.append(offsets[mask].reshape(-1).cpu())
     return AccumulatedEval(
         channels={
             name: (torch.cat(preds), torch.cat(targets))
@@ -397,6 +453,7 @@ def accumulate_targets(
         baselines={name: torch.cat(b) for name, b in baseline_lists.items()},
         r_close_ids=torch.cat(id_lists) if id_lists else None,
         r_close_dates=torch.cat(date_lists) if date_lists else None,
+        r_close_offsets=torch.cat(offset_lists) if offset_lists else None,
     )
 
 
@@ -421,9 +478,11 @@ def evaluate_model(
     dict[str, dict[str, float]]
         ``{channel: metrics}``; the ``r_close`` entry additionally carries
         ``directional_accuracy`` and ``skill_score`` (and ``rank_ic_mean`` /
-        ``rank_ic_ir`` when the loader carries identity), and the
-        ``upside``/``downside`` entries carry ``skill_vs_persistence`` (the
-        skill score against the persistence baseline).
+        ``rank_ic_ir`` when the loader carries identity; plus ``rank_ic_near``
+        — the near-band operating point — and a per-offset ``h{n}`` IC curve when
+        the loader also carries forecast offsets), and the ``upside``/``downside``
+        entries carry ``skill_vs_persistence`` (the skill score against the
+        persistence baseline).
     """
     acc = accumulate_targets(model, dataloader, max_batches)
     results: dict[str, dict[str, float]] = {}
@@ -443,6 +502,24 @@ def evaluate_model(
         ic = rank_ic(dp, dt, dd)
         results["r_close"]["rank_ic_mean"] = ic["ic_mean"]
         results["r_close"]["rank_ic_ir"] = ic["ic_ir"]
+    if acc.r_close_offsets is not None:
+        from ophir.training_models import _OFFSET_BUCKETS
+
+        assert acc.r_close_ids is not None and acc.r_close_dates is not None
+        pred, target = acc.channels["r_close"]
+        results["r_close"]["rank_ic_near"] = rank_ic_near(
+            pred, target, acc.r_close_ids, acc.r_close_dates, acc.r_close_offsets
+        )
+        results["r_close"].update(
+            rank_ic_by_offset(
+                pred,
+                target,
+                acc.r_close_ids,
+                acc.r_close_dates,
+                acc.r_close_offsets,
+                _OFFSET_BUCKETS,
+            )
+        )
     return results
 
 
@@ -491,6 +568,47 @@ def format_report(results_by_label: dict[str, dict[str, dict[str, float]]]) -> s
                 cells.append(_format_metric(key, metrics[key]) if key in metrics else "n/a")
             lines.append(f"| {key} | " + " | ".join(cells) + " |")
         lines.append("")
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def format_offset_decay(results_by_label: dict[str, dict[str, dict[str, float]]]) -> str:
+    """Render the per-offset r_close IC decay as a Markdown table.
+
+    One row per forecast offset in ``_OFFSET_BUCKETS``, one column per evaluated
+    checkpoint, so the near-horizon concentration (and its dilution at longer
+    leads) is visible at a glance. Returns the empty string when no checkpoint
+    carries the per-offset ``h{n}`` keys (e.g. the loader had no identity).
+
+    Parameters
+    ----------
+    results_by_label : dict[str, dict[str, dict[str, float]]]
+        ``{label: {channel: metrics}}`` as returned by :func:`evaluate_model`.
+
+    Returns
+    -------
+    str
+        A Markdown section, or ``""`` when there is no curve to show.
+    """
+    from ophir.training_models import _OFFSET_BUCKETS
+
+    labels = list(results_by_label)
+    keys = [f"h{int(b)}" for b in _OFFSET_BUCKETS]
+    present = [
+        key
+        for key in keys
+        if any(key in results_by_label[label].get("r_close", {}) for label in labels)
+    ]
+    if not present:
+        return ""
+    lines = ["## Near-horizon IC decay (r_close)", ""]
+    lines.append("| offset | " + " | ".join(labels) + " |")
+    lines.append("| --- |" + " --- |" * len(labels))
+    for key in present:
+        cells = []
+        for label in labels:
+            metrics = results_by_label[label].get("r_close", {})
+            cells.append(_format_metric(key, metrics[key]) if key in metrics else "n/a")
+        lines.append(f"| {key} | " + " | ".join(cells) + " |")
     return "\n".join(lines).rstrip() + "\n"
 
 
@@ -599,3 +717,6 @@ def evaluate(
         raise typer.BadParameter("No checkpoint could be loaded to evaluate.")
 
     typer.echo(format_report(results_by_label))
+    decay = format_offset_decay(results_by_label)
+    if decay:
+        typer.echo(decay)

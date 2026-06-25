@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `ophir evaluate` now reports the near-horizon operating point: a `rank_ic_near`
+  headline (pooled cross-sectional rank-IC over forecast offsets 1..5, the band
+  where the model's skill concentrates) alongside the existing pooled
+  `rank_ic_mean`, plus a "Near-horizon IC decay" table showing rank-IC per
+  forecast offset. The near metric reuses the same math as the training-side
+  `val_rank_ic_near`, so the offline report and the live validation metric agree.
+  Measurement only — no model, training, or trading-path change.
 - `tests/test_patch_targets.py`: a guard that AST-scans the suite for
   string-literal `mock.patch` / `monkeypatch.setattr` targets pointing into
   `ophir` and asserts each still resolves. Catches stale patch targets after a
