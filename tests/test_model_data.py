@@ -1,14 +1,14 @@
-"""Tests for OHLCMulitClassPredictorInput projection/reconstruction helpers."""
+"""Tests for OHLCMultiClassPredictorInput projection/reconstruction helpers."""
 
 import numpy as np
 import torch
 
-from ophir.model_data import OHLCMulitClassPredictorInput
+from ophir.model_data import OHLCMultiClassPredictorInput
 
 
-def _make_input(stock_embeddings: torch.Tensor) -> OHLCMulitClassPredictorInput:
+def _make_input(stock_embeddings: torch.Tensor) -> OHLCMultiClassPredictorInput:
     b = stock_embeddings.shape[0]
-    obj = OHLCMulitClassPredictorInput(
+    obj = OHLCMultiClassPredictorInput(
         feature_input=torch.zeros(b, 4, 12),
         response_size=torch.tensor(2),
         trade_occured=torch.ones(b, 4, dtype=torch.bool),
@@ -33,7 +33,7 @@ def test_pca_projection_uses_full_embedding_dimension():
 
 
 def test_optional_identity_fields_default_to_none():
-    obj = OHLCMulitClassPredictorInput(
+    obj = OHLCMultiClassPredictorInput(
         feature_input=torch.zeros(1, 4, 12),
         response_size=torch.tensor(2),
         trade_occured=torch.ones(1, 4, dtype=torch.bool),

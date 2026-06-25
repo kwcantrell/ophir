@@ -23,7 +23,7 @@ from ophir.evaluate import (
     skill_score_vs_baseline,
     target_metrics,
 )
-from ophir.model_data import OHLCMulitClassPredictorInput
+from ophir.model_data import OHLCMultiClassPredictorInput
 
 
 class _FakeModel:
@@ -35,8 +35,8 @@ class _FakeModel:
     def eval(self) -> "_FakeModel":
         return self
 
-    def __call__(self, batch: dict[str, object]) -> OHLCMulitClassPredictorInput:
-        obj = OHLCMulitClassPredictorInput(
+    def __call__(self, batch: dict[str, object]) -> OHLCMultiClassPredictorInput:
+        obj = OHLCMultiClassPredictorInput(
             feature_input=batch["feature_input"],  # type: ignore[arg-type]
             response_size=batch["response_size"],  # type: ignore[arg-type]
             trade_occured=batch["trade_occured"],  # type: ignore[arg-type]

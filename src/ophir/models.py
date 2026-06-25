@@ -30,7 +30,7 @@ from torch.nn.attention.flex_attention import (
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from .model_data import OHLCMulitClassPredictorInput
+    from .model_data import OHLCMultiClassPredictorInput
 
     MaskMod = Callable[[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor], torch.Tensor]
     ScoreMod = Callable[
@@ -51,7 +51,7 @@ FEATURE_DIM = 12
 # Hyper-parameters
 # --------------------------------------------------------------------------- #
 @dataclass(frozen=True, kw_only=True, slots=True)
-class OHLCMulitClassParameters:
+class OHLCMultiClassParameters:
     """
     Hyper-parameters for the OHLC multi-class predictor.
 
@@ -107,7 +107,7 @@ def create_padding_mask(pads: torch.Tensor) -> MaskMod:
 ## --------------------------------------------------------------------------- #
 # ALiBi slopes
 # --------------------------------------------------------------------------- #
-def get_alibi_slopes(hparams: OHLCMulitClassParameters) -> torch.Tensor:
+def get_alibi_slopes(hparams: OHLCMultiClassParameters) -> torch.Tensor:
     """
     Compute the ALiBi slopes for the given number of heads.
 
@@ -223,7 +223,7 @@ class FlexMHA(nn.Module):
 
     slopes: torch.Tensor
 
-    def __init__(self, hparams: OHLCMulitClassParameters) -> None:
+    def __init__(self, hparams: OHLCMultiClassParameters) -> None:
         super().__init__()
         self.hparams = hparams
 
@@ -324,7 +324,7 @@ class TransformerBlock(nn.Module):
     A single transformer block with residual connections and ReZero scaling.
     """
 
-    def __init__(self, hparams: OHLCMulitClassParameters) -> None:
+    def __init__(self, hparams: OHLCMultiClassParameters) -> None:
         super().__init__()
         self._rezero = nn.Parameter(torch.tensor(hparams.rezero_init, dtype=torch.float))
 
@@ -414,7 +414,7 @@ def rezero_gate_stats(model: nn.Module) -> dict[str, float | list[float]]:
 # --------------------------------------------------------------------------- #
 # Main model
 # --------------------------------------------------------------------------- #
-class OHLCMulitClassPredictor(nn.Module):
+class OHLCMultiClassPredictor(nn.Module):
     """
     OHLC multi-class predictor that outputs:
 
@@ -425,7 +425,7 @@ class OHLCMulitClassPredictor(nn.Module):
       mean-pooling the prefix (observed-history) embeddings.
     """
 
-    def __init__(self, hparams: OHLCMulitClassParameters) -> None:
+    def __init__(self, hparams: OHLCMultiClassParameters) -> None:
         super().__init__()
         # Positional encoding - we keep it simple and trainable
         self.pe = nn.Parameter(torch.randn((1, 512, hparams.emb_dim)))
@@ -465,13 +465,13 @@ class OHLCMulitClassPredictor(nn.Module):
         mask = self.mask_token.expand(batch, response_size, -1)
         return torch.cat([x[:, :prefix_len], mask], dim=1)
 
-    def forward(self, input: OHLCMulitClassPredictorInput) -> OHLCMulitClassPredictorInput:
+    def forward(self, input: OHLCMultiClassPredictorInput) -> OHLCMultiClassPredictorInput:
         """
         Forward pass of the predictor.
 
         Parameters
         ----------
-        input : OHLCMulitClassPredictorInput
+        input : OHLCMultiClassPredictorInput
             The input dataclass containing:
             * ``feature_input`` - raw features of shape ``(B, L, 12)``.
             * ``trade_occured`` - boolean mask of shape ``(B, L)``.
@@ -480,7 +480,7 @@ class OHLCMulitClassPredictor(nn.Module):
 
         Returns
         -------
-        OHLCMulitClassPredictorInput
+        OHLCMultiClassPredictorInput
             The same object with ``model_output`` and ``stock_embeddings`` filled.
         """
         seq_len = input.feature_input.shape[1]

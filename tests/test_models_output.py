@@ -42,10 +42,10 @@ def test_upside_downside_are_non_negative():
 
 
 def test_rezero_gate_stats_aggregates_per_layer():
-    from ophir.models import OHLCMulitClassParameters, OHLCMulitClassPredictor, rezero_gate_stats
+    from ophir.models import OHLCMultiClassParameters, OHLCMultiClassPredictor, rezero_gate_stats
 
     torch.manual_seed(0)
-    model = OHLCMulitClassPredictor(OHLCMulitClassParameters(emb_dim=16, num_layers=3, num_heads=2))
+    model = OHLCMultiClassPredictor(OHLCMultiClassParameters(emb_dim=16, num_layers=3, num_heads=2))
     # Force known gate values.
     vals = [0.1, -0.2, 0.3]
     for block, v in zip(model.encoder, vals, strict=True):
@@ -69,10 +69,10 @@ def test_rezero_gate_stats_empty_is_zero():
 
 
 def test_rezero_init_sets_gate_values():
-    from ophir.models import OHLCMulitClassParameters, OHLCMulitClassPredictor, rezero_gate_stats
+    from ophir.models import OHLCMultiClassParameters, OHLCMultiClassPredictor, rezero_gate_stats
 
-    model = OHLCMulitClassPredictor(
-        OHLCMulitClassParameters(emb_dim=16, num_layers=2, num_heads=2, rezero_init=0.1)
+    model = OHLCMultiClassPredictor(
+        OHLCMultiClassParameters(emb_dim=16, num_layers=2, num_heads=2, rezero_init=0.1)
     )
     per_layer = rezero_gate_stats(model)["per_layer"]
     assert len(per_layer) == 2
@@ -81,7 +81,7 @@ def test_rezero_init_sets_gate_values():
 
 
 def test_rezero_init_defaults_to_zero():
-    from ophir.models import OHLCMulitClassParameters, OHLCMulitClassPredictor, rezero_gate_stats
+    from ophir.models import OHLCMultiClassParameters, OHLCMultiClassPredictor, rezero_gate_stats
 
-    model = OHLCMulitClassPredictor(OHLCMulitClassParameters(emb_dim=16, num_layers=2, num_heads=2))
+    model = OHLCMultiClassPredictor(OHLCMultiClassParameters(emb_dim=16, num_layers=2, num_heads=2))
     assert rezero_gate_stats(model)["per_layer"] == [0.0, 0.0]

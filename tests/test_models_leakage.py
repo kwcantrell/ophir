@@ -1,4 +1,4 @@
-"""Leakage regression tests for :class:`OHLCMulitClassPredictor`.
+"""Leakage regression tests for :class:`OHLCMultiClassPredictor`.
 
 The model forecasts the last ``response_size`` days of each window. Every input
 feature at those positions is contemporaneous with that day's targets, so the
@@ -11,8 +11,8 @@ feature projection, so they run on CPU without the CUDA-only attention path.
 import pytest
 import torch
 
-from ophir.model_data import OHLCMulitClassPredictorInput
-from ophir.models import OHLCMulitClassParameters, OHLCMulitClassPredictor
+from ophir.model_data import OHLCMultiClassPredictorInput
+from ophir.models import OHLCMultiClassParameters, OHLCMultiClassPredictor
 
 EMB_DIM = 8
 SEQ_LEN = 12
@@ -20,10 +20,10 @@ RESPONSE_SIZE = 4
 BATCH = 2
 
 
-def _predictor() -> OHLCMulitClassPredictor:
+def _predictor() -> OHLCMultiClassPredictor:
     torch.manual_seed(0)
-    hparams = OHLCMulitClassParameters(emb_dim=EMB_DIM, num_layers=1, num_heads=2)
-    return OHLCMulitClassPredictor(hparams)
+    hparams = OHLCMultiClassParameters(emb_dim=EMB_DIM, num_layers=1, num_heads=2)
+    return OHLCMultiClassPredictor(hparams)
 
 
 def test_response_block_replaced_with_mask_token():
@@ -64,8 +64,8 @@ def test_mask_token_is_a_trainable_parameter():
     assert model.mask_token.shape == (EMB_DIM,)
 
 
-def _input_with_response(response_size: int) -> OHLCMulitClassPredictorInput:
-    return OHLCMulitClassPredictorInput(
+def _input_with_response(response_size: int) -> OHLCMultiClassPredictorInput:
+    return OHLCMultiClassPredictorInput(
         feature_input=torch.zeros(BATCH, SEQ_LEN, 12),
         response_size=torch.tensor(response_size),
         trade_occured=torch.ones(BATCH, SEQ_LEN, dtype=torch.bool),

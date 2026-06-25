@@ -1,4 +1,4 @@
-"""PyTorch-Lightning wrapper for :class:`OHLCMulitClassPredictor`."""
+"""PyTorch-Lightning wrapper for :class:`OHLCMultiClassPredictor`."""
 
 from __future__ import annotations
 
@@ -15,8 +15,8 @@ from transformers import get_cosine_schedule_with_warmup
 if TYPE_CHECKING:
     from lightning.pytorch.utilities.types import OptimizerLRScheduler
 
-from .model_data import OHLCMulitClassPredictorInput
-from .models import OHLCMulitClassParameters, OHLCMulitClassPredictor, rezero_gate_stats
+from .model_data import OHLCMultiClassPredictorInput
+from .models import OHLCMultiClassParameters, OHLCMultiClassPredictor, rezero_gate_stats
 
 _OFFSET_BUCKETS = (1, 2, 5, 10, 20, 40, 90)
 
@@ -130,7 +130,7 @@ def val_rank_ic_near(
 #  Lightning wrapper
 # --------------------------------------------------------------------------- #
 class LightningOHLCPredictor(L.LightningModule):
-    """PyTorch-Lightning wrapper around :class:`OHLCMulitClassPredictor`.
+    """PyTorch-Lightning wrapper around :class:`OHLCMultiClassPredictor`.
 
     Owns the model, the weighted smooth-L1 loss over the three targets, and
     the AdamW + cosine-warmup optimizer configuration (with a dedicated
@@ -227,10 +227,10 @@ class LightningOHLCPredictor(L.LightningModule):
             cosine schedule over all groups, unchanged).
         """
         super().__init__()
-        hparams: OHLCMulitClassParameters = OHLCMulitClassParameters(
+        hparams: OHLCMultiClassParameters = OHLCMultiClassParameters(
             emb_dim=emb_dim, num_layers=num_layers, num_heads=num_heads, rezero_init=rezero_init
         )
-        self.ohlc_predictor = OHLCMulitClassPredictor(hparams=hparams)
+        self.ohlc_predictor = OHLCMultiClassPredictor(hparams=hparams)
 
         self.rezero_init = rezero_init
         self.lr = lr
@@ -259,43 +259,43 @@ class LightningOHLCPredictor(L.LightningModule):
         }
 
     def _input_obj(
-        self, input: dict[str, Any] | OHLCMulitClassPredictorInput
-    ) -> OHLCMulitClassPredictorInput:
-        """Coerce a batch into a CUDA :class:`OHLCMulitClassPredictorInput`.
+        self, input: dict[str, Any] | OHLCMultiClassPredictorInput
+    ) -> OHLCMultiClassPredictorInput:
+        """Coerce a batch into a CUDA :class:`OHLCMultiClassPredictorInput`.
 
         Parameters
         ----------
-        input : dict or OHLCMulitClassPredictorInput
+        input : dict or OHLCMultiClassPredictorInput
             A raw collated batch (dict) or an already-built input object.
 
         Returns
         -------
-        OHLCMulitClassPredictorInput
+        OHLCMultiClassPredictorInput
             The input object with its tensors moved to CUDA.
         """
         if isinstance(input, dict):
             input["response_size"] = input["response_size"][0].squeeze()
-            return OHLCMulitClassPredictorInput(**input).to_cuda()
+            return OHLCMultiClassPredictorInput(**input).to_cuda()
         return input.to_cuda()
 
     def forward(
-        self, input: dict[str, Any] | OHLCMulitClassPredictorInput
-    ) -> OHLCMulitClassPredictorInput:
+        self, input: dict[str, Any] | OHLCMultiClassPredictorInput
+    ) -> OHLCMultiClassPredictorInput:
         """Run the predictor on a batch.
 
         Parameters
         ----------
-        input : dict or OHLCMulitClassPredictorInput
+        input : dict or OHLCMultiClassPredictorInput
             A raw collated batch or a prepared input object.
 
         Returns
         -------
-        OHLCMulitClassPredictorInput
+        OHLCMultiClassPredictorInput
             The input object with ``model_output`` and ``stock_embeddings``
             populated.
         """
         prepared = self._input_obj(input)
-        return cast("OHLCMulitClassPredictorInput", self.ohlc_predictor(prepared))
+        return cast("OHLCMultiClassPredictorInput", self.ohlc_predictor(prepared))
 
     def _response_weights(
         self, response_size: int, device: torch.device, dtype: torch.dtype
@@ -355,7 +355,7 @@ class LightningOHLCPredictor(L.LightningModule):
         weighted = w * m
         return (loss * weighted).sum() / weighted.sum().clamp_min(1e-8)
 
-    def compute_loss(self, model_output: OHLCMulitClassPredictorInput) -> torch.Tensor:
+    def compute_loss(self, model_output: OHLCMultiClassPredictorInput) -> torch.Tensor:
         """Compute the masked, weighted multi-target training loss.
 
         Each target uses a smooth-L1 loss restricted to days where a trade
@@ -367,7 +367,7 @@ class LightningOHLCPredictor(L.LightningModule):
 
         Parameters
         ----------
-        model_output : OHLCMulitClassPredictorInput
+        model_output : OHLCMultiClassPredictorInput
             A populated forward output.
 
         Returns
@@ -451,14 +451,14 @@ class LightningOHLCPredictor(L.LightningModule):
 
     def training_step(
         self,
-        batch: dict[str, Any] | OHLCMulitClassPredictorInput,
+        batch: dict[str, Any] | OHLCMultiClassPredictorInput,
         batch_indx: int,
     ) -> torch.Tensor:
         """Run one training step and log ``train_loss``.
 
         Parameters
         ----------
-        batch : dict or OHLCMulitClassPredictorInput
+        batch : dict or OHLCMultiClassPredictorInput
             The collated training batch.
         batch_indx : int
             The batch index (unused; required by the Lightning API).
@@ -479,14 +479,14 @@ class LightningOHLCPredictor(L.LightningModule):
 
     def validation_step(
         self,
-        batch: dict[str, Any] | OHLCMulitClassPredictorInput,
+        batch: dict[str, Any] | OHLCMultiClassPredictorInput,
         batch_indx: int,
     ) -> torch.Tensor:
         """Run one validation step and log ``val_loss``.
 
         Parameters
         ----------
-        batch : dict or OHLCMulitClassPredictorInput
+        batch : dict or OHLCMultiClassPredictorInput
             The collated validation batch.
         batch_indx : int
             The batch index (unused; required by the Lightning API).

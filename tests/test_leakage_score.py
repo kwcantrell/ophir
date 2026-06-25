@@ -9,7 +9,7 @@ positive control, so the metric cannot pass vacuously).
 import torch
 
 from ophir.leakage import response_block_leakage_score
-from ophir.models import OHLCMulitClassParameters, OHLCMulitClassPredictor
+from ophir.models import OHLCMultiClassParameters, OHLCMultiClassPredictor
 
 EMB_DIM = 8
 SEQ_LEN = 12
@@ -17,10 +17,10 @@ RESPONSE_SIZE = 4
 BATCH = 2
 
 
-def _predictor() -> OHLCMulitClassPredictor:
+def _predictor() -> OHLCMultiClassPredictor:
     torch.manual_seed(0)
-    hparams = OHLCMulitClassParameters(emb_dim=EMB_DIM, num_layers=1, num_heads=2)
-    return OHLCMulitClassPredictor(hparams)
+    hparams = OHLCMultiClassParameters(emb_dim=EMB_DIM, num_layers=1, num_heads=2)
+    return OHLCMultiClassPredictor(hparams)
 
 
 def test_response_block_score_is_zero() -> None:

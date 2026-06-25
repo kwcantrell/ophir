@@ -26,7 +26,7 @@ import tqdm
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_ollama import ChatOllama
 
-from ophir.model_data import OHLCMulitClassPredictorInput
+from ophir.model_data import OHLCMultiClassPredictorInput
 from ophir.register import DATA_DIR, load_base_model_ckpt
 from ophir.ticker import (
     StockHandler,
@@ -77,7 +77,7 @@ llm = ChatOllama(model="gpt-oss:20b")
 # ------------------------------------------------------------------
 # 2️⃣  Helper functions
 # ------------------------------------------------------------------
-def get_ohlc(symbol: str) -> tuple[pd.DataFrame, OHLCMulitClassPredictorInput]:
+def get_ohlc(symbol: str) -> tuple[pd.DataFrame, OHLCMultiClassPredictorInput]:
     """Run the model on a ticker and reconstruct its candles.
 
     Parameters
@@ -87,7 +87,7 @@ def get_ohlc(symbol: str) -> tuple[pd.DataFrame, OHLCMulitClassPredictorInput]:
 
     Returns
     -------
-    tuple[pandas.DataFrame, OHLCMulitClassPredictorInput]
+    tuple[pandas.DataFrame, OHLCMultiClassPredictorInput]
         The reconstructed target/predicted OHLC frame and the populated model
         output object.
     """
@@ -186,7 +186,7 @@ def build_embedding_figure() -> go.Figure:
     for stock in tqdm.tqdm(val_stock_handler.stocks):
         # Skip thin-history tickers before inference: a window shorter than the
         # response horizon has no prefix to forecast from and would crash the
-        # response-block masking in OHLCMulitClassPredictor.
+        # response-block masking in OHLCMultiClassPredictor.
         history = len(val_stock_handler[stock].preprocessed_ohlc_df)
         if history < 250:
             print(f"{stock} only covers {history}/{elements_per_sample} history.")

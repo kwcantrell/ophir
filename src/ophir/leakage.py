@@ -3,7 +3,7 @@
 The model forecasts the last ``response_size`` days of each window. Every input
 feature at those positions is contemporaneous with that day's targets, so the
 response block must be replaced with a learned mask token before the transformer
-(:meth:`~ophir.models.OHLCMulitClassPredictor._apply_response_mask`) — otherwise
+(:meth:`~ophir.models.OHLCMultiClassPredictor._apply_response_mask`) — otherwise
 the model can read the answer it is asked to predict.
 
 These helpers turn that contract into a *score*: perturb only the response-block
@@ -22,10 +22,10 @@ from typing import TYPE_CHECKING, cast
 
 import torch
 
-from .model_data import OHLCMulitClassPredictorInput
+from .model_data import OHLCMultiClassPredictorInput
 
 if TYPE_CHECKING:
-    from .models import OHLCMulitClassPredictor
+    from .models import OHLCMultiClassPredictor
 
 #: Magnitude added to the response-block inputs; large enough that any leakage
 #: would dominate floating-point noise in the resulting score.
@@ -33,7 +33,7 @@ _PERTURBATION = 1000.0
 
 
 def response_block_leakage_score(
-    model: OHLCMulitClassPredictor,
+    model: OHLCMultiClassPredictor,
     feature: torch.Tensor,
     response_size: int,
 ) -> float:
@@ -45,7 +45,7 @@ def response_block_leakage_score(
 
     Parameters
     ----------
-    model : OHLCMulitClassPredictor
+    model : OHLCMultiClassPredictor
         The predictor whose ``feature_mlp`` and ``_apply_response_mask`` are
         exercised.
     feature : torch.Tensor
@@ -68,7 +68,7 @@ def response_block_leakage_score(
 
 
 def end_to_end_leakage_scores(
-    model: OHLCMulitClassPredictor,
+    model: OHLCMultiClassPredictor,
     feature: torch.Tensor,
     response_size: int,
 ) -> dict[str, float]:
@@ -83,7 +83,7 @@ def end_to_end_leakage_scores(
 
     Parameters
     ----------
-    model : OHLCMulitClassPredictor
+    model : OHLCMultiClassPredictor
         The predictor to run.
     feature : torch.Tensor
         Input features of shape ``(B, S, 12)`` on a CUDA device.
@@ -99,14 +99,14 @@ def end_to_end_leakage_scores(
 
     def _run(feat: torch.Tensor) -> torch.Tensor:
         batch, seq_len, _ = feat.shape
-        model_input = OHLCMulitClassPredictorInput(
+        model_input = OHLCMultiClassPredictorInput(
             feature_input=feat,
             targets=torch.zeros((batch, seq_len, 3), device=feat.device),
             trade_occured=torch.ones((batch, seq_len), dtype=torch.bool, device=feat.device),
             response_size=torch.tensor(response_size),
         )
         with torch.no_grad():
-            result = cast("OHLCMulitClassPredictorInput", model(model_input))
+            result = cast("OHLCMultiClassPredictorInput", model(model_input))
         output = result.model_output
         assert output is not None
         return output.detach().clone()
@@ -115,7 +115,7 @@ def end_to_end_leakage_scores(
     perturbed[:, -response_size:] += _PERTURBATION
     diff = (_run(feature) - _run(perturbed)).abs()
     return {
-        "r_close": float(diff[..., OHLCMulitClassPredictorInput.r_close_index].max().item()),
-        "upside": float(diff[..., OHLCMulitClassPredictorInput.upside_index].max().item()),
-        "downside": float(diff[..., OHLCMulitClassPredictorInput.downside_index].max().item()),
+        "r_close": float(diff[..., OHLCMultiClassPredictorInput.r_close_index].max().item()),
+        "upside": float(diff[..., OHLCMultiClassPredictorInput.upside_index].max().item()),
+        "downside": float(diff[..., OHLCMultiClassPredictorInput.downside_index].max().item()),
     }

@@ -486,7 +486,7 @@ class StockStreamer:
         Parameters
         ----------
         df : pandas.DataFrame
-            A :meth:`OHLCMulitClassPredictorInput.to_pandas` frame holding the
+            A :meth:`OHLCMultiClassPredictorInput.to_pandas` frame holding the
             target/predicted ``r_close`` / ``upside`` / ``downside`` series.
 
         Returns
@@ -794,7 +794,7 @@ def extract_model_data(
         Keys ``feature_input``, ``targets``, ``trade_occured``,
         ``response_size`` (and ``time`` when ``return_date`` is set, and
         ``stock_id`` / ``date_ordinal`` when ``stock_id`` is given), suitable
-        for :class:`~ophir.model_data.OHLCMulitClassPredictorInput`.
+        for :class:`~ophir.model_data.OHLCMultiClassPredictorInput`.
     """
     features = [c for c, d in zip(df.columns, df.dtypes, strict=False) if d != np.dtype(bool)]
     feature_input = df[features].to_numpy()

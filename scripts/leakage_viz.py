@@ -35,7 +35,7 @@ import numpy as np
 import plotly.graph_objects as go
 import torch
 
-from ophir.model_data import OHLCMulitClassPredictorInput
+from ophir.model_data import OHLCMultiClassPredictorInput
 from ophir.register import DATA_DIR
 from ophir.ticker import StockHandler, extract_model_data
 
@@ -48,9 +48,9 @@ PREFIX_LEN = SEQ_LEN - RESPONSE_SIZE
 STRIDE = 3  # subsample forecast days to keep the per-position backward loop snappy
 BASE_PATH = os.path.join(DATA_DIR, "days", "stocks")
 CHANNELS: dict[str, int] = {
-    "close return": OHLCMulitClassPredictorInput.r_close_index,
-    "upside": OHLCMulitClassPredictorInput.upside_index,
-    "downside": OHLCMulitClassPredictorInput.downside_index,
+    "close return": OHLCMultiClassPredictorInput.r_close_index,
+    "upside": OHLCMultiClassPredictorInput.upside_index,
+    "downside": OHLCMultiClassPredictorInput.downside_index,
 }
 
 _model: LightningOHLCPredictor | None = None
@@ -107,7 +107,7 @@ def _compute_attribution(symbol: str, channel_idx: int, apply_mask: bool) -> np.
     predictor = model.ohlc_predictor
 
     feature = _get_window(symbol)
-    inp = OHLCMulitClassPredictorInput(
+    inp = OHLCMultiClassPredictorInput(
         feature_input=feature,
         targets=torch.zeros((SEQ_LEN, 3), device=feature.device),
         trade_occured=torch.ones(SEQ_LEN, dtype=torch.bool, device=feature.device),

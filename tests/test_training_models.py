@@ -2,7 +2,7 @@
 
 import torch
 
-from ophir.model_data import OHLCMulitClassPredictorInput
+from ophir.model_data import OHLCMultiClassPredictorInput
 from ophir.training_models import (
     LightningOHLCPredictor,
     robust_scale,
@@ -30,7 +30,7 @@ def test_robust_scale_floors_on_empty_or_constant() -> None:
 
 
 def _toy_model_output() -> object:
-    """A populated OHLCMulitClassPredictorInput with known targets/predictions."""
+    """A populated OHLCMultiClassPredictorInput with known targets/predictions."""
     # 2 examples, seq 4, response 2, 3 channels. Predictions deliberately offset
     # from targets so each channel has a non-zero loss.
     targets = torch.zeros(2, 4, 3)
@@ -39,7 +39,7 @@ def _toy_model_output() -> object:
     targets[..., 2] = 0.30  # downside
     model_output = torch.zeros(2, 4, 3)  # all-zero predictions
     trade = torch.ones(2, 4, dtype=torch.bool)
-    return OHLCMulitClassPredictorInput(
+    return OHLCMultiClassPredictorInput(
         feature_input=torch.zeros(2, 4, 12),
         response_size=torch.tensor(2),
         trade_occured=trade,

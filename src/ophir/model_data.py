@@ -9,8 +9,8 @@ import torch
 
 
 @dataclass(kw_only=True, slots=True)
-class OHLCMulitClassPredictorInput:
-    """Structured input/output container for :class:`OHLCMulitClassPredictor`.
+class OHLCMultiClassPredictorInput:
+    """Structured input/output container for :class:`OHLCMultiClassPredictor`.
 
     The same object is threaded through the model: features and targets are
     set by the caller, and ``model_output`` / ``stock_embeddings`` are written
@@ -122,12 +122,12 @@ class OHLCMulitClassPredictorInput:
         assert self.model_output is not None
         return self.chunk(self.model_output, self.downside_index)
 
-    def to_cuda(self) -> OHLCMulitClassPredictorInput:
+    def to_cuda(self) -> OHLCMultiClassPredictorInput:
         """Move ``feature_input``, ``targets``, and ``trade_occured`` to CUDA.
 
         Returns
         -------
-        OHLCMulitClassPredictorInput
+        OHLCMultiClassPredictorInput
             ``self``, with the tensors moved in place.
         """
         self.feature_input = self.feature_input.cuda()
