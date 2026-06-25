@@ -17,6 +17,8 @@
 - **Behavior-preserving move only** — no signature, logic, or public-name changes. `FINETUNE_NAME = "ophire-ohlc-finetuned"` stays as-is (documented persisted-string debt).
 - **No external import statement changes.** All outside code keeps importing from `ophir.register`. The only permitted external edits are `mocker.patch`/`setattr` target retargets (flagged explicitly), as in the ticker split.
 - **The `.ophir/` directory location MUST NOT move.** It is anchored to the `ophir` package dir (`src/ophir/.ophir`); see Task 3.
+- **Constants are read live from `layout`, never value-copied (revision).** In `symbols.py`, `trainers.py`, and `checkpoints.py`, do **not** write `from ophir.register.layout import DATA_DIR`; instead `from ophir.register import layout` and reference `layout.DATA_DIR` / `layout.MODEL_DIR` / `layout.BASE_NAME` / `layout.BASE_BEST_CKPT` / `layout.TIME_MODIFIER` / `layout.EPOCH_MODIFIER` at every use site. This makes `layout` the single monkeypatch point. (`layout.py`'s own helpers read their module-global constants directly.)
+- **Tests that patch `register.<CONST>` are retargeted to `register.layout.<CONST>`** — a permitted test-side edit (analogue of the ticker mock-target retargets), done once in Task 3b below. Current sites: `tests/test_curation.py` (`DATA_DIR` ×2), `tests/test_register.py` (`MODEL_DIR` ×9), `tests/test_trading_forecast.py` (`MODEL_DIR` ×1).
 
 ## Public surface that must stay importable from `ophir.register`
 
@@ -215,7 +217,28 @@ git add -A && git commit -m "refactor(register): extract layout.py (constants + 
 
 ---
 
-### Task 4: Extract `symbols.py` (ignore/quality symbol lists)
+### Retarget ordering (keeps every commit green)
+
+A test stays green only when the location it patches matches where the functions
+it calls read the constant. So **retarget each test's patch in the same commit
+that moves all the functions that test exercises**, not up front:
+
+- `DATA_DIR` readers are exactly the symbol-list helpers (`symbols.py`) plus
+  `quality_stats_path` / `get_default_data_days_dir` (already in `layout.py`). So
+  Task 4 moves `symbols` *and* retargets the `test_curation.py` `DATA_DIR`
+  patches together.
+- `MODEL_DIR` readers are the trainer factories **and** the checkpoint
+  functions, and some tests call both. So `trainers` and `checkpoints` are
+  extracted in a **single** task (Task 5) that also retargets the
+  `test_register.py` / `test_trading_forecast.py` `MODEL_DIR` patches.
+
+Each moved function references `layout.<CONST>` (per Global Constraints), so once
+its group has moved and its tests patch `register.layout.<CONST>`, the redirect
+reaches every reader.
+
+---
+
+### Task 4: Extract `symbols.py` (ignore/quality symbol lists) + retarget `DATA_DIR` patches
 
 **Files:**
 - Create: `src/ophir/register/symbols.py`

@@ -109,6 +109,26 @@ the layout **constants**, every public function, and the Typer `app` — so
 - `ceiling.py`, `training_models.py`, `train.py`, `evaluate.py` are not touched —
   they are large but cohesive (single concern / single class), not grab-bags.
 
+## Revision (2026-06-25): shared monkeypatched constants
+
+Execution surfaced a coupling the original design missed: 13 tests redirect
+`register`'s directories with a single `monkeypatch.setattr(register, "MODEL_DIR", tmp)`
+or `"DATA_DIR"`. This worked when every function lived in one module reading one
+module-global. Splitting functions into submodules that each bind their own
+`from layout import DATA_DIR` copy breaks the single patch point, and some
+`MODEL_DIR` tests call functions that land in *both* `trainers` and `checkpoints`,
+so there is no clean one-patch-per-submodule mapping.
+
+**Decision (approved): `layout` is the single source of truth for the constants,
+accessed live.** Submodules import the `layout` *module* (`from ophir.register import
+layout`) and reference `layout.DATA_DIR` / `layout.MODEL_DIR` / `layout.BASE_NAME`
+/ etc. **at call time** (never a value-copy `from layout import DATA_DIR`).
+`layout.py`'s own helpers read their module-global constants directly. The 13
+tests are retargeted from `setattr(register, "<CONST>", ...)` to
+`setattr(register.layout, "<CONST>", ...)` — one canonical patch point that every
+consumer observes. These test edits are permitted (the analogue of the ticker
+split's mock-target retargets) and are flagged explicitly.
+
 ## Testing strategy
 
 Behavior-preserving move, so the **regression gate is the existing suite**, not
