@@ -19,6 +19,7 @@ from ophir.evaluate import (
     prefix_last_observed,
     rank_ic,
     rank_ic_by_offset,
+    rank_ic_near,
     skill_score,
     skill_score_vs_baseline,
     target_metrics,
@@ -150,6 +151,32 @@ def test_accumulate_targets_offsets_none_without_identity() -> None:
     model = _FakeModel()
     acc = accumulate_targets(model, [_toy_batch()], max_batches=1)  # type: ignore[arg-type]
     assert acc.r_close_offsets is None
+
+
+def test_rank_ic_near_matches_val_rank_ic_near() -> None:
+    from ophir.training_models import val_rank_ic_near
+
+    # offsets 1 (perfect rank) and 2 (anti-rank) are in-band; offset 6 is out.
+    pred = torch.tensor([1.0, 2.0, 3.0, 1.0, 2.0, 3.0, 5.0, 6.0])
+    target = torch.tensor([1.0, 2.0, 3.0, 3.0, 2.0, 1.0, 1.0, 2.0])
+    ids = torch.tensor([1, 2, 3, 1, 2, 3, 1, 2])
+    dates = torch.tensor([1, 1, 1, 2, 2, 2, 3, 3])
+    offsets = torch.tensor([1, 1, 1, 2, 2, 2, 6, 6])
+
+    near = rank_ic_near(pred, target, ids, dates, offsets, k=5)
+    # day1 IC = +1, day2 IC = -1 -> mean 0; offset-6 rows excluded.
+    assert near == pytest.approx(0.0, abs=1e-6)
+    # Reconciles exactly with the live training-side metric.
+    assert near == pytest.approx(val_rank_ic_near(pred, target, ids, dates, offsets, k=5))
+
+
+def test_rank_ic_near_empty_band_is_nan_without_warning() -> None:
+    pred = torch.tensor([1.0, 2.0])
+    target = torch.tensor([1.0, 2.0])
+    ids = torch.tensor([1, 2])
+    dates = torch.tensor([1, 1])
+    offsets = torch.tensor([10, 10])  # all outside the 1..5 band
+    assert math.isnan(rank_ic_near(pred, target, ids, dates, offsets, k=5))
 
 
 def test_target_metrics_perfect_prediction_is_zero() -> None:

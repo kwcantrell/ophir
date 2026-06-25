@@ -52,6 +52,12 @@ _METRIC_ORDER = (
     "rank_ic_ir",
 )
 
+#: Inclusive upper bound (in 1-based trading-day forecast offsets) of the near
+#: band where cross-sectional skill concentrates. Mirrors the training-side
+#: ``LightningOHLCPredictor.near_offset_k`` default so the offline report and the
+#: live ``val_rank_ic_near`` metric agree.
+_NEAR_OFFSET_K = 5
+
 
 @dataclass
 class AccumulatedEval:
@@ -315,6 +321,46 @@ def rank_ic_by_offset(
         dp, dt, dd = dedupe_by_ticker_date(pred[sel], target[sel], ids[sel], dates[sel])
         out[f"h{int(h)}"] = rank_ic(dp, dt, dd)["ic_mean"]
     return out
+
+
+def rank_ic_near(
+    pred: torch.Tensor,
+    target: torch.Tensor,
+    ids: torch.Tensor,
+    dates: torch.Tensor,
+    offsets: torch.Tensor,
+    k: int = _NEAR_OFFSET_K,
+) -> float:
+    """Pooled cross-sectional rank-IC over near forecast offsets ``1..k``.
+
+    Restricts the rows to 1-based trading-day offsets ``1 <= offset <= k`` (the
+    near band where cross-sectional skill concentrates), dedupes to one
+    prediction per ``(ticker, date)``, and averages the daily Spearman rank-IC.
+    Reuses :func:`dedupe_by_ticker_date` and :func:`rank_ic` so the offline
+    report and the live :func:`ophir.training_models.val_rank_ic_near` metric
+    share identical math.
+
+    Parameters
+    ----------
+    pred, target, ids, dates : torch.Tensor
+        Equal-length 1-D tensors, as accumulated for :func:`rank_ic`.
+    offsets : torch.Tensor
+        Same-length integer tensor of 1-based trading-day forecast offsets.
+    k : int, optional
+        Inclusive upper bound of the near band. Defaults to ``_NEAR_OFFSET_K``.
+
+    Returns
+    -------
+    float
+        Mean daily rank-IC over the near band, or ``nan`` when no rows fall in it.
+    """
+    if pred.numel() == 0:
+        return float("nan")
+    sel = (offsets >= 1) & (offsets <= k)
+    if not bool(sel.any()):
+        return float("nan")
+    dp, dt, dd = dedupe_by_ticker_date(pred[sel], target[sel], ids[sel], dates[sel])
+    return rank_ic(dp, dt, dd)["ic_mean"]
 
 
 def accumulate_targets(
