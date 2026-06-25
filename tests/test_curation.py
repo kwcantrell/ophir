@@ -324,7 +324,7 @@ def test_curate_symbols_records_load_error_not_fatal(tmp_path):
 
 
 def test_quality_symbols_roundtrip_overwrites(tmp_path, monkeypatch):
-    monkeypatch.setattr(register, "DATA_DIR", str(tmp_path))
+    monkeypatch.setattr(register.layout, "DATA_DIR", str(tmp_path))
 
     assert register.fetch_quality_symbols_list() == []
 
@@ -354,7 +354,7 @@ def test_curate_command_writes_allowlist_and_stats(tmp_path, monkeypatch):
 
     out = tmp_path / "out"
     out.mkdir()
-    monkeypatch.setattr(register, "DATA_DIR", str(out))
+    monkeypatch.setattr(register.layout, "DATA_DIR", str(out))
 
     curation.curate(data_dir=str(data_dir), min_dollar_volume=0.0)
 
