@@ -1,4 +1,22 @@
+# graphify already merges this dir's .gitignore (gitignore semantics, last-match
+# wins), so build artifacts and caches are excluded WITHOUT being repeated here:
+# .venv/, build/, dist/, *.egg-info/, *.so, *.py[codz], __pycache__/, wheels/,
+# the *_cache dirs, saved-models/, data/, .ophir/, graphify-out/, .claude/worktrees/.
+# Only list things that are tracked / not gitignored but still don't belong in
+# the knowledge map.
+
 # SDD task ledger — per-task process briefs/reports. Useful as a work log,
 # but they flood the graph with task-N nodes that crowd out the real
 # architecture. Excluded from the knowledge map.
-.superpowers/sdd/
+.superpowers/
+
+# Lock files — pinned-dependency manifests, not source. graphify's built-in
+# skip-list covers package-lock.json / Cargo.lock / poetry.lock / go.sum etc.
+# but omits uv.lock (a ~1 MB churn file), so exclude the whole class explicitly.
+*.lock
+
+# Tooling / harness config — not part of the ophir package. graphify would
+# otherwise ingest these (.json as code, .yaml as a document).
+.vscode/
+.claude/settings.json
+.pre-commit-config.yaml
