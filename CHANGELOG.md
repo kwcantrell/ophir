@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `.agents/skills/quant-trading/`: a layered knowledge skill compiling
+  quant-trading best practices and 2023–2026 research. A concise `SKILL.md`
+  playbook (checklist + anti-pattern table + ophir callouts) backed by four cited
+  reference docs (`forecasting`, `risk-and-execution`, `data-sources`,
+  `backtesting`). Each claim is tagged `[verified]` (passed an adversarial
+  research check), `[canon]` (established), or `[refuted]` (cautionary). Reference
+  only — complements, does not replace, the operational `alpaca-trader` skill.
 - `ophir evaluate` now reports the near-horizon operating point: a `rank_ic_near`
   headline (pooled cross-sectional rank-IC over forecast offsets 1..5, the band
   where the model's skill concentrates) alongside the existing pooled
