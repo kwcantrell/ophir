@@ -102,3 +102,50 @@ def test_latest_base_ckpt_unversioned_matches_no_indexerror(
     for name in ("p-a.ckpt", "p-b.ckpt", "p-c.ckpt"):
         (tmp_path / name).write_text("")
     assert register._latest_base_ckpt("p-") == "p-c.ckpt"
+
+
+def test_base_best_ckpt_constant_name() -> None:
+    assert register.BASE_BEST_CKPT.endswith("ophir-ohlc-base-best.ckpt")
+
+
+def test_resolve_canonical_present(tmp_path: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(register, "MODEL_DIR", str(tmp_path))
+    (tmp_path / "ophir-ohlc-base-best.ckpt").write_text("")
+    assert register._resolve_base_ckpt_path(time_version=False) == str(
+        tmp_path / "ophir-ohlc-base-best.ckpt"
+    )
+
+
+def test_resolve_canonical_absent_raises(tmp_path: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(register, "MODEL_DIR", str(tmp_path))
+    with pytest.raises(FileNotFoundError):
+        register._resolve_base_ckpt_path(time_version=False)
+
+
+def test_resolve_custom_file_name(tmp_path: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(register, "MODEL_DIR", str(tmp_path))
+    (tmp_path / "foo-best.ckpt").write_text("")
+    assert register._resolve_base_ckpt_path("foo", time_version=False) == str(
+        tmp_path / "foo-best.ckpt"
+    )
+
+
+def test_resolve_ignores_val_loss_zoo(tmp_path: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Regression for the reported bug: the canonical file resolves even with the
+    # ~125-file val_loss zoo present (previously an IndexError -> load_forecasts {}).
+    monkeypatch.setattr(register, "MODEL_DIR", str(tmp_path))
+    (tmp_path / "ophir-ohlc-base-best.ckpt").write_text("")
+    for vl in ("0.011", "0.012", "0.013"):
+        (tmp_path / f"ophir-ohlc-basebest-epoch=00-val_loss={vl}.ckpt").write_text("")
+    assert register._resolve_base_ckpt_path(time_version=False) == str(
+        tmp_path / "ophir-ohlc-base-best.ckpt"
+    )
+
+
+def test_resolve_time_version_picks_latest(tmp_path: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(register, "MODEL_DIR", str(tmp_path))
+    (tmp_path / "ophir-ohlc-base-time-check-v1.ckpt").write_text("")
+    (tmp_path / "ophir-ohlc-base-time-check-v2.ckpt").write_text("")
+    assert register._resolve_base_ckpt_path(time_version=True) == str(
+        tmp_path / "ophir-ohlc-base-time-check-v2.ckpt"
+    )

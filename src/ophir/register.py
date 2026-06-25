@@ -36,6 +36,7 @@ MODEL_DIR = os.path.join(OPHIR_DIR, "model")
 BASE_NAME = "ophir-ohlc-base"
 FINETUNE_NAME = "ophire-ohlc-finetuned"
 BASE_MODEL_CKPT = os.path.join(MODEL_DIR, f"{BASE_NAME}.ckpt")
+BASE_BEST_CKPT = os.path.join(MODEL_DIR, f"{BASE_NAME}-best.ckpt")
 TIME_MODIFIER = "-time-check"
 EPOCH_MODIFIER = "best-{epoch:02d}-{val_loss:.5f}"
 
@@ -406,6 +407,40 @@ def quality_stats_path() -> str:
     return os.path.join(DATA_DIR, "quality-stats.json")
 
 
+def _resolve_base_ckpt_path(file_name: str | None = None, time_version: bool = True) -> str:
+    """Resolve a base checkpoint path without loading the model.
+
+    ``time_version=True`` selects the latest rolling ``-time-check-v<N>``
+    checkpoint; ``time_version=False`` selects the explicit canonical
+    best-checkpoint ``{MODEL_DIR}/{name}-best.ckpt``.
+
+    Parameters
+    ----------
+    file_name : str or None, optional
+        Base name. ``None`` uses :data:`BASE_NAME`.
+    time_version : bool, optional
+        Select the rolling time-check checkpoint (``True``) or the canonical
+        best checkpoint (``False``). Defaults to ``True``.
+
+    Returns
+    -------
+    str
+        Absolute path to the resolved checkpoint.
+
+    Raises
+    ------
+    FileNotFoundError
+        When no matching checkpoint exists.
+    """
+    name = file_name if file_name is not None else BASE_NAME
+    if time_version:
+        return os.path.join(MODEL_DIR, _latest_base_ckpt(name + TIME_MODIFIER))
+    path = os.path.join(MODEL_DIR, f"{name}-best.ckpt")
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"canonical base checkpoint not found: {path}")
+    return path
+
+
 @overload
 def load_base_model_ckpt(
     strict: bool = ...,
@@ -455,19 +490,9 @@ def load_base_model_ckpt(
     """
     from ophir.training_models import LightningOHLCPredictor
 
-    if file_name is None:
-        file_name = BASE_NAME
+    last_ckpt = _resolve_base_ckpt_path(file_name, time_version)
+    print(f"loading {last_ckpt}")
 
-    if time_version:
-        file_name += TIME_MODIFIER
-    else:
-        file_name += EPOCH_MODIFIER
-    file_name = file_name.split("{")[0]
-
-    latest_version = _latest_base_ckpt(filename=file_name)
-    print(f"loading {latest_version}")
-
-    last_ckpt = os.path.join(MODEL_DIR, latest_version)
     if not return_ckpt_path:
         return LightningOHLCPredictor.load_from_checkpoint(last_ckpt, strict=strict)
     return LightningOHLCPredictor.load_from_checkpoint(last_ckpt, strict=strict), last_ckpt
