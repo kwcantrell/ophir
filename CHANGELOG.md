@@ -44,6 +44,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `ophir.evaluate.accumulate_targets` no longer crashes with a CPU/CUDA device
+  mismatch when the validation loader carries identity (`return_identity=True`).
+  The input container's `cuda()` moves only `feature_input`/`targets`/
+  `trade_occured` to the GPU, leaving `stock_id`/`date_ordinal` on the CPU, so
+  indexing them with the CUDA response mask raised
+  `RuntimeError: indices should be either on cpu or on the same device`. The
+  identity/offset selection now runs on the CPU regardless of input device. The
+  bug only surfaced on the real CUDA path (the CPU-only `_FakeModel` test
+  fixtures keep every tensor on one device), so the cross-sectional rank-IC in
+  the standalone `ophir evaluate` report had never actually run.
 - Corrected long-standing spelling errors in core public identifiers:
   `OHLCMulitClassPredictor`/`OHLCMulitClassPredictorInput`/`OHLCMulitClassParameters`
   → `OHLCMultiClass*`, `StockHanlder` → `StockHandler`, and `load_fintuned_ckpt`

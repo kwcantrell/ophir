@@ -439,12 +439,17 @@ def accumulate_targets(
             if output.stock_id is not None and output.date_ordinal is not None:
                 from ophir.training_models import trading_day_offsets
 
-                resp_dates = output.date_ordinal[:, -rs:]  # (B, R)
-                ids_br = output.stock_id.view(-1, 1).expand(-1, rs)  # (B, R)
-                offsets = trading_day_offsets(mask)  # (B, R) cumulative trading-day rank
-                id_lists.append(ids_br[mask].reshape(-1).cpu())
-                date_lists.append(resp_dates[mask].reshape(-1).cpu())
-                offset_lists.append(offsets[mask].reshape(-1).cpu())
+                # ``stock_id`` / ``date_ordinal`` are not moved to CUDA by the
+                # input container's ``cuda()`` (only feature_input/targets/
+                # trade_occured are), while ``mask`` follows the CUDA forward.
+                # Select identity on the CPU so the index device always matches.
+                mask_cpu = mask.cpu()
+                resp_dates = output.date_ordinal[:, -rs:].cpu()  # (B, R)
+                ids_br = output.stock_id.view(-1, 1).expand(-1, rs).cpu()  # (B, R)
+                offsets = trading_day_offsets(mask_cpu)  # (B, R) cumulative trading-day rank
+                id_lists.append(ids_br[mask_cpu].reshape(-1))
+                date_lists.append(resp_dates[mask_cpu].reshape(-1))
+                offset_lists.append(offsets[mask_cpu].reshape(-1))
     return AccumulatedEval(
         channels={
             name: (torch.cat(preds), torch.cat(targets))
