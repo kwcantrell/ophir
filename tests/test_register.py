@@ -77,3 +77,28 @@ def test_best_checkpoint_filename_embeds_near_ic_when_flagged() -> None:
 def test_best_checkpoint_filename_embeds_val_loss_by_default() -> None:
     cb = _best_checkpoint_callback("model", monitor_near_ic=False)
     assert "val_loss" in cb.filename
+
+
+def test_latest_base_ckpt_picks_highest_version(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(register, "MODEL_DIR", str(tmp_path))
+    for v in (1, 2, 10):
+        (tmp_path / f"m-time-check-v{v}.ckpt").write_text("")
+    assert register._latest_base_ckpt("m-time-check") == "m-time-check-v10.ckpt"
+
+
+def test_latest_base_ckpt_no_match_raises(tmp_path: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(register, "MODEL_DIR", str(tmp_path))
+    with pytest.raises(FileNotFoundError):
+        register._latest_base_ckpt("nothing")
+
+
+def test_latest_base_ckpt_unversioned_matches_no_indexerror(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Regression: many matches, none with a `-v<N>` suffix -> sorted-last, no IndexError.
+    monkeypatch.setattr(register, "MODEL_DIR", str(tmp_path))
+    for name in ("p-a.ckpt", "p-b.ckpt", "p-c.ckpt"):
+        (tmp_path / name).write_text("")
+    assert register._latest_base_ckpt("p-") == "p-c.ckpt"

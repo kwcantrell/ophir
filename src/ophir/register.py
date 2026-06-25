@@ -249,26 +249,23 @@ def _latest_base_ckpt(filename: str) -> str:
     Returns
     -------
     str
-        The latest matching checkpoint filename (highest ``-v<N>`` version, or
-        the sole match) within :data:`MODEL_DIR`.
-    """
-    base_paths = sorted([path for path in os.listdir(MODEL_DIR) if filename in path])
-    if len(base_paths) > 1:
-        base_versions = sorted(
-            [
-                (
-                    int(version.removeprefix(f"{filename}-v").removesuffix(".ckpt")),
-                    version,
-                )
-                for version in base_paths
-                if f"{filename}-v" in version
-            ]
-        )
-        latest_version = base_versions[-1][1]
-    else:
-        latest_version = base_paths[0]
+        The highest ``-v<N>`` version among matches, or the sorted-last match
+        when none carry a ``-v<N>`` suffix.
 
-    return latest_version
+    Raises
+    ------
+    FileNotFoundError
+        When no file in :data:`MODEL_DIR` contains ``filename``.
+    """
+    base_paths = sorted(path for path in os.listdir(MODEL_DIR) if filename in path)
+    if not base_paths:
+        raise FileNotFoundError(f"no checkpoint matching {filename!r} in {MODEL_DIR}")
+    versioned = sorted(
+        (int(version.removeprefix(f"{filename}-v").removesuffix(".ckpt")), version)
+        for version in base_paths
+        if f"{filename}-v" in version
+    )
+    return versioned[-1][1] if versioned else base_paths[-1]
 
 
 def _latest_finetuned_ckpt() -> str:
