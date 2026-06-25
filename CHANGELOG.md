@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `tests/test_patch_targets.py`: a guard that AST-scans the suite for
+  string-literal `mock.patch` / `monkeypatch.setattr` targets pointing into
+  `ophir` and asserts each still resolves. Catches stale patch targets after a
+  symbol moves modules (e.g. a package split) — the one failure class the
+  public-API parity check cannot see — and reports any non-literal targets it
+  cannot statically check rather than skipping them silently.
+
 ### Changed
 
 - Reorganized `ophir.ticker` from a single 999-line module into a focused
