@@ -18,7 +18,7 @@ from ophir.ticker import StockSplit, get_sp_500_symbols, get_splits
 def _block_real_read_html(mocker):
     """Fail loudly if a test reaches ``pd.read_html`` without overriding it."""
     mocker.patch(
-        "ophir.ticker.pd.read_html",
+        "ophir.ticker.splits.pd.read_html",
         side_effect=AssertionError("unmocked network call to read_html"),
     )
 
@@ -30,7 +30,7 @@ def _block_real_read_html(mocker):
 
 def test_get_sp_500_symbols_parses_symbol_column(mocker):
     table = pd.DataFrame({"Symbol": ["AAA", "BBB", "CCC"]})
-    read_html = mocker.patch("ophir.ticker.pd.read_html", return_value=[table])
+    read_html = mocker.patch("ophir.ticker.splits.pd.read_html", return_value=[table])
 
     assert get_sp_500_symbols() == ["AAA", "BBB", "CCC"]
 
@@ -42,7 +42,7 @@ def test_get_sp_500_symbols_parses_symbol_column(mocker):
 def test_get_sp_500_symbols_swallows_error_then_unbound(mocker, capsys):
     # Pinned latent bug: the bare except only prints, leaving ``dfs`` unbound,
     # so the function then raises UnboundLocalError. Ambiguous fix -> pin it.
-    mocker.patch("ophir.ticker.pd.read_html", side_effect=RuntimeError("boom"))
+    mocker.patch("ophir.ticker.splits.pd.read_html", side_effect=RuntimeError("boom"))
 
     with pytest.raises(UnboundLocalError):
         get_sp_500_symbols()
