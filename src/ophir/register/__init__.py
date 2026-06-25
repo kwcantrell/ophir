@@ -26,29 +26,47 @@ if TYPE_CHECKING:
 
     from ophir.training_models import LightningOHLCPredictor
 
-# Get the absolute path of the current file
-current_file_path = os.path.abspath(__file__)
+from ophir.register.layout import (
+    BASE_BEST_CKPT,
+    BASE_MODEL_CKPT,
+    BASE_NAME,
+    DATA_DIR,
+    EPOCH_MODIFIER,
+    FINETUNE_NAME,
+    MODEL_DIR,
+    OPHIR_DIR,
+    TIME_MODIFIER,
+    get_default_data_days_dir,
+    quality_stats_path,
+)
 
-# Get the directory containing the current file
-current_dir = os.path.dirname(current_file_path)
-OPHIR_DIR = os.path.join(current_dir, ".ophir")
-DATA_DIR = os.path.join(OPHIR_DIR, "data")
-MODEL_DIR = os.path.join(OPHIR_DIR, "model")
-BASE_NAME = "ophir-ohlc-base"
-FINETUNE_NAME = "ophire-ohlc-finetuned"
-BASE_MODEL_CKPT = os.path.join(MODEL_DIR, f"{BASE_NAME}.ckpt")
-BASE_BEST_CKPT = os.path.join(MODEL_DIR, f"{BASE_NAME}-best.ckpt")
-TIME_MODIFIER = "-time-check"
-EPOCH_MODIFIER = "best-{epoch:02d}-{val_loss:.5f}"
-
-if not os.path.exists(OPHIR_DIR):
-    os.makedirs(OPHIR_DIR)
-
-if not os.path.exists(DATA_DIR):
-    os.makedirs(DATA_DIR)
-
-if not os.path.exists(MODEL_DIR):
-    os.makedirs(MODEL_DIR)
+__all__ = [
+    "BASE_BEST_CKPT",
+    "BASE_MODEL_CKPT",
+    "BASE_NAME",
+    "DATA_DIR",
+    "EPOCH_MODIFIER",
+    "FINETUNE_NAME",
+    "MODEL_DIR",
+    "OPHIR_DIR",
+    "TIME_MODIFIER",
+    "app",
+    "clear_ignore_symbols",
+    "clear_quality_symbols",
+    "fetch_base_trainer",
+    "fetch_finetune_trainer",
+    "fetch_ignore_symbols_list",
+    "fetch_quality_symbols_list",
+    "get_default_data_days_dir",
+    "get_massive_client",
+    "load_base_model_ckpt",
+    "load_finetuned_ckpt",
+    "massive_key",
+    "predict_trainer",
+    "quality_stats_path",
+    "set_ignore_symbols",
+    "set_quality_symbols",
+]
 
 
 def _best_checkpoint_callback(file_name: str, monitor_near_ic: bool) -> ModelCheckpoint:
@@ -298,17 +316,6 @@ def _latest_finetuned_ckpt() -> str:
     return latest_version
 
 
-def get_default_data_days_dir() -> str:
-    """Return the default directory holding per-day stock data.
-
-    Returns
-    -------
-    str
-        ``<DATA_DIR>/days``.
-    """
-    return os.path.join(DATA_DIR, "days")
-
-
 def clear_ignore_symbols() -> None:
     """Delete the ignore-symbols list, re-enabling all symbols.
 
@@ -395,17 +402,6 @@ def clear_quality_symbols() -> None:
     path = os.path.join(DATA_DIR, "quality-symbols.txt")
     if os.path.exists(path):
         os.remove(path)
-
-
-def quality_stats_path() -> str:
-    """Return the path of the curation stats JSON.
-
-    Returns
-    -------
-    str
-        ``<DATA_DIR>/quality-stats.json``.
-    """
-    return os.path.join(DATA_DIR, "quality-stats.json")
 
 
 def _resolve_base_ckpt_path(file_name: str | None = None, time_version: bool = True) -> str:
