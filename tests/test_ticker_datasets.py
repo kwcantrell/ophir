@@ -122,7 +122,7 @@ def test_handler_dataset_init_prints_offset_and_cache(parquet_dir, capsys):
 def test_handler_dataset_single_process_conserves_count(parquet_dir, mocker):
     base_path, _ = parquet_dir
     handler = _streamer_handler(base_path)
-    mocker.patch("ophir.ticker.get_worker_info", return_value=None)
+    mocker.patch("ophir.ticker.datasets.get_worker_info", return_value=None)
 
     expected_total = sum(handler[i].size for i in range(len(handler)))
     ds = StockHandlerDataset(handler, response_size=5, cache_size=1)
@@ -135,7 +135,7 @@ def test_handler_dataset_single_process_conserves_count(parquet_dir, mocker):
 def test_handler_dataset_cache_size_does_not_change_count(parquet_dir, mocker):
     base_path, _ = parquet_dir
     handler = _streamer_handler(base_path)
-    mocker.patch("ophir.ticker.get_worker_info", return_value=None)
+    mocker.patch("ophir.ticker.datasets.get_worker_info", return_value=None)
 
     expected_total = sum(handler[i].size for i in range(len(handler)))
     ds = StockHandlerDataset(handler, response_size=5, cache_size=2)
@@ -147,7 +147,7 @@ def test_handler_dataset_worker_sharding(parquet_dir, mocker):
     base_path, _ = parquet_dir
     handler = _streamer_handler(base_path)
     mocker.patch(
-        "ophir.ticker.get_worker_info",
+        "ophir.ticker.datasets.get_worker_info",
         return_value=mocker.Mock(id=1, num_workers=2),
     )
     spy = mocker.spy(StockHandler, "__getitem__")
@@ -163,7 +163,7 @@ def test_handler_dataset_empty_handler_yields_nothing(parquet_dir, mocker, capsy
     base_path, _ = parquet_dir
     handler = _streamer_handler(base_path)
     handler.keep_stocks([])
-    mocker.patch("ophir.ticker.get_worker_info", return_value=None)
+    mocker.patch("ophir.ticker.datasets.get_worker_info", return_value=None)
 
     ds = StockHandlerDataset(handler, response_size=5)
     capsys.readouterr()  # drop init + keep_stocks prints
@@ -177,7 +177,7 @@ def test_handler_dataset_cache_size_larger_than_handler(parquet_dir, mocker):
     # streamers are loaded).
     base_path, _ = parquet_dir
     handler = _streamer_handler(base_path)
-    mocker.patch("ophir.ticker.get_worker_info", return_value=None)
+    mocker.patch("ophir.ticker.datasets.get_worker_info", return_value=None)
 
     expected_total = sum(handler[i].size for i in range(len(handler)))
     ds = StockHandlerDataset(handler, response_size=5, cache_size=100)
@@ -192,7 +192,7 @@ def test_handler_dataset_supports_multiple_passes(parquet_dir, mocker):
     # local state and asks the handler for fresh streamers).
     base_path, _ = parquet_dir
     handler = _streamer_handler(base_path)
-    mocker.patch("ophir.ticker.get_worker_info", return_value=None)
+    mocker.patch("ophir.ticker.datasets.get_worker_info", return_value=None)
 
     expected_total = sum(handler[i].size for i in range(len(handler)))
     ds = StockHandlerDataset(handler, response_size=5)
@@ -221,7 +221,7 @@ def test_handler_dataset_single_stock_cache_one(parquet_dir, mocker, capsys):
     base_path, _ = parquet_dir
     handler = _streamer_handler(base_path)
     handler.keep_stocks(["AAA"])
-    mocker.patch("ophir.ticker.get_worker_info", return_value=None)
+    mocker.patch("ophir.ticker.datasets.get_worker_info", return_value=None)
 
     expected = handler[0].size
     ds = StockHandlerDataset(handler, response_size=5, cache_size=1)
