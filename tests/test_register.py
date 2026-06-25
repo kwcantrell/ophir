@@ -149,3 +149,12 @@ def test_resolve_time_version_picks_latest(tmp_path: Any, monkeypatch: pytest.Mo
     assert register._resolve_base_ckpt_path(time_version=True) == str(
         tmp_path / "ophir-ohlc-base-time-check-v2.ckpt"
     )
+
+
+def test_best_checkpoint_saves_to_candidates_subdir(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(register, "MODEL_DIR", str(tmp_path))
+    cb = _best_checkpoint_callback("model", monitor_near_ic=True)
+    assert cb.dirpath is not None
+    assert str(cb.dirpath).endswith("candidates")

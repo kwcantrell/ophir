@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `load_base_model_ckpt(time_version=False)` (and therefore `load_forecasts`)
+  raised `IndexError` and degraded to `{}` whenever multiple non-versioned
+  checkpoints matched its derived prefix. It now resolves an explicit canonical
+  checkpoint (`register.BASE_BEST_CKPT` = `ophir-ohlc-base-best.ckpt`) via a pure,
+  offline-testable `_resolve_base_ckpt_path`, and `_latest_base_ckpt` degrades to
+  `FileNotFoundError` instead of `IndexError`. Best-epoch training candidates now
+  save to a `candidates/` subdir; promotion to canonical is an explicit copy (see
+  `docs/checkpoint-promotion.md`).
+
 ### Added
 
 - Deterministic momentum signal producer (`ophir.trading.momentum`): an

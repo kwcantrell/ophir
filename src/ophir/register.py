@@ -79,7 +79,7 @@ def _best_checkpoint_callback(file_name: str, monitor_near_ic: bool) -> ModelChe
     return ModelCheckpoint(
         monitor=monitor,
         mode=mode,
-        dirpath=MODEL_DIR,
+        dirpath=os.path.join(MODEL_DIR, "candidates"),
         filename=file_name + suffix,
         save_top_k=1,
         save_on_train_epoch_end=False,
