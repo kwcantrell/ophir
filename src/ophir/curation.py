@@ -4,7 +4,7 @@ Scans the per-symbol parquet tree, scores each symbol on four quality
 dimensions — liquidity, history length & continuity, price sanity, and
 staleness/flatlines — and persists a curated *allowlist* plus a per-symbol
 stats JSON. Training consumes the allowlist through
-:meth:`ophir.ticker.StockHanlder.keep_stocks` (see ``ophir train
+:meth:`ophir.ticker.StockHandler.keep_stocks` (see ``ophir train
 --use-quality-allowlist``).
 
 Row-level cleaning (:func:`ophir.ticker.clean_daily_ohlcv`) is applied here so
@@ -85,7 +85,7 @@ class SymbolQuality:
 
 
 def _daily_aggregate(df: pd.DataFrame) -> pd.DataFrame:
-    """Daily-aggregate raw ticks, mirroring ``StockHanlder.stock_df``.
+    """Daily-aggregate raw ticks, mirroring ``StockHandler.stock_df``.
 
     Parameters
     ----------

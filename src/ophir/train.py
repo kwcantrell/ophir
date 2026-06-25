@@ -29,7 +29,7 @@ import typer
 if TYPE_CHECKING:
     from torch.utils.data import DataLoader
 
-    from ophir.ticker import StockHanlder
+    from ophir.ticker import StockHandler
     from ophir.training_models import LightningOHLCPredictor
 
 #: Calendar days per year; windows are sliced from a daily-calendar frame, so
@@ -78,7 +78,7 @@ def build_split_handlers(
     use_quality_allowlist: bool = False,
     clean_rows: bool = False,
     max_abs_r_close: float = 0.75,
-) -> tuple[StockHanlder, StockHanlder]:
+) -> tuple[StockHandler, StockHandler]:
     """Build disjoint train/val handlers separated by an embargo gap.
 
     The handlers share everything but their year ranges. ``max_year`` is
@@ -114,7 +114,7 @@ def build_split_handlers(
 
     Returns
     -------
-    tuple[StockHanlder, StockHanlder]
+    tuple[StockHandler, StockHandler]
         The ``(train, val)`` handlers.
 
     Raises
@@ -122,7 +122,7 @@ def build_split_handlers(
     typer.BadParameter
         If the embargo gap is too small for ``seq_len``.
     """
-    from ophir.ticker import StockHanlder, get_sp_500_symbols, get_splits
+    from ophir.ticker import StockHandler, get_sp_500_symbols, get_splits
 
     required_gap = math.ceil(seq_len / _CALENDAR_DAYS_PER_YEAR)
     gap = val_min_year - train_max_year
@@ -139,8 +139,8 @@ def build_split_handlers(
         symbols = get_sp_500_symbols()
         splits = get_splits(symbols)
 
-    def _handler(min_year: int | None, max_year: int | None) -> StockHanlder:
-        handler = StockHanlder(
+    def _handler(min_year: int | None, max_year: int | None) -> StockHandler:
+        handler = StockHandler(
             seq_len=seq_len,
             base_path=base_path,
             return_stock_id=False,
@@ -166,7 +166,7 @@ def build_split_handlers(
     return _handler(train_min_year, train_max_year), _handler(val_min_year, val_max_year)
 
 
-def count_windows(handler: StockHanlder) -> int:
+def count_windows(handler: StockHandler) -> int:
     """Count the training windows across every stock in ``handler``.
 
     Builds each stock's :class:`~ophir.ticker.StockStreamer` once and sums its
@@ -177,7 +177,7 @@ def count_windows(handler: StockHanlder) -> int:
 
     Parameters
     ----------
-    handler : StockHanlder
+    handler : StockHandler
         The (already filtered) handler whose windows are counted.
 
     Returns
@@ -188,7 +188,7 @@ def count_windows(handler: StockHanlder) -> int:
     return sum(handler.stock_streamer(stock).size for stock in handler.stocks)
 
 
-def estimate_windows(handler: StockHanlder, sample_size: int = 256, seed: int = 0) -> int:
+def estimate_windows(handler: StockHandler, sample_size: int = 256, seed: int = 0) -> int:
     """Estimate total windows from a random sample of stocks.
 
     Builds streamers for only ``sample_size`` randomly chosen stocks, averages
@@ -200,7 +200,7 @@ def estimate_windows(handler: StockHanlder, sample_size: int = 256, seed: int = 
 
     Parameters
     ----------
-    handler : StockHanlder
+    handler : StockHandler
         The (already filtered) handler to estimate over.
     sample_size : int
         Number of stocks to preprocess for the estimate. Defaults to ``256``.
@@ -262,7 +262,7 @@ def _seed_worker(worker_id: int) -> None:
 
 
 def build_dataloader(
-    handler: StockHanlder,
+    handler: StockHandler,
     response_size: int,
     batch_size: int,
     num_workers: int,
@@ -273,7 +273,7 @@ def build_dataloader(
 
     Parameters
     ----------
-    handler : StockHanlder
+    handler : StockHandler
         The handler whose stocks are streamed.
     response_size : int
         Number of trailing days the model predicts.

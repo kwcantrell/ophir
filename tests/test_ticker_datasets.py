@@ -6,7 +6,7 @@ import torch
 
 from ophir.ticker import (
     StockHandlerDataset,
-    StockHanlder,
+    StockHandler,
     StockStreamer,
     StockStreamerDataset,
 )
@@ -96,7 +96,7 @@ def _streamer_handler(base_path, **kwargs):
         "return_streamer": True,
     }
     defaults.update(kwargs)
-    return StockHanlder(**defaults)
+    return StockHandler(**defaults)
 
 
 def test_handler_dataset_default_cache_size_matches_training(parquet_dir):
@@ -150,7 +150,7 @@ def test_handler_dataset_worker_sharding(parquet_dir, mocker):
         "ophir.ticker.get_worker_info",
         return_value=mocker.Mock(id=1, num_workers=2),
     )
-    spy = mocker.spy(StockHanlder, "__getitem__")
+    spy = mocker.spy(StockHandler, "__getitem__")
 
     ds = StockHandlerDataset(handler, response_size=5, cache_size=1)
     list(ds)

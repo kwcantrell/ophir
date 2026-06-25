@@ -183,9 +183,9 @@ def _leakage_window(seq_len: int) -> torch.Tensor:
     base_path = os.path.join(get_default_data_days_dir(), "stocks")
     if os.path.isdir(base_path):
         try:
-            from ophir.ticker import StockHanlder, extract_model_data
+            from ophir.ticker import StockHandler, extract_model_data
 
-            handler = StockHanlder(
+            handler = StockHandler(
                 seq_len=seq_len,
                 base_path=base_path,
                 return_stock_id=False,

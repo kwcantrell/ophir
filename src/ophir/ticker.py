@@ -2,7 +2,7 @@
 
 This module turns per-stock parquet files into the fixed-length feature
 windows the model consumes. The pipeline is: discover parquet files
-(:func:`get_stock_parquets`), load and filter them (:class:`StockHanlder`),
+(:func:`get_stock_parquets`), load and filter them (:class:`StockHandler`),
 optionally back-adjust for splits (:class:`StockSplit`), compute the
 12-feature representation (:func:`extract_features`), slice into windows
 (:class:`StockStreamer`), and expose them as ``torch`` datasets
@@ -299,7 +299,7 @@ def clean_daily_ohlcv(
     ----------
     df : pandas.DataFrame
         Date-indexed daily OHLCV frame (``high`` / ``low`` / ``close`` /
-        ``volume``), as produced by :meth:`StockHanlder.stock_df`.
+        ``volume``), as produced by :meth:`StockHandler.stock_df`.
     max_abs_r_close : float, optional
         Maximum allowed absolute single-day log return. Defaults to ``0.75``
         (just above a 2:1 split's ``0.69``).
@@ -547,7 +547,7 @@ class StockStreamer:
 
 
 @dataclass(kw_only=True)
-class StockHanlder:
+class StockHandler:
     """Discover, load, filter, and stream a collection of stocks.
 
     Wraps a directory of per-symbol parquet files, applying optional
@@ -849,7 +849,7 @@ def build_latest_inputs(
 
         base_path = os.path.join(register.get_default_data_days_dir(), "stocks")
 
-    handler = StockHanlder(
+    handler = StockHandler(
         seq_len=seq_len,
         base_path=base_path,
         return_stock_id=False,
@@ -913,7 +913,7 @@ class StockStreamerDataset(Dataset[dict[str, Any]]):
 
 
 class StockHandlerDataset(IterableDataset[dict[str, Any]]):
-    """Iterable dataset that streams windows from a :class:`StockHanlder`.
+    """Iterable dataset that streams windows from a :class:`StockHandler`.
 
     Shards stocks across DataLoader workers and keeps a small rotating cache
     of active streamers, sampling a window from a random cached streamer at a
@@ -922,7 +922,7 @@ class StockHandlerDataset(IterableDataset[dict[str, Any]]):
 
     def __init__(
         self,
-        stock_hanlder: StockHanlder,
+        stock_hanlder: StockHandler,
         response_size: int,
         cache_size: int = 8,
         return_identity: bool = False,
@@ -931,7 +931,7 @@ class StockHandlerDataset(IterableDataset[dict[str, Any]]):
 
         Parameters
         ----------
-        stock_hanlder : StockHanlder
+        stock_hanlder : StockHandler
             The handler whose stocks will be streamed.
         response_size : int
             Number of trailing days to predict.

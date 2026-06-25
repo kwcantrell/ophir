@@ -85,7 +85,7 @@ class _FakeStreamer:
 
 
 class _FakeHandler:
-    """Duck-typed stand-in for StockHanlder exposing only what the estimators use."""
+    """Duck-typed stand-in for StockHandler exposing only what the estimators use."""
 
     def __init__(self, sizes: dict[str, int]) -> None:
         self.stocks = list(sizes)

@@ -19,7 +19,7 @@ import pytest
 import torch
 
 from ophir.register import DATA_DIR, MODEL_DIR
-from ophir.ticker import StockHanlder, extract_model_data
+from ophir.ticker import StockHandler, extract_model_data
 
 SEQ_LEN = 365
 RESPONSE_SIZE = 90
@@ -41,7 +41,7 @@ pytestmark = [
 @pytest.fixture(scope="module")
 def real_window():
     """A real 365-day preprocessed feature window for ``SYMBOL`` (offline)."""
-    handler = StockHanlder(
+    handler = StockHandler(
         seq_len=SEQ_LEN,
         base_path=BASE_PATH,
         return_stock_id=False,

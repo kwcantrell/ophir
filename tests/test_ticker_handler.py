@@ -1,4 +1,4 @@
-"""Tests for ``StockHanlder`` discovery, filters, indexing, and keep_stocks."""
+"""Tests for ``StockHandler`` discovery, filters, indexing, and keep_stocks."""
 
 import numpy as np
 import pandas as pd
@@ -6,7 +6,7 @@ import pytest
 from pandas.testing import assert_frame_equal
 
 from ophir.sqlite_store import build_sqlite_store
-from ophir.ticker import StockHanlder, StockStreamer
+from ophir.ticker import StockHandler, StockStreamer
 
 
 def _handler(base_path, **kwargs):
@@ -17,7 +17,7 @@ def _handler(base_path, **kwargs):
         "return_streamer": False,
     }
     defaults.update(kwargs)
-    return StockHanlder(**defaults)
+    return StockHandler(**defaults)
 
 
 # --------------------------------------------------------------------------- #

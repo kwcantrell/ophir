@@ -37,7 +37,7 @@ import torch
 
 from ophir.model_data import OHLCMulitClassPredictorInput
 from ophir.register import DATA_DIR
-from ophir.ticker import StockHanlder, extract_model_data
+from ophir.ticker import StockHandler, extract_model_data
 
 if TYPE_CHECKING:
     from ophir.training_models import LightningOHLCPredictor
@@ -54,14 +54,14 @@ CHANNELS: dict[str, int] = {
 }
 
 _model: LightningOHLCPredictor | None = None
-_handler: StockHanlder | None = None
+_handler: StockHandler | None = None
 _window_cache: dict[str, torch.Tensor] = {}
 
 
-def _get_handler() -> StockHanlder:
+def _get_handler() -> StockHandler:
     global _handler
     if _handler is None:
-        _handler = StockHanlder(
+        _handler = StockHandler(
             seq_len=SEQ_LEN,
             base_path=BASE_PATH,
             return_stock_id=False,

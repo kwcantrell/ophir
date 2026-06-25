@@ -90,7 +90,7 @@ def load_recent_closes(
 ) -> dict[str, list[float]]:
     """Load per-symbol daily closes from the model's parquet read path.
 
-    Reuses :meth:`ophir.ticker.StockHanlder.stock_df` — the same accessor the
+    Reuses :meth:`ophir.ticker.StockHandler.stock_df` — the same accessor the
     inference seam (:func:`ophir.ticker.build_latest_inputs`) reaches — so
     momentum sees the identical daily-aggregated, cleaned closes the model does.
     No split adjustment / ``get_splits`` is performed (that is network-bound and
@@ -118,9 +118,9 @@ def load_recent_closes(
     if not os.path.isdir(base_path):
         return {}
 
-    from ophir.ticker import StockHanlder
+    from ophir.ticker import StockHandler
 
-    handler = StockHanlder(
+    handler = StockHandler(
         seq_len=365, base_path=base_path, return_stock_id=False, return_streamer=False
     )
     out: dict[str, list[float]] = {}

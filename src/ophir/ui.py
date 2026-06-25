@@ -8,7 +8,7 @@ assembled into a Gradio ``Blocks`` app launched by :func:`serve`.
 .. warning::
 
    Importing this module runs live network calls (Wikipedia, Yahoo Finance),
-   builds a :class:`~ophir.ticker.StockHanlder`, and loads a base checkpoint
+   builds a :class:`~ophir.ticker.StockHandler`, and loads a base checkpoint
    onto a CUDA device. It therefore cannot be imported by the documentation
    build and requires a GPU, a checkpoint, network access, and a local Ollama
    server at runtime.
@@ -29,7 +29,7 @@ from langchain_ollama import ChatOllama
 from ophir.model_data import OHLCMulitClassPredictorInput
 from ophir.register import DATA_DIR, load_base_model_ckpt
 from ophir.ticker import (
-    StockHanlder,
+    StockHandler,
     StockStreamer,
     extract_model_data,
     get_sp_500_symbols,
@@ -44,7 +44,7 @@ elements_per_sample = 365
 response_size = 90
 offset = 90
 
-val_stock_handler = StockHanlder(
+val_stock_handler = StockHandler(
     seq_len=elements_per_sample,
     base_path=base_path,
     return_stock_id=False,

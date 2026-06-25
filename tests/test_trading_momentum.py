@@ -67,7 +67,7 @@ def test_momentum_signals_empty_and_all_none() -> None:
 
 
 def test_load_recent_closes_reads_full_history(parquet_dir) -> None:
-    from ophir.ticker import StockHanlder
+    from ophir.ticker import StockHandler
 
     base_path, _paths = parquet_dir
     result = load_recent_closes(["AAA", "ZZZ"], base_path)
@@ -75,7 +75,7 @@ def test_load_recent_closes_reads_full_history(parquet_dir) -> None:
     assert "AAA" in result
     assert "ZZZ" not in result
     # Matches the model's own read path exactly.
-    handler = StockHanlder(
+    handler = StockHandler(
         seq_len=365, base_path=base_path, return_stock_id=False, return_streamer=False
     )
     expected = [float(c) for c in handler.stock_df("AAA")["close"].tolist()]

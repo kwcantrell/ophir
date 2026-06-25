@@ -88,7 +88,7 @@ def empty_ohlcv_df():
 def raw_tick_df(make_ohlcv):
     """Raw pre-aggregation frame with a ``utc_time`` column, 2 ticks/day.
 
-    Mirrors what ``StockHanlder.stock_df`` expects to read from parquet
+    Mirrors what ``StockHandler.stock_df`` expects to read from parquet
     (before it does its own ``groupby("date")`` aggregation).
     """
     base = make_ohlcv(n_days=80, seed=99)
