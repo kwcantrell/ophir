@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Reorganized `ophir.ticker` from a single 999-line module into a focused
+  package (`paths`, `splits`, `features`, `streamer`, `handler`, `inputs`,
+  `datasets`) with a re-export `__init__`. Public API and behavior are
+  unchanged; `from ophir.ticker import ...` continues to work as before. The
+  only test-side change is retargeting two `mocker.patch` paths to the
+  submodule where the patched name now lives (`ophir.ticker.splits.pd`,
+  `ophir.ticker.datasets.get_worker_info`).
+
 ### Fixed
 
 - Corrected long-standing spelling errors in core public identifiers:
