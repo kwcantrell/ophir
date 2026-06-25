@@ -61,6 +61,7 @@ class AccumulatedEval:
     baselines: dict[str, torch.Tensor] = field(default_factory=dict)
     r_close_ids: torch.Tensor | None = None
     r_close_dates: torch.Tensor | None = None
+    r_close_offsets: torch.Tensor | None = None
 
 
 def target_metrics(pred: torch.Tensor, target: torch.Tensor) -> dict[str, float]:
@@ -353,7 +354,10 @@ def accumulate_targets(
         row-for-row with the predictions. When the loader carries identity
         (``return_identity=True``), ``r_close_ids`` / ``r_close_dates`` hold the
         per-prediction ticker id and calendar-day ordinal aligned row-for-row
-        with the ``r_close`` channel (else ``None``).
+        with the ``r_close`` channel (else ``None``). ``r_close_offsets`` carries
+        each prediction's 1-based forecast offset (trading-day lead within the
+        response block), aligned with ``r_close_ids`` (also ``None`` without
+        identity).
     """
     model = model.cuda().eval()
     collected: dict[str, tuple[list[torch.Tensor], list[torch.Tensor]]] = {
@@ -362,6 +366,7 @@ def accumulate_targets(
     baseline_lists: dict[str, list[torch.Tensor]] = {"upside": [], "downside": []}
     id_lists: list[torch.Tensor] = []
     date_lists: list[torch.Tensor] = []
+    offset_lists: list[torch.Tensor] = []
     with torch.no_grad():
         for index, batch in enumerate(dataloader):
             if index >= max_batches:
@@ -385,10 +390,14 @@ def accumulate_targets(
                 baseline_lists[name].append(base[mask].reshape(-1).cpu())
             # Opt-in identity, collected parallel to the r_close pred/target above.
             if output.stock_id is not None and output.date_ordinal is not None:
+                from ophir.training_models import trading_day_offsets
+
                 resp_dates = output.date_ordinal[:, -rs:]  # (B, R)
                 ids_br = output.stock_id.view(-1, 1).expand(-1, rs)  # (B, R)
+                offsets = trading_day_offsets(mask)  # (B, R) cumulative trading-day rank
                 id_lists.append(ids_br[mask].reshape(-1).cpu())
                 date_lists.append(resp_dates[mask].reshape(-1).cpu())
+                offset_lists.append(offsets[mask].reshape(-1).cpu())
     return AccumulatedEval(
         channels={
             name: (torch.cat(preds), torch.cat(targets))
@@ -397,6 +406,7 @@ def accumulate_targets(
         baselines={name: torch.cat(b) for name, b in baseline_lists.items()},
         r_close_ids=torch.cat(id_lists) if id_lists else None,
         r_close_dates=torch.cat(date_lists) if date_lists else None,
+        r_close_offsets=torch.cat(offset_lists) if offset_lists else None,
     )
 
 

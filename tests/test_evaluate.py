@@ -113,6 +113,45 @@ def test_evaluate_model_reports_rank_ic() -> None:
     assert abs(out["r_close"]["rank_ic_mean"] - 1.0) < 1e-6
 
 
+def _toy_offset_batch() -> dict[str, object]:
+    # B=2 tickers, S=3, response_size=2 -> response cols 1,2 give offsets 1 and 2.
+    # r_close (channel 0) ranks ticker 5 above ticker 6 on both response days.
+    targets = torch.tensor(
+        [
+            [[0.0, 0.1, 0.1], [0.2, 0.1, 0.1], [0.3, 0.1, 0.1]],
+            [[0.0, 0.1, 0.1], [0.1, 0.1, 0.1], [0.1, 0.1, 0.1]],
+        ]
+    )
+    return {
+        "feature_input": torch.zeros(2, 3, 12),
+        "targets": targets,
+        "trade_occured": torch.ones(2, 3, dtype=torch.bool),
+        "response_size": torch.tensor(2),
+        "stock_id": torch.tensor([5, 6]),
+        "date_ordinal": torch.tensor([[10, 11, 12], [10, 11, 12]]),
+    }
+
+
+def test_accumulate_targets_carries_offsets() -> None:
+    model = _FakeModel()
+    acc = accumulate_targets(model, [_toy_offset_batch()], max_batches=1)  # type: ignore[arg-type]
+
+    assert acc.r_close_offsets is not None
+    pred, _ = acc.channels["r_close"]
+    # One offset per r_close prediction row, aligned with ids.
+    assert acc.r_close_offsets.shape == pred.shape
+    assert acc.r_close_ids is not None
+    # Row-major over (B, R): ticker5@off1, ticker5@off2, ticker6@off1, ticker6@off2.
+    assert acc.r_close_ids.tolist() == [5, 5, 6, 6]
+    assert acc.r_close_offsets.tolist() == [1, 2, 1, 2]
+
+
+def test_accumulate_targets_offsets_none_without_identity() -> None:
+    model = _FakeModel()
+    acc = accumulate_targets(model, [_toy_batch()], max_batches=1)  # type: ignore[arg-type]
+    assert acc.r_close_offsets is None
+
+
 def test_target_metrics_perfect_prediction_is_zero() -> None:
     values = torch.tensor([0.1, -0.2, 0.3, 0.0])
     metrics = target_metrics(values, values)
