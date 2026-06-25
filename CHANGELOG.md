@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Corrected long-standing spelling errors in core public identifiers:
+  `OHLCMulitClassPredictor`/`OHLCMulitClassPredictorInput`/`OHLCMulitClassParameters`
+  → `OHLCMultiClass*`, `StockHanlder` → `StockHandler`, and `load_fintuned_ckpt`
+  → `load_finetuned_ckpt`. Behavior is unchanged and existing checkpoints still
+  load (state-dict keys and saved hyperparameters are unaffected). The persisted
+  `"ophire-ohlc-finetuned"` checkpoint filename is intentionally left as-is to
+  avoid breaking resolution of already-saved checkpoints.
 - `load_base_model_ckpt(time_version=False)` (and therefore `load_forecasts`)
   raised `IndexError` and degraded to `{}` whenever multiple non-versioned
   checkpoints matched its derived prefix. It now resolves an explicit canonical

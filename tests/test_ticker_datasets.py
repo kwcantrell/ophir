@@ -5,8 +5,8 @@ import pytest
 import torch
 
 from ophir.ticker import (
-    StockHandlerDataset,
     StockHandler,
+    StockHandlerDataset,
     StockStreamer,
     StockStreamerDataset,
 )
