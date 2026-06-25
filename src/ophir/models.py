@@ -40,6 +40,12 @@ if TYPE_CHECKING:
 
 compiled_flex_attention = torch.compile(flex_attention, dynamic=True)
 
+#: Number of per-day input features consumed by ``feature_mlp`` (see
+#: ``ticker.extract_features``). Single source of truth: a checkpoint trained
+#: against a different value cannot be loaded by the current model, so
+#: ``register`` validates it at load time.
+FEATURE_DIM = 12
+
 
 # --------------------------------------------------------------------------- #
 # Hyper-parameters
@@ -423,7 +429,7 @@ class OHLCMulitClassPredictor(nn.Module):
         super().__init__()
         # Positional encoding - we keep it simple and trainable
         self.pe = nn.Parameter(torch.randn((1, 512, hparams.emb_dim)))
-        self.feature_mlp = nn.Linear(12, hparams.emb_dim)
+        self.feature_mlp = nn.Linear(FEATURE_DIM, hparams.emb_dim)
         # Learned token that replaces the response-block features so the model
         # cannot read the targets it is asked to forecast (see _apply_response_mask).
         self.mask_token = nn.Parameter(torch.randn(hparams.emb_dim))

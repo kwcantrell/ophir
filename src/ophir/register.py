@@ -12,13 +12,14 @@ from __future__ import annotations
 
 import os
 from datetime import timedelta
-from typing import TYPE_CHECKING, Annotated, Literal, overload
+from typing import TYPE_CHECKING, Annotated, Literal, NoReturn, overload
 
 import typer
 from massive import RESTClient
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Iterable, Mapping
+    from typing import Any
 
     import lightning as L
     from lightning.pytorch.callbacks import ModelCheckpoint
@@ -441,6 +442,61 @@ def _resolve_base_ckpt_path(file_name: str | None = None, time_version: bool = T
     return path
 
 
+def _feature_dim_mismatch(state_dict: Mapping[str, Any]) -> tuple[int, int] | None:
+    """Return ``(found, expected)`` when a checkpoint disagrees on feature width.
+
+    Inspects the ``feature_mlp`` weight in a checkpoint ``state_dict`` and
+    compares its input dimension to the current model's
+    :data:`ophir.models.FEATURE_DIM`.
+
+    Parameters
+    ----------
+    state_dict : mapping of str to Any
+        A checkpoint ``state_dict`` (parameter name to tensor).
+
+    Returns
+    -------
+    tuple[int, int] or None
+        ``(found, expected)`` when the checkpoint's ``feature_mlp`` input dim
+        differs from the current model; ``None`` when it matches or no
+        ``feature_mlp`` weight is present (cannot check — do not block).
+    """
+    from ophir.models import FEATURE_DIM
+
+    key = next((k for k in state_dict if k.endswith("feature_mlp.weight")), None)
+    if key is None:
+        return None
+    found = int(state_dict[key].shape[1])
+    return (found, FEATURE_DIM) if found != FEATURE_DIM else None
+
+
+def _raise_load_error_with_hint(ckpt_path: str, original: RuntimeError) -> NoReturn:
+    """Re-raise ``original``, clarifying it first if it is a feature-dim drift.
+
+    A stale checkpoint (trained before a feature-schema change) fails
+    ``load_from_checkpoint`` with an opaque ``size mismatch`` error. This reads
+    the checkpoint's ``feature_mlp`` width and, on a mismatch, raises a clear,
+    actionable error pointing at the promotion runbook; otherwise it re-raises
+    the original error unchanged.
+    """
+    import torch
+
+    try:
+        ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=False)
+    except Exception:
+        raise original from None
+    state_dict = ckpt.get("state_dict", ckpt) if isinstance(ckpt, dict) else {}
+    mismatch = _feature_dim_mismatch(state_dict)
+    if mismatch is None:
+        raise original
+    found, expected = mismatch
+    raise RuntimeError(
+        f"checkpoint {ckpt_path!r} has feature_mlp input dim {found}, but the current "
+        f"model expects {expected}; it predates a feature-schema change and must be "
+        f"retrained and re-promoted (see docs/checkpoint-promotion.md)."
+    ) from original
+
+
 @overload
 def load_base_model_ckpt(
     strict: bool = ...,
@@ -493,9 +549,14 @@ def load_base_model_ckpt(
     last_ckpt = _resolve_base_ckpt_path(file_name, time_version)
     print(f"loading {last_ckpt}")
 
+    try:
+        model = LightningOHLCPredictor.load_from_checkpoint(last_ckpt, strict=strict)
+    except RuntimeError as exc:
+        _raise_load_error_with_hint(last_ckpt, exc)
+
     if not return_ckpt_path:
-        return LightningOHLCPredictor.load_from_checkpoint(last_ckpt, strict=strict)
-    return LightningOHLCPredictor.load_from_checkpoint(last_ckpt, strict=strict), last_ckpt
+        return model
+    return model, last_ckpt
 
 
 @overload

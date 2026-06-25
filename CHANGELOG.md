@@ -17,6 +17,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `FileNotFoundError` instead of `IndexError`. Best-epoch training candidates now
   save to a `candidates/` subdir; promotion to canonical is an explicit copy (see
   `docs/checkpoint-promotion.md`).
+- Loading a checkpoint whose feature width no longer matches the model (e.g. one
+  trained before `time_delta` was dropped) failed with an opaque torch
+  `size mismatch` error. `load_base_model_ckpt` now raises a clear, actionable
+  message naming the found-vs-expected `feature_mlp` input dim and pointing at
+  `docs/checkpoint-promotion.md`. The expected width is a single source of truth
+  (`models.FEATURE_DIM`), validated at load time via the offline-testable
+  `register._feature_dim_mismatch`.
 
 ### Added
 

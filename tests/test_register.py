@@ -158,3 +158,63 @@ def test_best_checkpoint_saves_to_candidates_subdir(
     cb = _best_checkpoint_callback("model", monitor_near_ic=True)
     assert cb.dirpath is not None
     assert str(cb.dirpath).endswith("candidates")
+
+
+def test_feature_dim_constant_is_12() -> None:
+    from ophir.models import FEATURE_DIM
+
+    assert FEATURE_DIM == 12
+
+
+def test_feature_dim_mismatch_returns_none_when_matching() -> None:
+    import torch
+
+    from ophir.models import FEATURE_DIM
+
+    state_dict = {"ohlc_predictor.feature_mlp.weight": torch.zeros((8, FEATURE_DIM))}
+    assert register._feature_dim_mismatch(state_dict) is None
+
+
+def test_feature_dim_mismatch_detects_stale_dim() -> None:
+    import torch
+
+    from ophir.models import FEATURE_DIM
+
+    # A checkpoint trained before a feature was dropped carries a wider input.
+    state_dict = {"ohlc_predictor.feature_mlp.weight": torch.zeros((8, FEATURE_DIM + 1))}
+    assert register._feature_dim_mismatch(state_dict) == (FEATURE_DIM + 1, FEATURE_DIM)
+
+
+def test_feature_dim_mismatch_returns_none_when_key_absent() -> None:
+    # Cannot check without the feature_mlp weight -> do not block the load.
+    assert register._feature_dim_mismatch({"unrelated.weight": object()}) is None
+
+
+def test_load_error_hint_raises_clear_message_on_stale_dim(tmp_path: Any) -> None:
+    import torch
+
+    from ophir.models import FEATURE_DIM
+
+    ckpt = tmp_path / "stale.ckpt"
+    torch.save(
+        {"state_dict": {"ohlc_predictor.feature_mlp.weight": torch.zeros((8, FEATURE_DIM + 1))}},
+        ckpt,
+    )
+    original = RuntimeError("size mismatch for ohlc_predictor.feature_mlp.weight")
+    with pytest.raises(RuntimeError, match="feature_mlp input dim"):
+        register._raise_load_error_with_hint(str(ckpt), original)
+
+
+def test_load_error_hint_reraises_original_when_dim_ok(tmp_path: Any) -> None:
+    import torch
+
+    from ophir.models import FEATURE_DIM
+
+    ckpt = tmp_path / "ok.ckpt"
+    torch.save(
+        {"state_dict": {"ohlc_predictor.feature_mlp.weight": torch.zeros((8, FEATURE_DIM))}},
+        ckpt,
+    )
+    original = RuntimeError("some unrelated load failure")
+    with pytest.raises(RuntimeError, match="some unrelated load failure"):
+        register._raise_load_error_with_hint(str(ckpt), original)
