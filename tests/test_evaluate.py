@@ -179,6 +179,29 @@ def test_rank_ic_near_empty_band_is_nan_without_warning() -> None:
     assert math.isnan(rank_ic_near(pred, target, ids, dates, offsets, k=5))
 
 
+def test_evaluate_model_reports_near_and_offset_curve() -> None:
+    from ophir import evaluate as ev
+
+    model = _FakeModel()  # perfect predictions
+    out = ev.evaluate_model(model, [_toy_offset_batch()], max_batches=1)  # type: ignore[arg-type]
+    rc = out["r_close"]
+
+    # Headline operating point and the near offsets resolve to perfect IC.
+    assert rc["rank_ic_near"] == pytest.approx(1.0, abs=1e-5)
+    assert rc["h1"] == pytest.approx(1.0, abs=1e-5)
+    assert rc["h2"] == pytest.approx(1.0, abs=1e-5)
+    # Offsets with no rows in this toy batch are nan.
+    assert math.isnan(rc["h5"])
+
+
+def test_evaluate_model_pooled_rank_ic_unchanged_with_offsets() -> None:
+    from ophir import evaluate as ev
+
+    out = ev.evaluate_model(_FakeModel(), [_toy_identity_batch()], max_batches=1)  # type: ignore[arg-type]
+    # The pooled metric is computed exactly as before adding offsets.
+    assert abs(out["r_close"]["rank_ic_mean"] - 1.0) < 1e-6
+
+
 def test_target_metrics_perfect_prediction_is_zero() -> None:
     values = torch.tensor([0.1, -0.2, 0.3, 0.0])
     metrics = target_metrics(values, values)

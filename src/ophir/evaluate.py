@@ -477,9 +477,11 @@ def evaluate_model(
     dict[str, dict[str, float]]
         ``{channel: metrics}``; the ``r_close`` entry additionally carries
         ``directional_accuracy`` and ``skill_score`` (and ``rank_ic_mean`` /
-        ``rank_ic_ir`` when the loader carries identity), and the
-        ``upside``/``downside`` entries carry ``skill_vs_persistence`` (the
-        skill score against the persistence baseline).
+        ``rank_ic_ir`` when the loader carries identity; plus ``rank_ic_near``
+        — the near-band operating point — and a per-offset ``h{n}`` IC curve when
+        the loader also carries forecast offsets), and the ``upside``/``downside``
+        entries carry ``skill_vs_persistence`` (the skill score against the
+        persistence baseline).
     """
     acc = accumulate_targets(model, dataloader, max_batches)
     results: dict[str, dict[str, float]] = {}
@@ -499,6 +501,24 @@ def evaluate_model(
         ic = rank_ic(dp, dt, dd)
         results["r_close"]["rank_ic_mean"] = ic["ic_mean"]
         results["r_close"]["rank_ic_ir"] = ic["ic_ir"]
+    if acc.r_close_offsets is not None:
+        from ophir.training_models import _OFFSET_BUCKETS
+
+        assert acc.r_close_ids is not None and acc.r_close_dates is not None
+        pred, target = acc.channels["r_close"]
+        results["r_close"]["rank_ic_near"] = rank_ic_near(
+            pred, target, acc.r_close_ids, acc.r_close_dates, acc.r_close_offsets
+        )
+        results["r_close"].update(
+            rank_ic_by_offset(
+                pred,
+                target,
+                acc.r_close_ids,
+                acc.r_close_dates,
+                acc.r_close_offsets,
+                _OFFSET_BUCKETS,
+            )
+        )
     return results
 
 
