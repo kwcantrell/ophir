@@ -18,6 +18,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Reorganized `ophir.register` from a single 641-line module into a focused
+  package (`layout`, `symbols`, `trainers`, `checkpoints`, `client`) with a
+  re-export `__init__`. Public API and behavior are unchanged — constants, the
+  Typer `app`, and `from ophir import register` / `register.<name>` resolve as
+  before, and the `.ophir/` directory location is preserved. The `.ophir/`
+  constants now live in `register.layout` as the single source of truth, read
+  live by the other submodules; tests that redirected the layout via
+  `monkeypatch.setattr(register, "DATA_DIR"/"MODEL_DIR", ...)` now target
+  `register.layout` accordingly.
 - Reorganized `ophir.ticker` from a single 999-line module into a focused
   package (`paths`, `splits`, `features`, `streamer`, `handler`, `inputs`,
   `datasets`) with a re-export `__init__`. Public API and behavior are

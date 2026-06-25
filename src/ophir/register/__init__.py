@@ -1,11 +1,13 @@
 """Filesystem, checkpoint, and Lightning ``Trainer`` helpers.
 
-This module owns the package's on-disk layout under ``.ophir/`` (data and
-model directories, created on import), factory functions for the base and
-finetuning :class:`lightning.Trainer` objects, checkpoint loaders for the
-latest base / finetuned :class:`~ophir.training_models.LightningOHLCPredictor`,
-and a small Typer sub-application (:data:`app`) for storing the MASSIVE API
-key.
+This package owns the on-disk ``.ophir/`` layout (:mod:`ophir.register.layout`),
+ignore/quality symbol-list management (:mod:`ophir.register.symbols`), the
+Lightning ``Trainer`` factories (:mod:`ophir.register.trainers`), checkpoint
+resolution and loaders (:mod:`ophir.register.checkpoints`), and the MASSIVE API
+client plus its ``massive_key`` Typer command (:mod:`ophir.register.client`).
+The full public surface — constants, functions, and the Typer ``app`` — is
+re-exported here, so ``from ophir import register`` and ``register.<name>`` work
+exactly as before.
 """
 
 from __future__ import annotations
