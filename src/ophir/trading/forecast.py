@@ -80,7 +80,11 @@ def load_forecasts(
 
     try:
         model = register.load_base_model_ckpt(strict=False, time_version=False)
-    except (IndexError, FileNotFoundError, OSError) as exc:
+    except (IndexError, FileNotFoundError, OSError, RuntimeError) as exc:
+        # RuntimeError covers an architecturally stale canonical checkpoint
+        # (e.g. a feature-schema drift surfaces as a size mismatch / the
+        # clarified register error). Degrade to non-ophir signals rather than
+        # crashing `trade propose`, matching the "no signals available" contract.
         _log.warning("load_forecasts: %s", exc)
         return {}
 

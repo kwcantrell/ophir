@@ -44,6 +44,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `ophir.trading.forecast.load_forecasts` now degrades to an empty result (the
+  documented "no signals available" fallback) when the canonical checkpoint
+  fails to load with a `RuntimeError` — e.g. an architecturally stale checkpoint
+  whose `feature_mlp` width predates a feature-schema change. Previously only
+  `IndexError`/`FileNotFoundError`/`OSError` were tolerated, so a stale checkpoint
+  would crash `ophir trade propose` instead of falling back to non-ophir signals.
 - `ophir evaluate` now skips a checkpoint that fails to load with a `RuntimeError`
   (e.g. an architecturally stale checkpoint whose `feature_mlp` width predates a
   feature-schema change) instead of aborting the whole run, matching the
