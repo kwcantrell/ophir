@@ -50,6 +50,7 @@ _METRIC_ORDER = (
     "skill_vs_persistence",
     "rank_ic_mean",
     "rank_ic_ir",
+    "rank_ic_near",
 )
 
 #: Inclusive upper bound (in 1-based trading-day forecast offsets) of the near
@@ -570,6 +571,47 @@ def format_report(results_by_label: dict[str, dict[str, dict[str, float]]]) -> s
     return "\n".join(lines).rstrip() + "\n"
 
 
+def format_offset_decay(results_by_label: dict[str, dict[str, dict[str, float]]]) -> str:
+    """Render the per-offset r_close IC decay as a Markdown table.
+
+    One row per forecast offset in ``_OFFSET_BUCKETS``, one column per evaluated
+    checkpoint, so the near-horizon concentration (and its dilution at longer
+    leads) is visible at a glance. Returns the empty string when no checkpoint
+    carries the per-offset ``h{n}`` keys (e.g. the loader had no identity).
+
+    Parameters
+    ----------
+    results_by_label : dict[str, dict[str, dict[str, float]]]
+        ``{label: {channel: metrics}}`` as returned by :func:`evaluate_model`.
+
+    Returns
+    -------
+    str
+        A Markdown section, or ``""`` when there is no curve to show.
+    """
+    from ophir.training_models import _OFFSET_BUCKETS
+
+    labels = list(results_by_label)
+    keys = [f"h{int(b)}" for b in _OFFSET_BUCKETS]
+    present = [
+        key
+        for key in keys
+        if any(key in results_by_label[label].get("r_close", {}) for label in labels)
+    ]
+    if not present:
+        return ""
+    lines = ["## Near-horizon IC decay (r_close)", ""]
+    lines.append("| offset | " + " | ".join(labels) + " |")
+    lines.append("| --- |" + " --- |" * len(labels))
+    for key in present:
+        cells = []
+        for label in labels:
+            metrics = results_by_label[label].get("r_close", {})
+            cells.append(_format_metric(key, metrics[key]) if key in metrics else "n/a")
+        lines.append(f"| {key} | " + " | ".join(cells) + " |")
+    return "\n".join(lines).rstrip() + "\n"
+
+
 def evaluate(
     seq_len: int = 365,
     offset: int = 90,
@@ -675,3 +717,6 @@ def evaluate(
         raise typer.BadParameter("No checkpoint could be loaded to evaluate.")
 
     typer.echo(format_report(results_by_label))
+    decay = format_offset_decay(results_by_label)
+    if decay:
+        typer.echo(decay)

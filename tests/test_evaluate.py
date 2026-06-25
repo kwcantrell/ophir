@@ -15,6 +15,7 @@ from ophir.evaluate import (
     accumulate_targets,
     dedupe_by_ticker_date,
     directional_accuracy,
+    format_offset_decay,
     format_report,
     prefix_last_observed,
     rank_ic,
@@ -200,6 +201,29 @@ def test_evaluate_model_pooled_rank_ic_unchanged_with_offsets() -> None:
     out = ev.evaluate_model(_FakeModel(), [_toy_identity_batch()], max_batches=1)  # type: ignore[arg-type]
     # The pooled metric is computed exactly as before adding offsets.
     assert abs(out["r_close"]["rank_ic_mean"] - 1.0) < 1e-6
+
+
+def test_format_report_includes_rank_ic_near() -> None:
+    md = format_report(
+        {"best-val": {"r_close": {"rank_ic_near": 0.066}, "upside": {}, "downside": {}}}
+    )
+    assert "rank_ic_near" in md
+    assert "0.06600" in md
+
+
+def test_format_offset_decay_renders_curve() -> None:
+    results = {
+        "best-val": {"r_close": {"rank_ic_near": 0.066, "h1": 0.08, "h2": 0.07, "h5": float("nan")}}
+    }
+    md = format_offset_decay(results)
+    assert "Near-horizon IC decay" in md
+    assert "h1" in md
+    assert "0.08000" in md
+    assert "n/a" in md  # h5 is nan
+
+
+def test_format_offset_decay_empty_without_curve() -> None:
+    assert format_offset_decay({"best-val": {"r_close": {"rank_ic_mean": 0.02}}}) == ""
 
 
 def test_target_metrics_perfect_prediction_is_zero() -> None:
