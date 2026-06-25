@@ -617,6 +617,47 @@ def format_offset_decay(results_by_label: dict[str, dict[str, dict[str, float]]]
     return "\n".join(lines).rstrip() + "\n"
 
 
+def _evaluate_loaders(
+    loaders: list[tuple[str, Callable[[], LightningOHLCPredictor]]],
+    dataloader: DataLoader[dict[str, object]],
+    max_batches: int,
+) -> dict[str, dict[str, dict[str, float]]]:
+    """Load and score each labelled checkpoint, skipping any that fail to load.
+
+    A single missing or unloadable checkpoint must not sink the whole run, so a
+    loader that raises is reported and skipped rather than propagated. This
+    covers a checkpoint that is absent (``FileNotFoundError``), unresolved
+    (``IndexError``), unreadable (``OSError``), or architecturally stale — a
+    feature-schema drift surfaces as a ``RuntimeError`` (an opaque size mismatch
+    or the clarified message from ``register``), which is treated the same as a
+    missing one. Errors raised by :func:`evaluate_model` itself are not caught:
+    a real scoring failure should fail loudly.
+
+    Parameters
+    ----------
+    loaders : list of (str, callable)
+        ``(label, load)`` pairs; each ``load`` returns a checkpoint to score.
+    dataloader : DataLoader
+        A validation loader passed through to :func:`evaluate_model`.
+    max_batches : int
+        Maximum number of batches to score per checkpoint.
+
+    Returns
+    -------
+    dict[str, dict[str, dict[str, float]]]
+        ``{label: {channel: metrics}}`` for every checkpoint that loaded.
+    """
+    results_by_label: dict[str, dict[str, dict[str, float]]] = {}
+    for label, load in loaders:
+        try:
+            model = load()
+        except (FileNotFoundError, IndexError, OSError, RuntimeError) as exc:
+            typer.echo(f"Skipping {label}: could not load a checkpoint ({exc}).")
+            continue
+        results_by_label[label] = evaluate_model(model, dataloader, max_batches)
+    return results_by_label
+
+
 def evaluate(
     seq_len: int = 365,
     offset: int = 90,
@@ -707,16 +748,7 @@ def evaluate(
             ),
         ]
 
-    # Load and score each checkpoint independently so a single missing/unloadable
-    # one (e.g. no best-val checkpoint saved yet) does not sink the whole run.
-    results_by_label: dict[str, dict[str, dict[str, float]]] = {}
-    for label, load in loaders:
-        try:
-            model = load()
-        except (FileNotFoundError, IndexError, OSError) as exc:
-            typer.echo(f"Skipping {label}: could not load a checkpoint ({exc}).")
-            continue
-        results_by_label[label] = evaluate_model(model, val_dl, val_batches)
+    results_by_label = _evaluate_loaders(loaders, val_dl, val_batches)
 
     if not results_by_label:
         raise typer.BadParameter("No checkpoint could be loaded to evaluate.")

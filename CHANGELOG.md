@@ -44,6 +44,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `ophir evaluate` now skips a checkpoint that fails to load with a `RuntimeError`
+  (e.g. an architecturally stale checkpoint whose `feature_mlp` width predates a
+  feature-schema change) instead of aborting the whole run, matching the
+  documented "each loaded independently, so a missing one is skipped" behavior —
+  previously only `FileNotFoundError`/`IndexError`/`OSError` were tolerated, so one
+  stale checkpoint sank the report even when a loadable one was available. The
+  load-and-skip loop is now a unit-tested `_evaluate_loaders` helper.
 - `ophir.evaluate.accumulate_targets` no longer crashes with a CPU/CUDA device
   mismatch when the validation loader carries identity (`return_identity=True`).
   The input container's `cuda()` moves only `feature_input`/`targets`/

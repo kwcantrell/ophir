@@ -203,6 +203,23 @@ def test_evaluate_model_pooled_rank_ic_unchanged_with_offsets() -> None:
     assert abs(out["r_close"]["rank_ic_mean"] - 1.0) < 1e-6
 
 
+def test_evaluate_loaders_skips_unloadable_checkpoint() -> None:
+    from ophir.evaluate import _evaluate_loaders
+
+    def _stale() -> "_FakeModel":
+        # Mirrors register's feature-dim-drift error (a plain RuntimeError).
+        raise RuntimeError(
+            "checkpoint has feature_mlp input dim 13, but the current model expects 12"
+        )
+
+    loaders = [("stale", _stale), ("good", lambda: _FakeModel())]
+    results = _evaluate_loaders(loaders, [_toy_identity_batch()], 1)  # type: ignore[arg-type]
+
+    # The RuntimeError-raising checkpoint is skipped, not fatal; the good one scores.
+    assert "stale" not in results
+    assert "rank_ic_mean" in results["good"]["r_close"]
+
+
 def test_format_report_includes_rank_ic_near() -> None:
     md = format_report(
         {"best-val": {"r_close": {"rank_ic_near": 0.066}, "upside": {}, "downside": {}}}
