@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Autoresearch harness (`autoresearch/`): autonomous edit → time-boxed train →
+  `rank_ic_near` eval → keep-or-revert loop with per-trial logging, sealed
+  holdout split, and hash-pinned eval harness.
+
 ### Changed
 
 - CI/test hardening from the repo-setup review: `tests/test_cli.py` help-text

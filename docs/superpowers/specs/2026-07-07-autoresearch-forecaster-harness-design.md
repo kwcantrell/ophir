@@ -34,6 +34,7 @@ New top-level directory `autoresearch/` (peer of `scripts/`; not part of the
 | `program.md` | Search directives: objective, ideas menu, known dead ends, simplicity rule | Human only |
 | `train_experiment.py` | Self-contained training assembly (model + loss + training loop; imports ophir data plumbing). CLI: `--max-steps --seed --out-dir` | **Agent only — the sole mutable file** |
 | `eval_harness.py` | Loads the trial checkpoint, computes `rank_ic_near` + per-offset curve (`h1…h90`) on the fixed val split, emits JSON | Frozen during a session (sha256-pinned by the runner) |
+| `_sealed.py` | Pinned split/determinism constants (train/accept-val/holdout year bounds, `NUM_WORKERS`) | Frozen during a session (sha256-pinned by the runner); never agent-editable |
 | `loop.py` | Outer loop: invoke proposer → commit → timed run → eval → keep/revert → log. Torch-free, unit-testable | Frozen during a session |
 | `run_loop.sh` | Thin entry: worktree/branch setup, session dir, invokes `loop.py` | Frozen during a session |
 | `runs/<session>/results.tsv` | Append-only trial log | Runner only; gitignored during runs, committed at session end |
@@ -50,9 +51,13 @@ own eval path before any edits are accepted.
    Bash. The agent applies **one focused edit** to `train_experiment.py` and
    writes a one-line hypothesis to `runs/<session>/.hypothesis`.
 2. **Validate the diff.** Runner checks `git diff --name-only` touched exactly
-   `autoresearch/train_experiment.py` and that `eval_harness.py`'s sha256
-   matches the session pin. Any violation → status `invalid`, hard reset,
-   next iteration.
+   `autoresearch/train_experiment.py`, that `eval_harness.py`/`loop.py`/
+   `_sealed.py`'s sha256 match the session pin, that the sealed
+   `from _sealed import ...` line survives verbatim in
+   `train_experiment.py`, and that no year-like literal (2019–2031) was
+   introduced outside that import — the split years live only in
+   `_sealed.py`. Any violation → status `invalid`, hard reset, next
+   iteration.
 3. **Commit** with the hypothesis as the message (commit-first: each
    experiment is an atomic, revertable unit).
 4. **Train.** `timeout 600 uv run python autoresearch/train_experiment.py
@@ -77,15 +82,23 @@ Session ends on `--max-iters` or `--max-wall-clock`, whichever first.
    B1 says the trial count is what makes the final number meaningful. The
    reset erases the *code*, never the *record*.
 2. **ε acceptance threshold.** Single-seed `rank_ic_near` at 10k steps is
-   noisy; ε (from the confirm-harness null band) keeps coin-flip "wins" from
-   advancing the branch.
+   noisy; ε starts at 0.02 (above the confirm-harness 3-seed MDE of 0.0069)
+   and MUST be recalibrated from ≥3 baseline seeds (`ε = 2·SE`) before any
+   unattended session, so coin-flip "wins" can't advance the branch.
 3. **Sealed holdout.** Acceptance uses the 2024–2025 val years. The newest
    data slice (2026) is never read by the loop and is evaluated only at
    graduation — the check on the loop slowly overfitting its val split
-   across ~70 trials.
-4. **Graduation bar.** A champion must survive multi-seed (0/1/2) re-runs at
-   10k steps — and clear the sealed holdout — before any of its ideas are
-   proposed back into `src/ophir` via the normal spec/PR flow.
+   across ~70 trials. The 2026 slice cannot form full 365-row windows until
+   ~mid-2027; until then it stays sealed and graduation substitutes the
+   item-4 bar below.
+4. **Graduation bar.** A champion must (a) survive multi-seed (0/1/2)
+   10k-step re-runs, (b) survive at least one full-budget (~100k-step) run
+   clearing the incumbent on the acceptance split, (c) be scored on the
+   sealed holdout once scoreable, and (d) report a deflated significance
+   whose trial count N includes all loop sessions (`results.tsv`, every
+   status) AND the Optuna sweep trials on the same objective — before any
+   of its ideas are proposed back into `src/ophir` via the normal spec/PR
+   flow.
 
 ## program.md v1 (seeded search directives)
 
