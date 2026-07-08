@@ -155,22 +155,149 @@ def diff_is_valid(modified: list[str], untracked: list[str], session_rel: str) -
     return all(path.startswith(session_rel + "/") for path in untracked)
 
 
-def _iter_assign_target_names(target: ast.expr) -> list[str]:
-    """Yield the bound ``Name`` ids in an assignment target.
+def _is_sealed_name_or_none(value: ast.expr) -> bool:
+    """True when ``value`` is a bare sealed ``Name`` or the constant ``None``."""
+    if isinstance(value, ast.Name) and value.id in SEALED_NAMES:
+        return True
+    return isinstance(value, ast.Constant) and value.value is None
 
-    Handles plain names plus tuple/list unpacking and starred targets so a
-    sealed name cannot be rebound through ``a, TRAIN_MAX_YEAR = ...`` or
-    ``*NUM_WORKERS, x = ...``.
+
+def _sealed_binding_problem(node: ast.AST) -> str | None:
+    """Reject any binding form that would rebind a sealed name.
+
+    Covers ``Name`` in a non-Load context (plain/aug/ann assignments, for
+    targets, with-as, comprehension targets, walrus, del), function parameters
+    (``ast.arg``, incl. lambda/posonly/kwonly), import aliases (``asname`` if
+    set, else the imported name), ``except ... as`` names, and
+    ``global``/``nonlocal`` declarations. The verbatim
+    ``from _sealed import <name>`` bindings (no ``as``) are the one allowed
+    form — that IS the sealed import.
     """
-    names: list[str] = []
-    if isinstance(target, ast.Name):
-        names.append(target.id)
-    elif isinstance(target, ast.Starred):
-        names.extend(_iter_assign_target_names(target.value))
-    elif isinstance(target, (ast.Tuple, ast.List)):
-        for elt in target.elts:
-            names.extend(_iter_assign_target_names(elt))
-    return names
+
+    def _rebound(name: str) -> str:
+        return f"sealed name {name!r} rebound (split constants live in _sealed.py only)"
+
+    if isinstance(node, ast.Name) and not isinstance(node.ctx, ast.Load):
+        if node.id in SEALED_NAMES:
+            return _rebound(node.id)
+    elif isinstance(node, ast.arg):
+        if node.arg in SEALED_NAMES:
+            return _rebound(node.arg)
+    elif isinstance(node, (ast.Import, ast.ImportFrom)):
+        for alias in node.names:
+            bound = alias.asname or alias.name.split(".")[0]
+            if bound not in SEALED_NAMES:
+                continue
+            allowed = (
+                isinstance(node, ast.ImportFrom)
+                and node.module == "_sealed"
+                and alias.asname is None
+            )
+            if not allowed:
+                return _rebound(bound)
+    elif isinstance(node, ast.ExceptHandler):
+        if node.name is not None and node.name in SEALED_NAMES:
+            return _rebound(node.name)
+    elif isinstance(node, (ast.Global, ast.Nonlocal)):
+        for name in node.names:
+            if name in SEALED_NAMES:
+                return _rebound(name)
+    return None
+
+
+def _splat_dict_problem(d: ast.Dict) -> str | None:
+    """Check a dict literal used as ``**`` kwargs: keys must be verifiable.
+
+    Every key must be a string constant (a non-constant key could smuggle a
+    ``*_year`` keyword past the gate), and any ``*_year`` key's value must be
+    a sealed ``Name`` or ``None`` — same rule as an explicit keyword.
+    """
+    for key, value in zip(d.keys, d.values, strict=True):
+        if not (isinstance(key, ast.Constant) and isinstance(key.value, str)):
+            return "unverifiable splat key (dict keys in **kwargs must be string literals)"
+        if key.value.endswith("_year") and not _is_sealed_name_or_none(value):
+            return (
+                f"'{key.value}' keyword must be a sealed name or None "
+                "(year values live in _sealed.py only)"
+            )
+    return None
+
+
+def _collect_name_bindings(tree: ast.AST) -> dict[str, list[ast.expr]]:
+    """Map each statically-resolvable name to the values it is assigned.
+
+    A name is resolvable only when EVERY binding of it in the file is a plain
+    ``Assign``/``AnnAssign`` with a bare ``Name`` target. Names also bound any
+    other way (for targets, walrus, parameters, import aliases, ``except as``,
+    tuple unpacking, ...) are dropped, so a ``**`` splat of them is treated as
+    unverifiable rather than trusted.
+    """
+    resolvable: dict[str, list[ast.expr]] = {}
+    resolvable_count: dict[str, int] = {}
+    bound_count: dict[str, int] = {}
+
+    def _bump(counts: dict[str, int], name: str) -> None:
+        counts[name] = counts.get(name, 0) + 1
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    resolvable.setdefault(target.id, []).append(node.value)
+                    _bump(resolvable_count, target.id)
+        elif (
+            isinstance(node, ast.AnnAssign)
+            and isinstance(node.target, ast.Name)
+            and node.value is not None
+        ):
+            resolvable.setdefault(node.target.id, []).append(node.value)
+            _bump(resolvable_count, node.target.id)
+        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
+            _bump(bound_count, node.id)
+        elif isinstance(node, ast.arg):
+            _bump(bound_count, node.arg)
+        elif isinstance(node, (ast.Import, ast.ImportFrom)):
+            for alias in node.names:
+                _bump(bound_count, alias.asname or alias.name.split(".")[0])
+        elif isinstance(node, ast.ExceptHandler) and node.name is not None:
+            _bump(bound_count, node.name)
+
+    for name in list(resolvable):
+        if bound_count.get(name, 0) != resolvable_count.get(name, 0):
+            del resolvable[name]
+    return resolvable
+
+
+def _call_kwargs_problem(node: ast.Call, resolvable: dict[str, list[ast.expr]]) -> str | None:
+    """Enforce the ``*_year`` keyword rule on a call, including ``**`` splats."""
+    for kw in node.keywords:
+        if kw.arg is not None:
+            if kw.arg.endswith("_year") and not _is_sealed_name_or_none(kw.value):
+                return (
+                    f"'{kw.arg}' keyword must be a sealed name or None "
+                    "(year values live in _sealed.py only)"
+                )
+            continue
+        # ``**`` splat: its contents must be statically verifiable.
+        value = kw.value
+        if isinstance(value, ast.Dict):
+            problem = _splat_dict_problem(value)
+            if problem:
+                return problem
+            continue
+        if isinstance(value, ast.Name):
+            dicts = resolvable.get(value.id)
+            if dicts is None:
+                return f"unverifiable splat (**{value.id} is not a plainly-assigned dict literal)"
+            for d in dicts:
+                if not isinstance(d, ast.Dict):
+                    return f"unverifiable splat (**{value.id} has a non-dict-literal binding)"
+                problem = _splat_dict_problem(d)
+                if problem:
+                    return problem
+            continue
+        return "unverifiable splat (**kwargs must be a dict literal or a plainly-assigned name)"
+    return None
 
 
 def validate_experiment_source(text: str) -> str | None:
@@ -178,8 +305,13 @@ def validate_experiment_source(text: str) -> str | None:
 
     Layered defense, cheapest first: the sealed import line must survive
     verbatim, no year-like literal may appear outside it, and — via an AST
-    parse — no sealed name may be rebound and every ``*_year`` call keyword
+    parse — no sealed name may be rebound through ANY binding form and every
+    ``*_year`` call keyword (explicit or smuggled through a ``**`` splat)
     must be a sealed name or ``None``. An unparseable file is rejected.
+
+    This gate is defense against honest mistakes and cheap gaming, not a
+    sandbox: integrity against a determined adversary rests on human diff
+    review of the kept commits at graduation.
     """
     if SEALED_IMPORT_LINE not in text:
         return "sealed import line missing (_sealed constants were bypassed)"
@@ -193,31 +325,15 @@ def validate_experiment_source(text: str) -> str | None:
     except SyntaxError:
         return "unparseable"
 
+    resolvable = _collect_name_bindings(tree)
     for node in ast.walk(tree):
-        # (a) No assignment may rebind a sealed name (any nesting depth).
-        targets: list[ast.expr] = []
-        if isinstance(node, ast.Assign):
-            targets = list(node.targets)
-        elif isinstance(node, (ast.AnnAssign, ast.AugAssign)):
-            targets = [node.target]
-        for target in targets:
-            for name in _iter_assign_target_names(target):
-                if name in SEALED_NAMES:
-                    return f"sealed name {name!r} rebound (split constants live in _sealed.py only)"
-
-        # (b) Every ``*_year`` call keyword must be a sealed Name or None.
+        problem = _sealed_binding_problem(node)
+        if problem:
+            return problem
         if isinstance(node, ast.Call):
-            for kw in node.keywords:
-                if kw.arg is None or not kw.arg.endswith("_year"):
-                    continue
-                value = kw.value
-                is_sealed_name = isinstance(value, ast.Name) and value.id in SEALED_NAMES
-                is_none = isinstance(value, ast.Constant) and value.value is None
-                if not (is_sealed_name or is_none):
-                    return (
-                        f"'{kw.arg}' keyword must be a sealed name or None "
-                        "(year values live in _sealed.py only)"
-                    )
+            problem = _call_kwargs_problem(node, resolvable)
+            if problem:
+                return problem
     return None
 
 
@@ -549,7 +665,7 @@ def _tail(path: str, n: int) -> str:
 
 
 def _head_sha() -> str:
-    rc, out = run(["git", "rev-parse", "HEAD"], cwd=REPO_ROOT)
+    rc, out = _git(run, ["rev-parse", "HEAD"])
     return out.strip() if rc == 0 else ""
 
 
@@ -567,7 +683,7 @@ def _recover_all_in_flight() -> None:
         sha = _read(in_flight_path).strip()
         if sha:
             print(f"Recovering interrupted iteration: reset --hard {sha}")
-            run(["git", "reset", "--hard", sha], cwd=REPO_ROOT)
+            _git(run, ["reset", "--hard", sha])
         if os.path.exists(in_flight_path):
             os.remove(in_flight_path)
         session_dir = os.path.dirname(in_flight_path)
@@ -614,7 +730,7 @@ def main(argv: list[str] | None = None) -> int:
     # inside the (gitignored) runs/ tree would make porcelain report it modified
     # on every append (poisoning diff validation) and reset --hard would erase
     # appended rows. Abort before touching anything.
-    if run(["git", "ls-files", "--error-unmatch", tsv], cwd=REPO_ROOT)[0] == 0:
+    if _git(run, ["ls-files", "--error-unmatch", tsv])[0] == 0:
         print(f"ABORT: session results.tsv is git-tracked: {tsv}")
         return 4
 
@@ -652,7 +768,7 @@ def main(argv: list[str] | None = None) -> int:
             )
         except KeyboardInterrupt:
             print("Interrupted; reverting to the iteration anchor.")
-            run(["git", "reset", "--hard", base_sha], cwd=REPO_ROOT)
+            _git(run, ["reset", "--hard", base_sha])
             os.remove(in_flight)
             return 130
 
