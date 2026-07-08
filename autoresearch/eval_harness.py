@@ -16,7 +16,10 @@ graduation relies on multi-seed + full-budget runs on the acceptance split.
 Determinism/representativeness: seeds everything, uses ``num_workers=0``,
 and restricts the universe to a fixed seeded panel of tickers so the scored
 subset is identical across trials and machines (the raw handler order is
-filesystem-dependent and front-loaded). Requires CUDA.
+filesystem-dependent and front-loaded). The panel is the first
+``PANEL_SIZE`` seed-shuffled tickers that actually form windows in the
+split (zero-window tickers are skipped), so the measurement base is
+~``PANEL_SIZE`` names/day rather than a blind sample. Requires CUDA.
 """
 
 from __future__ import annotations
@@ -80,7 +83,17 @@ def main() -> int:
         use_sp500=False,
     )
     stocks = sorted(val_handler.stocks)
-    panel = random.Random(EVAL_SEED).sample(stocks, min(PANEL_SIZE, len(stocks)))
+    random.Random(EVAL_SEED).shuffle(stocks)
+    panel: list[str] = []
+    for symbol in stocks:
+        try:
+            has_windows = val_handler.stock_streamer(symbol).size > 0
+        except Exception:  # unreadable or too-short ticker: skip it
+            continue
+        if has_windows:
+            panel.append(symbol)
+        if len(panel) >= PANEL_SIZE:
+            break
     val_handler.keep_stocks(panel)
     val_dl = build_dataloader(
         val_handler,
