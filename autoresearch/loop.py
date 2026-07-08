@@ -16,6 +16,7 @@ not the gate for agent-written experiment code. See
 from __future__ import annotations
 
 import argparse
+import ast
 import glob
 import hashlib
 import json
@@ -39,6 +40,34 @@ PINNED_FILES = (
     "autoresearch/loop.py",
     "autoresearch/_sealed.py",
 )
+
+#: Environment files pinned by content-or-absence: if any of these appear,
+#: disappear, or change mid-session the harness aborts (they can steer the
+#: headless proposer or the loop's own behavior). Missing files are pinned to
+#: the sentinel ``"ABSENT"`` so an added file also trips the check.
+PINNED_ENV_FILES = (
+    ".claude/settings.json",
+    ".claude/settings.local.json",
+    "CLAUDE.md",
+    "AGENTS.md",
+)
+
+#: Sentinel hash recorded for a pinned file that does not exist at pin time.
+ABSENT_PIN = "ABSENT"
+
+#: The sealed constant names ``_sealed.py`` owns. The mutable file may *import*
+#: them but must never rebind them (an assignment target) — rebinding is a
+#: split/determinism leakage vector — and ``*_year`` call keywords may only be
+#: one of these names or ``None``.
+SEALED_NAMES = frozenset(
+    {"ACCEPT_VAL_MAX_YEAR", "ACCEPT_VAL_MIN_YEAR", "NUM_WORKERS", "TRAIN_MAX_YEAR"}
+)
+
+#: Git ``core.hooksPath`` used for every loop git call, set in ``main()`` to an
+#: empty per-session dir so no repo/user hook fires during a trial. ``None``
+#: (the default) means plain ``git`` — unit tests stay unaffected unless they
+#: opt in by setting this.
+HOOKS_PATH: str | None = None
 
 #: This exact import must survive every proposal: split/determinism constants
 #: live only in the hash-pinned ``_sealed.py``.
@@ -126,14 +155,69 @@ def diff_is_valid(modified: list[str], untracked: list[str], session_rel: str) -
     return all(path.startswith(session_rel + "/") for path in untracked)
 
 
+def _iter_assign_target_names(target: ast.expr) -> list[str]:
+    """Yield the bound ``Name`` ids in an assignment target.
+
+    Handles plain names plus tuple/list unpacking and starred targets so a
+    sealed name cannot be rebound through ``a, TRAIN_MAX_YEAR = ...`` or
+    ``*NUM_WORKERS, x = ...``.
+    """
+    names: list[str] = []
+    if isinstance(target, ast.Name):
+        names.append(target.id)
+    elif isinstance(target, ast.Starred):
+        names.extend(_iter_assign_target_names(target.value))
+    elif isinstance(target, (ast.Tuple, ast.List)):
+        for elt in target.elts:
+            names.extend(_iter_assign_target_names(elt))
+    return names
+
+
 def validate_experiment_source(text: str) -> str | None:
-    """Check post-edit invariants of the mutable file; ``None`` when valid."""
+    """Check post-edit invariants of the mutable file; ``None`` when valid.
+
+    Layered defense, cheapest first: the sealed import line must survive
+    verbatim, no year-like literal may appear outside it, and — via an AST
+    parse — no sealed name may be rebound and every ``*_year`` call keyword
+    must be a sealed name or ``None``. An unparseable file is rejected.
+    """
     if SEALED_IMPORT_LINE not in text:
         return "sealed import line missing (_sealed constants were bypassed)"
     stripped = text.replace(SEALED_IMPORT_LINE, "")
     match = YEAR_LITERAL_RE.search(stripped)
     if match:
         return f"year literal {match.group(0)!r} found (split years live in _sealed.py only)"
+
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        return "unparseable"
+
+    for node in ast.walk(tree):
+        # (a) No assignment may rebind a sealed name (any nesting depth).
+        targets: list[ast.expr] = []
+        if isinstance(node, ast.Assign):
+            targets = list(node.targets)
+        elif isinstance(node, (ast.AnnAssign, ast.AugAssign)):
+            targets = [node.target]
+        for target in targets:
+            for name in _iter_assign_target_names(target):
+                if name in SEALED_NAMES:
+                    return f"sealed name {name!r} rebound (split constants live in _sealed.py only)"
+
+        # (b) Every ``*_year`` call keyword must be a sealed Name or None.
+        if isinstance(node, ast.Call):
+            for kw in node.keywords:
+                if kw.arg is None or not kw.arg.endswith("_year"):
+                    continue
+                value = kw.value
+                is_sealed_name = isinstance(value, ast.Name) and value.id in SEALED_NAMES
+                is_none = isinstance(value, ast.Constant) and value.value is None
+                if not (is_sealed_name or is_none):
+                    return (
+                        f"'{kw.arg}' keyword must be a sealed name or None "
+                        "(year values live in _sealed.py only)"
+                    )
     return None
 
 
@@ -214,24 +298,48 @@ def run(
     return (proc.returncode, proc.stdout + proc.stderr)
 
 
-def pin_hashes() -> dict[str, str]:
-    """sha256 of every pinned harness file at session start."""
+def pin_hashes(
+    rels: tuple[str, ...] | None = None, *, allow_absent: bool = False
+) -> dict[str, str]:
+    """sha256 of each pinned path at session start.
+
+    ``rels`` defaults to :data:`PINNED_FILES` (resolved at call time so tests
+    may monkeypatch it). When ``allow_absent`` is set a missing file is
+    recorded as the sentinel :data:`ABSENT_PIN` instead of raising, so a later
+    *appearance* of the file counts as a change (used for the environment files
+    in :data:`PINNED_ENV_FILES`). With ``allow_absent`` false a missing file is
+    a programming error and propagates.
+    """
+    if rels is None:
+        rels = PINNED_FILES
     pins: dict[str, str] = {}
-    for rel in PINNED_FILES:
+    for rel in rels:
         path = rel if os.path.isabs(rel) else os.path.join(REPO_ROOT, rel)
+        if allow_absent and not os.path.exists(path):
+            pins[rel] = ABSENT_PIN
+            continue
         with open(path, "rb") as fh:
             pins[rel] = hashlib.sha256(fh.read()).hexdigest()
     return pins
 
 
 def check_pins(pins: dict[str, str]) -> list[str]:
-    """Return the pinned files whose hash changed since ``pin_hashes()``."""
+    """Return the pinned paths that changed since ``pin_hashes()``.
+
+    Flags content changes and, for :data:`ABSENT_PIN`-pinned paths, the file
+    appearing (or, for a content pin, the file disappearing).
+    """
     changed: list[str] = []
     for rel, expected in pins.items():
         path = rel if os.path.isabs(rel) else os.path.join(REPO_ROOT, rel)
-        with open(path, "rb") as fh:
-            if hashlib.sha256(fh.read()).hexdigest() != expected:
+        if not os.path.exists(path):
+            if expected != ABSENT_PIN:
                 changed.append(rel)
+            continue
+        with open(path, "rb") as fh:
+            current = hashlib.sha256(fh.read()).hexdigest()
+        if current != expected:
+            changed.append(rel)
     return changed
 
 
@@ -289,7 +397,16 @@ class IterationResult:
 
 
 def _git(runner: Runner, args: list[str]) -> tuple[int, str]:
-    return runner(["git", *args], cwd=REPO_ROOT)
+    """Run git through the runner, forcing the session's empty hooksPath.
+
+    When :data:`HOOKS_PATH` is set (in ``main()``) every git invocation carries
+    ``-c core.hooksPath=<dir>`` so no repo or user hook can fire mid-trial;
+    when ``None`` (the unit-test default) plain ``git`` is used.
+    """
+    prefix = ["git"]
+    if HOOKS_PATH is not None:
+        prefix = ["git", "-c", f"core.hooksPath={HOOKS_PATH}"]
+    return runner([*prefix, *args], cwd=REPO_ROOT)
 
 
 def _revert(runner: Runner, base_sha: str) -> None:
@@ -436,14 +553,40 @@ def _head_sha() -> str:
     return out.strip() if rc == 0 else ""
 
 
-def _recover_in_flight(in_flight_path: str) -> None:
-    """If a previous session died mid-iteration, roll back to its anchor."""
-    sha = _read(in_flight_path).strip()
-    if sha:
-        print(f"Recovering interrupted iteration: reset --hard {sha}")
-        run(["git", "reset", "--hard", sha], cwd=REPO_ROOT)
-    if os.path.exists(in_flight_path):
-        os.remove(in_flight_path)
+def _recover_all_in_flight() -> None:
+    """Recover every interrupted iteration across all sessions before starting.
+
+    A live iteration writes its anchor sha to ``<session>/.in-flight`` and
+    removes it on completion, so any surviving marker means a runner died
+    mid-trial (this session or a previous one). For each: reset ``--hard`` to
+    the recorded sha, drop the marker, and append a ``runner-died`` row to
+    *that* session's ``results.tsv`` (metrics nan; commit = post-reset HEAD)
+    so the record reflects the interrupted trial.
+    """
+    for in_flight_path in sorted(glob.glob(os.path.join(HARNESS_DIR, "runs", "*", ".in-flight"))):
+        sha = _read(in_flight_path).strip()
+        if sha:
+            print(f"Recovering interrupted iteration: reset --hard {sha}")
+            run(["git", "reset", "--hard", sha], cwd=REPO_ROOT)
+        if os.path.exists(in_flight_path):
+            os.remove(in_flight_path)
+        session_dir = os.path.dirname(in_flight_path)
+        nan = float("nan")
+        append_result(
+            os.path.join(session_dir, "results.tsv"),
+            format_result_row(
+                iteration=-1,
+                # UP017 suppressed: datetime.UTC needs 3.11+; runtime floor is 3.10.
+                utc=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),  # noqa: UP017
+                hypothesis="(recovered interrupted iteration)",
+                status="runner-died",
+                rank_ic_near=nan,
+                h1=nan,
+                h5=nan,
+                wall_s=nan,
+                commit=_head_sha()[:7],
+            ),
+        )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -455,19 +598,38 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--epsilon", type=float, default=EPSILON)
     args = parser.parse_args(argv)
 
+    global HOOKS_PATH
+
     session_dir = os.path.join(HARNESS_DIR, "runs", args.session)
     os.makedirs(session_dir, exist_ok=True)
+
+    # Empty per-session hooks dir forced onto every loop git call, so no repo or
+    # user git hook can fire during a trial.
+    hooks_path = os.path.join(session_dir, "hooks")
+    os.makedirs(hooks_path, exist_ok=True)
+    HOOKS_PATH = hooks_path
+
+    tsv = os.path.join(session_dir, "results.tsv")
+    # The session's own trial log must not be git-tracked: a tracked results.tsv
+    # inside the (gitignored) runs/ tree would make porcelain report it modified
+    # on every append (poisoning diff validation) and reset --hard would erase
+    # appended rows. Abort before touching anything.
+    if run(["git", "ls-files", "--error-unmatch", tsv], cwd=REPO_ROOT)[0] == 0:
+        print(f"ABORT: session results.tsv is git-tracked: {tsv}")
+        return 4
+
+    # Recover any interrupted iteration across all sessions (this one included)
+    # before starting: reset to its anchor and log a runner-died row.
+    _recover_all_in_flight()
     in_flight = os.path.join(session_dir, ".in-flight")
-    if os.path.exists(in_flight):
-        _recover_in_flight(in_flight)
 
     # Minimal settings so the headless proposer does not inherit repo hooks.
     settings_path = os.path.join(session_dir, "settings.json")
     with open(settings_path, "w", encoding="utf-8") as fh:
         json.dump({"hooks": {}}, fh)
 
-    tsv = os.path.join(session_dir, "results.tsv")
     pins = pin_hashes()
+    pins.update(pin_hashes(PINNED_ENV_FILES, allow_absent=True))
     best_ic: float | None = None
     proposer_fails = 0
     started = time.monotonic()

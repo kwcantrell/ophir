@@ -12,6 +12,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Autoresearch harness (`autoresearch/`): autonomous edit → time-boxed train →
   `rank_ic_near` eval → keep-or-revert loop with per-trial logging, sealed
   holdout split, and hash-pinned eval harness.
+- Autoresearch harness hardening (final-review fix wave): AST enforcement of
+  sealed constants in the mutable file (sealed names cannot be rebound; `*_year`
+  call keywords must be a sealed name or `None`); `eval_harness.py` binds all
+  trusted imports before the agent-authored module; per-session
+  `core.hooksPath` isolation on every git call plus content-or-absence pins on
+  `.claude/settings*.json`/`CLAUDE.md`/`AGENTS.md`; cross-session `.in-flight`
+  recovery with a logged `runner-died` row; and a guard aborting the session if
+  its `results.tsv` is git-tracked. The smoke record moved out of the reset
+  blast radius to `autoresearch/records/`.
 
 ### Changed
 

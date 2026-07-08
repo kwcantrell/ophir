@@ -20,6 +20,14 @@ filesystem-dependent and front-loaded). The panel is the first
 ``PANEL_SIZE`` seed-shuffled tickers that actually form windows in the
 split (zero-window tickers are skipped), so the measurement base is
 ~``PANEL_SIZE`` names/day rather than a blind sample. Requires CUDA.
+
+Guardrail scope: ``main()`` binds every trusted symbol (torch, lightning,
+``ophir.register``/``evaluate``/``train``, the sealed constants) BEFORE
+importing the agent-authored ``train_experiment`` module, so its top-level
+code cannot monkeypatch the scorer's dependencies first. This is
+defense-in-depth: eval integrity against adversarial experiment code
+ultimately rests on human diff review of the kept commits at graduation, not
+on this import ordering alone.
 """
 
 from __future__ import annotations
@@ -49,8 +57,18 @@ def main() -> int:
     args = parser.parse_args()
 
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-    import lightning as L
+    # Bind every trusted symbol BEFORE importing the agent-authored module, so
+    # its top-level code cannot monkeypatch ophir.evaluate/register before the
+    # scorer captures them. This is defense-in-depth only: integrity against
+    # adversarial experiment code ultimately rests on human diff review of kept
+    # commits at graduation (see the module docstring).
+    import lightning as L  # noqa: I001 - block ordered trusted-first; agent module imported last
     import torch
+
+    from ophir import register
+    from ophir.evaluate import evaluate_model
+    from ophir.train import build_dataloader, build_split_handlers
+
     from _sealed import (
         ACCEPT_VAL_MAX_YEAR,
         ACCEPT_VAL_MIN_YEAR,
@@ -58,10 +76,6 @@ def main() -> int:
         TRAIN_MAX_YEAR,
     )
     from train_experiment import MODEL_CLASS
-
-    from ophir import register
-    from ophir.evaluate import evaluate_model
-    from ophir.train import build_dataloader, build_split_handlers
 
     torch.set_float32_matmul_precision("high")
     L.seed_everything(EVAL_SEED, workers=True)
