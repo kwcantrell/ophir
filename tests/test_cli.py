@@ -1,6 +1,7 @@
 """Tests for the ``ophir`` Typer CLI command wiring and behavior."""
 
 import pytest
+from click import unstyle
 from typer.testing import CliRunner
 
 from ophir.cli import app
@@ -16,8 +17,10 @@ def test_sweep_command_is_registered() -> None:
 def test_sweep_help_lists_key_options() -> None:
     result = runner.invoke(app, ["sweep", "--help"])
     assert result.exit_code == 0
-    assert "--trials" in result.output
-    assert "--confirm-top" in result.output
+    # unstyle: Rich force-styles help output when it detects CI (GITHUB_ACTIONS),
+    # which would break plain-substring asserts.
+    assert "--trials" in unstyle(result.output)
+    assert "--confirm-top" in unstyle(result.output)
 
 
 def test_sweep_handles_all_pruned(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -35,9 +38,9 @@ def test_sweep_handles_all_pruned(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_migrate_sqlite_is_registered():
     result = runner.invoke(app, ["migrate-sqlite", "--help"])
     assert result.exit_code == 0
-    assert "--src" in result.output
-    assert "--dst" in result.output
-    assert "--overwrite" in result.output
+    assert "--src" in unstyle(result.output)
+    assert "--dst" in unstyle(result.output)
+    assert "--overwrite" in unstyle(result.output)
 
 
 def test_migrate_sqlite_runs(parquet_dir, tmp_path):
@@ -51,4 +54,4 @@ def test_migrate_sqlite_runs(parquet_dir, tmp_path):
 def test_importances_command_is_registered() -> None:
     result = runner.invoke(app, ["importances", "--help"])
     assert result.exit_code == 0
-    assert "study" in result.output.lower()
+    assert "study" in unstyle(result.output).lower()

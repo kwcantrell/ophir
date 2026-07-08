@@ -9,15 +9,17 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   checks:
     runs-on: ubuntu-latest
     env:
-      # Rich force-enables terminal styling under GITHUB_ACTIONS, which breaks
-      # test_cli.py's plain-substring asserts on Typer --help output. TERM=dumb
-      # is the one knob Rich honors unconditionally (NO_COLOR only drops color,
-      # keeping bold/dim codes). Verified locally: GITHUB_ACTIONS=true TERM=dumb
-      # -> full suite green.
+      # Rich force-enables terminal styling under GITHUB_ACTIONS (NO_COLOR only
+      # drops color, keeping bold/dim codes; TERM=dumb disables styling fully).
+      # test_cli.py help asserts are unstyle()-robust since the follow-up PR, so
+      # this is belt-and-suspenders for any future output-sensitive test.
       TERM: dumb
     steps:
       - uses: actions/checkout@v5
