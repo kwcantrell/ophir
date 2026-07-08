@@ -137,6 +137,73 @@ class TestValidateExperimentSource:
         text = f"{loop.SEALED_IMPORT_LINE}\ndef (:\n"
         assert loop.validate_experiment_source(text) == "unparseable"
 
+    def test_for_loop_rebinding_sealed_name_is_rejected(self) -> None:
+        text = f"{loop.SEALED_IMPORT_LINE}\nfor TRAIN_MAX_YEAR in range(3):\n    pass\n"
+        reason = loop.validate_experiment_source(text)
+        assert reason is not None and "TRAIN_MAX_YEAR" in reason and "rebound" in reason
+
+    def test_walrus_rebinding_sealed_name_is_rejected(self) -> None:
+        text = f"{loop.SEALED_IMPORT_LINE}\nx = (NUM_WORKERS := 8)\n"
+        reason = loop.validate_experiment_source(text)
+        assert reason is not None and "NUM_WORKERS" in reason and "rebound" in reason
+
+    def test_import_as_rebinding_sealed_name_is_rejected(self) -> None:
+        text = f"{loop.SEALED_IMPORT_LINE}\nimport os as TRAIN_MAX_YEAR\n"
+        reason = loop.validate_experiment_source(text)
+        assert reason is not None and "TRAIN_MAX_YEAR" in reason and "rebound" in reason
+
+    def test_from_import_as_rebinding_sealed_name_is_rejected(self) -> None:
+        text = f"{loop.SEALED_IMPORT_LINE}\nfrom x import y as NUM_WORKERS\n"
+        reason = loop.validate_experiment_source(text)
+        assert reason is not None and "NUM_WORKERS" in reason and "rebound" in reason
+
+    def test_function_param_shadowing_sealed_name_is_rejected(self) -> None:
+        text = f"{loop.SEALED_IMPORT_LINE}\ndef f(ACCEPT_VAL_MIN_YEAR):\n    return 1\n"
+        reason = loop.validate_experiment_source(text)
+        assert reason is not None and "ACCEPT_VAL_MIN_YEAR" in reason and "rebound" in reason
+
+    def test_dict_splat_year_key_with_arithmetic_is_rejected(self) -> None:
+        text = f'{loop.SEALED_IMPORT_LINE}\nf(**{{"train_max_year": ACCEPT_VAL_MIN_YEAR + 5}})\n'
+        reason = loop.validate_experiment_source(text)
+        assert reason is not None and "train_max_year" in reason
+
+    def test_dict_splat_year_key_with_sealed_name_is_accepted(self) -> None:
+        text = f'{loop.SEALED_IMPORT_LINE}\nf(**{{"val_min_year": ACCEPT_VAL_MIN_YEAR}})\n'
+        assert loop.validate_experiment_source(text) is None
+
+    def test_dict_splat_non_literal_key_is_rejected(self) -> None:
+        text = f"{loop.SEALED_IMPORT_LINE}\nf(**{{k: 1}})\n"
+        reason = loop.validate_experiment_source(text)
+        assert reason is not None and "unverifiable splat key" in reason
+
+    def test_splat_of_unresolvable_expression_is_rejected(self) -> None:
+        text = f"{loop.SEALED_IMPORT_LINE}\nf(**get_kwargs())\n"
+        reason = loop.validate_experiment_source(text)
+        assert reason is not None and "unverifiable splat" in reason
+
+    def test_splat_of_unresolvable_name_is_rejected(self) -> None:
+        text = f"{loop.SEALED_IMPORT_LINE}\nkw = build()\nf(**kw)\n"
+        reason = loop.validate_experiment_source(text)
+        assert reason is not None and "unverifiable splat" in reason
+
+    def test_splat_of_compliant_dict_literal_name_is_accepted(self) -> None:
+        # The baseline MODEL_KWARGS pattern: module-level annotated dict literal.
+        text = (
+            f"{loop.SEALED_IMPORT_LINE}\n"
+            'MODEL_KWARGS: dict[str, object] = {"emb_dim": 128, "lr": 0.0002}\n'
+            "f(max_steps=1, **MODEL_KWARGS)\n"
+        )
+        assert loop.validate_experiment_source(text) is None
+
+    def test_splat_of_dict_name_with_year_key_arithmetic_is_rejected(self) -> None:
+        text = (
+            f"{loop.SEALED_IMPORT_LINE}\n"
+            'KW = {"val_max_year": ACCEPT_VAL_MAX_YEAR + 1}\n'
+            "f(**KW)\n"
+        )
+        reason = loop.validate_experiment_source(text)
+        assert reason is not None and "val_max_year" in reason
+
 
 class TestMetricsAndResults:
     def test_parse_metrics_reads_named_keys_only(self, tmp_path: Path) -> None:
@@ -377,6 +444,19 @@ class TestGitHooksIsolation:
         loop._git(runner, ["log"])
         assert runner.calls[0] == ["git", "log"]
 
+    def test_head_sha_carries_hookspath_when_set(self, monkeypatch) -> None:
+        monkeypatch.setattr(loop, "HOOKS_PATH", "/session/hooks")
+        calls: list[list[str]] = []
+
+        def fake_run(cmd: list[str], *, cwd: str, **_: object) -> tuple[int, str]:
+            calls.append(cmd)
+            return (0, "sha1234\n")
+
+        monkeypatch.setattr(loop, "run", fake_run)
+        assert loop._head_sha() == "sha1234"
+        assert calls[0][:3] == ["git", "-c", "core.hooksPath=/session/hooks"]
+        assert "rev-parse" in calls[0]
+
 
 class TestCrossSessionRecovery:
     def test_recovers_all_sessions_and_appends_rows(self, tmp_path, monkeypatch) -> None:
@@ -386,6 +466,7 @@ class TestCrossSessionRecovery:
             sdir.mkdir(parents=True)
             (sdir / ".in-flight").write_text(sha)
         monkeypatch.setattr(loop, "HARNESS_DIR", str(harness))
+        monkeypatch.setattr(loop, "HOOKS_PATH", None)
         calls: list[list[str]] = []
 
         def fake_run(cmd: list[str], *, cwd: str, **_: object) -> tuple[int, str]:
@@ -414,11 +495,15 @@ class TestMainTrackedResultsGuard:
         harness = tmp_path / "autoresearch"
         (harness / "runs").mkdir(parents=True)
         monkeypatch.setattr(loop, "HARNESS_DIR", str(harness))
+        # main() mutates the module-level HOOKS_PATH; monkeypatch restores it.
+        monkeypatch.setattr(loop, "HOOKS_PATH", None)
 
+        # main() threads -c core.hooksPath into every git call, so match on the
+        # subcommand rather than a fixed prefix.
         def fake_run(cmd: list[str], *, cwd: str, **_: object) -> tuple[int, str]:
-            if cmd[:2] == ["git", "ls-files"]:
+            if "ls-files" in cmd:
                 return (ls_files_rc, "")
-            if cmd[:2] == ["git", "rev-parse"]:
+            if "rev-parse" in cmd:
                 return (0, "sha1234\n")
             return (0, "")
 

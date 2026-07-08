@@ -47,8 +47,8 @@ own eval path before any edits are accepted.
 
 1. **Propose.** `loop.py` invokes `claude -p` (headless; opus/fable tier — the
    proposal is the hard-reasoning step) with `program.md`, `results.tsv`, and
-   recent git log in the prompt. Tool allowlist: Read/Edit/Write/Grep — no
-   Bash (Write is needed only for the `.hypothesis` note). The agent applies
+   recent git log in the prompt. Tool allowlist: Read/Edit/Write/Grep/Glob —
+   no Bash (Write is needed only for the `.hypothesis` note). The agent applies
    **one focused edit** to `train_experiment.py` and writes a one-line
    hypothesis to `runs/<session>/.hypothesis`.
 2. **Validate the diff.** Runner checks `git diff --name-only` touched exactly
@@ -59,10 +59,17 @@ own eval path before any edits are accepted.
    introduced outside that import — the split years live only in
    `_sealed.py`. An AST parse then enforces the deeper invariants: the sealed
    names (`ACCEPT_VAL_MAX_YEAR`/`ACCEPT_VAL_MIN_YEAR`/`NUM_WORKERS`/
-   `TRAIN_MAX_YEAR`) cannot be rebound by any assignment, and every `*_year`
-   call keyword must be a sealed name or `None` — closing the "smuggle a year
-   through a variable or expression" route. Any violation → status `invalid`,
-   hard reset, next iteration.
+   `TRAIN_MAX_YEAR`) cannot be rebound through ANY binding form (assignments,
+   for/with/comprehension/walrus targets, function parameters, import
+   aliases, `except as`, `global`/`nonlocal`), and every `*_year` call
+   keyword — explicit or smuggled through a `**` splat — must be a sealed
+   name or `None` (splats must be dict literals with string-constant keys, or
+   names statically resolvable to such literals; anything else is rejected as
+   unverifiable) — closing the "smuggle a year through a variable, expression,
+   or `**kwargs`" route. This AST gate is defense against honest mistakes and
+   cheap gaming, not a sandbox; integrity against a determined adversary
+   rests on the graduation human diff review. Any violation → status
+   `invalid`, hard reset, next iteration.
 3. **Commit** with the hypothesis as the message (commit-first: each
    experiment is an atomic, revertable unit).
 4. **Train.** `timeout 600 uv run python autoresearch/train_experiment.py
@@ -123,9 +130,9 @@ Session ends on `--max-iters` or `--max-wall-clock`, whichever first.
 
 - Dedicated worktree + `autoresearch/session-<date>` branch; `main` untouched.
 - 10-minute kill per training run; `--max-iters` / `--max-wall-clock` caps.
-- Proposer allowlist Read/Edit/Write/Grep; the runner owns all shell and git.
-  (Write is scoped to the `.hypothesis` note; the diff validator still rejects
-  any tracked change outside `train_experiment.py`.)
+- Proposer allowlist Read/Edit/Write/Grep/Glob; the runner owns all shell and
+  git. (Write is scoped to the `.hypothesis` note; the diff validator still
+  rejects any tracked change outside `train_experiment.py`.)
 - Hook + settings isolation: every loop git call runs with
   `-c core.hooksPath=<session>/hooks` (an empty per-session dir) so no repo or
   user git hook fires mid-trial, and the runner content-or-absence pins
@@ -135,9 +142,11 @@ Session ends on `--max-iters` or `--max-wall-clock`, whichever first.
 - Eval-integrity ordering: `eval_harness.py` binds every trusted symbol
   (torch/lightning/`ophir.*`/sealed constants) before importing the
   agent-authored `train_experiment` module, so its top-level code cannot
-  monkeypatch the scorer's dependencies first. This is defense-in-depth only —
-  eval integrity against adversarial experiment code ultimately rests on human
-  diff review of the kept commits at graduation.
+  monkeypatch the scorer's dependencies first. Like the AST gate — which
+  blocks honest mistakes and cheap gaming, not a determined adversary — this
+  is defense-in-depth only: eval integrity against adversarial experiment
+  code ultimately rests on human diff review of the kept commits at
+  graduation.
 - No network required (data is local under `.ophir/`).
 
 ## Testing
