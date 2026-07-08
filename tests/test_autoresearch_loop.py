@@ -133,3 +133,160 @@ class TestMetricsAndResults:
         lines = tsv.read_text().splitlines()
         assert lines[0] == loop.RESULTS_HEADER
         assert lines[1:] == ["1\trow", "2\trow"]
+
+
+class FakeRunner:
+    """Scripted subprocess stand-in: maps a command marker to (rc, output)."""
+
+    def __init__(self, script: dict[str, tuple[int, str]]) -> None:
+        self.script = script
+        self.calls: list[list[str]] = []
+
+    def __call__(
+        self,
+        cmd: list[str],
+        *,
+        cwd: str,
+        timeout: float | None = None,
+        input_text: str | None = None,
+    ) -> tuple[int, str]:
+        self.calls.append(cmd)
+        for marker, result in self.script.items():
+            if marker in " ".join(cmd):
+                return result
+        return (0, "")
+
+    def commands(self, marker: str) -> list[list[str]]:
+        return [c for c in self.calls if marker in " ".join(c)]
+
+
+BASE_SHA = "base0000"
+
+
+def _make_session(tmp_path: Path, iter_name: str, metrics: str) -> str:
+    session_dir = tmp_path / "runs" / "s1"
+    iter_dir = session_dir / iter_name
+    iter_dir.mkdir(parents=True)
+    (iter_dir / "metrics.json").write_text(metrics)
+    (iter_dir / "best-step=1.ckpt").write_text("stub")
+    (session_dir / ".hypothesis").write_text("wider near-band loss weighting")
+    return str(session_dir)
+
+
+def _experiment_file_ok(monkeypatch, tmp_path: Path) -> None:
+    exp = tmp_path / "train_experiment.py"
+    exp.write_text(f"{loop.SEALED_IMPORT_LINE}\n")
+    monkeypatch.setattr(loop, "MUTABLE_PATH", str(exp))
+
+
+class TestRunIteration:
+    def _propose_runner(self, metrics_ok: bool = True) -> FakeRunner:
+        return FakeRunner({"status --porcelain": (0, f" M {loop.MUTABLE_FILE}\n")})
+
+    def test_keep_flow_commits_and_never_resets(self, tmp_path, monkeypatch) -> None:
+        session_dir = _make_session(tmp_path, "iter-001", '{"rank_ic_near": 0.08}')
+        _experiment_file_ok(monkeypatch, tmp_path)
+        runner = self._propose_runner()
+        result = loop.run_iteration(
+            1, session_dir, 0.03, BASE_SHA, propose=True, epsilon=0.02, runner=runner
+        )
+        assert result.status == "keep"
+        assert result.rank_ic_near == 0.08
+        commit_cmds = runner.commands("git commit")
+        assert commit_cmds and "--no-verify" in commit_cmds[0]
+        assert not runner.commands("reset --hard")
+
+    def test_discard_flow_resets_to_base_sha(self, tmp_path, monkeypatch) -> None:
+        session_dir = _make_session(tmp_path, "iter-001", '{"rank_ic_near": 0.031}')
+        _experiment_file_ok(monkeypatch, tmp_path)
+        runner = self._propose_runner()
+        result = loop.run_iteration(
+            1, session_dir, 0.03, BASE_SHA, propose=True, epsilon=0.02, runner=runner
+        )
+        assert result.status == "discard"
+        resets = runner.commands("reset --hard")
+        assert resets and resets[0][-1] == BASE_SHA
+
+    def test_invalid_diff_never_trains(self, tmp_path, monkeypatch) -> None:
+        session_dir = _make_session(tmp_path, "iter-001", '{"rank_ic_near": 0.08}')
+        _experiment_file_ok(monkeypatch, tmp_path)
+        runner = FakeRunner({"status --porcelain": (0, " M src/ophir/safety.py\n")})
+        result = loop.run_iteration(
+            1, session_dir, None, BASE_SHA, propose=True, epsilon=0.02, runner=runner
+        )
+        assert result.status == "invalid"
+        assert not runner.commands("train_experiment.py --max-steps")
+        assert runner.commands("reset --hard")
+
+    def test_failed_commit_is_invalid_and_never_trains(self, tmp_path, monkeypatch) -> None:
+        session_dir = _make_session(tmp_path, "iter-001", '{"rank_ic_near": 0.08}')
+        _experiment_file_ok(monkeypatch, tmp_path)
+        runner = FakeRunner(
+            {
+                "status --porcelain": (0, f" M {loop.MUTABLE_FILE}\n"),
+                "git commit": (1, "hook rejected"),
+            }
+        )
+        result = loop.run_iteration(
+            1, session_dir, None, BASE_SHA, propose=True, epsilon=0.02, runner=runner
+        )
+        assert result.status == "invalid"
+        assert not runner.commands("train_experiment.py --max-steps")
+
+    def test_proposer_failure_is_its_own_status(self, tmp_path, monkeypatch) -> None:
+        session_dir = _make_session(tmp_path, "iter-001", '{"rank_ic_near": 0.08}')
+        _experiment_file_ok(monkeypatch, tmp_path)
+        runner = FakeRunner({"claude": (1, "not logged in")})
+        result = loop.run_iteration(
+            1, session_dir, None, BASE_SHA, propose=True, epsilon=0.02, runner=runner
+        )
+        assert result.status == "proposer-fail"
+        assert not runner.commands("train_experiment.py --max-steps")
+
+    def test_train_timeout_is_crash_and_resets(self, tmp_path, monkeypatch) -> None:
+        session_dir = _make_session(tmp_path, "iter-001", '{"rank_ic_near": 0.08}')
+        _experiment_file_ok(monkeypatch, tmp_path)
+        runner = FakeRunner(
+            {
+                "status --porcelain": (0, f" M {loop.MUTABLE_FILE}\n"),
+                "train_experiment.py": (-1, "TIMEOUT"),
+            }
+        )
+        result = loop.run_iteration(
+            1, session_dir, None, BASE_SHA, propose=True, epsilon=0.02, runner=runner
+        )
+        assert result.status == "crash"
+        assert runner.commands("reset --hard")
+
+    def test_baseline_iteration_skips_proposal_and_never_commits(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        session_dir = _make_session(tmp_path, "iter-000", '{"rank_ic_near": 0.06}')
+        _experiment_file_ok(monkeypatch, tmp_path)
+        runner = FakeRunner({})
+        result = loop.run_iteration(
+            0, session_dir, None, BASE_SHA, propose=False, epsilon=0.02, runner=runner
+        )
+        assert result.status == "keep"
+        assert result.hypothesis == "baseline"
+        assert not runner.commands("claude")
+        assert not runner.commands("commit")
+        assert not runner.commands("reset --hard")
+
+
+class TestPromptAndPins:
+    def test_prompt_carries_contract_and_context(self) -> None:
+        prompt = loop.build_prompt("PROGRAM", "iter\t...", "abc fix loss", "/tmp/s/.hypothesis")
+        assert "PROGRAM" in prompt
+        assert loop.MUTABLE_FILE in prompt
+        assert ".hypothesis" in prompt
+        assert "one" in prompt.lower()
+
+    def test_pins_detect_tampering(self, tmp_path, monkeypatch) -> None:
+        target = tmp_path / "eval_harness.py"
+        target.write_text("original")
+        monkeypatch.setattr(loop, "PINNED_FILES", (str(target),))
+        pins = loop.pin_hashes()
+        assert loop.check_pins(pins) == []
+        target.write_text("tampered")
+        assert loop.check_pins(pins) == [str(target)]
