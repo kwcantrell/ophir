@@ -168,8 +168,10 @@ def _sealed_binding_problem(node: ast.AST) -> str | None:
     Covers ``Name`` in a non-Load context (plain/aug/ann assignments, for
     targets, with-as, comprehension targets, walrus, del), function parameters
     (``ast.arg``, incl. lambda/posonly/kwonly), import aliases (``asname`` if
-    set, else the imported name), ``except ... as`` names, and
-    ``global``/``nonlocal`` declarations. The verbatim
+    set, else the imported name), ``except ... as`` names,
+    ``global``/``nonlocal`` declarations, and ``match``-case capture bindings
+    (``MatchAs``/``MatchStar`` names, ``MatchMapping`` rest — these bind via
+    plain string attributes, not Store-context ``Name`` nodes). The verbatim
     ``from _sealed import <name>`` bindings (no ``as``) are the one allowed
     form — that IS the sealed import.
     """
@@ -195,13 +197,39 @@ def _sealed_binding_problem(node: ast.AST) -> str | None:
             )
             if not allowed:
                 return _rebound(bound)
-    elif isinstance(node, ast.ExceptHandler):
+    elif isinstance(node, (ast.ExceptHandler, ast.MatchAs, ast.MatchStar)):
         if node.name is not None and node.name in SEALED_NAMES:
             return _rebound(node.name)
+    elif isinstance(node, ast.MatchMapping):
+        if node.rest is not None and node.rest in SEALED_NAMES:
+            return _rebound(node.rest)
     elif isinstance(node, (ast.Global, ast.Nonlocal)):
         for name in node.names:
             if name in SEALED_NAMES:
                 return _rebound(name)
+    return None
+
+
+def _stockhandler_problem(node: ast.AST) -> str | None:
+    """Reject any reference to ``StockHandler`` in the mutable file.
+
+    ``StockHandler`` takes ``min_year``/``max_year`` as positional dataclass
+    fields, so a year could be smuggled positionally with no literal, sealed
+    rebind, or ``*_year`` keyword. Splits must go through
+    ``build_split_handlers``, whose year parameters are keyword-only and thus
+    covered by the ``*_year`` rule. Names, attribute access, and import
+    aliases (either side of ``as``) are all rejected.
+    """
+    reason = (
+        "direct StockHandler use bypasses the year seal; construct splits via "
+        "build_split_handlers (keyword-only years)"
+    )
+    if isinstance(node, ast.Name) and node.id == "StockHandler":
+        return reason
+    if isinstance(node, ast.Attribute) and node.attr == "StockHandler":
+        return reason
+    if isinstance(node, ast.alias) and "StockHandler" in (node.name, node.asname):
+        return reason
     return None
 
 
@@ -305,9 +333,11 @@ def validate_experiment_source(text: str) -> str | None:
 
     Layered defense, cheapest first: the sealed import line must survive
     verbatim, no year-like literal may appear outside it, and — via an AST
-    parse — no sealed name may be rebound through ANY binding form and every
+    parse — no sealed name may be rebound through ANY binding form, every
     ``*_year`` call keyword (explicit or smuggled through a ``**`` splat)
-    must be a sealed name or ``None``. An unparseable file is rejected.
+    must be a sealed name or ``None``, and ``StockHandler`` may not be
+    referenced at all (its positional ``min_year``/``max_year`` fields would
+    bypass the keyword rule). An unparseable file is rejected.
 
     This gate is defense against honest mistakes and cheap gaming, not a
     sandbox: integrity against a determined adversary rests on human diff
@@ -327,7 +357,7 @@ def validate_experiment_source(text: str) -> str | None:
 
     resolvable = _collect_name_bindings(tree)
     for node in ast.walk(tree):
-        problem = _sealed_binding_problem(node)
+        problem = _sealed_binding_problem(node) or _stockhandler_problem(node)
         if problem:
             return problem
         if isinstance(node, ast.Call):

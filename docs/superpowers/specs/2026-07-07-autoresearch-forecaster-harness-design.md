@@ -61,15 +61,21 @@ own eval path before any edits are accepted.
    names (`ACCEPT_VAL_MAX_YEAR`/`ACCEPT_VAL_MIN_YEAR`/`NUM_WORKERS`/
    `TRAIN_MAX_YEAR`) cannot be rebound through ANY binding form (assignments,
    for/with/comprehension/walrus targets, function parameters, import
-   aliases, `except as`, `global`/`nonlocal`), and every `*_year` call
-   keyword — explicit or smuggled through a `**` splat — must be a sealed
-   name or `None` (splats must be dict literals with string-constant keys, or
-   names statically resolvable to such literals; anything else is rejected as
-   unverifiable) — closing the "smuggle a year through a variable, expression,
-   or `**kwargs`" route. This AST gate is defense against honest mistakes and
-   cheap gaming, not a sandbox; integrity against a determined adversary
-   rests on the graduation human diff review. Any violation → status
-   `invalid`, hard reset, next iteration.
+   aliases, `except as`, `global`/`nonlocal`, and `match`-case captures —
+   `MatchAs`/`MatchStar` names and `MatchMapping` rest), and every `*_year`
+   call keyword — explicit or smuggled through a `**` splat — must be a
+   sealed name or `None` (splats must be dict literals with string-constant
+   keys, or names statically resolvable to such literals; anything else is
+   rejected as unverifiable) — closing the "smuggle a year through a
+   variable, expression, or `**kwargs`" route. Direct `StockHandler`
+   references (name, attribute, or import alias) are banned outright: its
+   positional `min_year`/`max_year` dataclass fields would bypass the keyword
+   rule, so splits must go through `build_split_handlers` (keyword-only
+   years). This AST gate is defense against honest mistakes and cheap gaming,
+   not a sandbox: `globals()`/`exec`-style dynamic writes remain out of AST
+   reach, so integrity against a determined adversary rests on the graduation
+   human diff review. Any violation → status `invalid`, hard reset, next
+   iteration.
 3. **Commit** with the hypothesis as the message (commit-first: each
    experiment is an atomic, revertable unit).
 4. **Train.** `timeout 600 uv run python autoresearch/train_experiment.py

@@ -18,6 +18,8 @@ offsets 1–5, on a fixed held-out split. Current baseline is iteration 0 of
   checkpoint cannot be reloaded for scoring and the trial is wasted.
 - Never touch the sealed `from _sealed import ...` line; never write
   year-like literals (the split lives in the pinned `_sealed.py`).
+- Never construct `StockHandler` directly; go through `build_split_handlers`
+  (the loop rejects direct `StockHandler` references).
 - Simplicity rule: a marginal gain does not justify added complexity. On a
   near-tie, prefer the simpler variant. Reverting a kept-but-marginal
   complexity increase is a valid proposal.
