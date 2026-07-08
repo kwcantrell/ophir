@@ -1,0 +1,3 @@
+iter	utc	hypothesis	status	rank_ic_near	h1	h5	wall_s	commit
+0	2026-07-08T05:40:08Z	baseline	keep	0.07027	0.15967	-0.01470	394	9a5b153
+1	2026-07-08T05:49:13Z	Reinterpreted loss_decay as an absolute per-day decay (loss_decay**i, set to 0.85) instead of horizon-normalized, concentrating the training gradient on the near-horizon offsets 1-5 where forecasting skill lives and starving the skill-less far tail, which should raise rank_ic_near.	discard	0.02400	0.13440	-0.11711	545	9a5b153
