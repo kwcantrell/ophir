@@ -1,7 +1,8 @@
 # Run `uv run pre-commit install` once after `uv sync`.
-# mypy runs via `uv run` against the project venv (torch/lightning/numpy/
-# py.typed all present), NOT an isolated pre-commit venv. Versions are
-# pinned in pyproject.toml / uv.lock.
+# mypy and ruff run via `uv run --frozen` against the project venv
+# (torch/lightning/numpy/py.typed all present), NOT an isolated pre-commit
+# venv, so the hook, CI, and dev env share the single version pinned in
+# pyproject.toml / uv.lock.
 repos:
   - repo: local
     hooks:
@@ -13,3 +14,19 @@ repos:
         always_run: true
         args: ["src/ophir"]
         types: [python]
+      - id: ruff-check
+        name: ruff check (uv run, project venv)
+        entry: uv run --frozen ruff check --force-exclude
+        language: system
+        types_or: [python, pyi]
+        require_serial: true
+      - id: ruff-format
+        name: ruff format --check (uv run, project venv)
+        entry: uv run --frozen ruff format --check --force-exclude
+        language: system
+        types_or: [python, pyi]
+        require_serial: true
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
+    hooks:
+      - id: gitleaks
