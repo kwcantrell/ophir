@@ -95,6 +95,48 @@ class TestValidateExperimentSource:
         text = f"{loop.SEALED_IMPORT_LINE}\nemb = 2048\nlr = 0.0002\nn = 10000\n"
         assert loop.validate_experiment_source(text) is None
 
+    def test_real_train_experiment_file_validates(self) -> None:
+        # The committed mutable file passes years as sealed Names / None kwargs.
+        text = (REPO_ROOT / "autoresearch" / "train_experiment.py").read_text()
+        assert loop.validate_experiment_source(text) is None
+
+    def test_rebinding_sealed_name_is_rejected(self) -> None:
+        text = f"{loop.SEALED_IMPORT_LINE}\nTRAIN_MAX_YEAR = ACCEPT_VAL_MAX_YEAR\n"
+        reason = loop.validate_experiment_source(text)
+        assert reason is not None and "TRAIN_MAX_YEAR" in reason and "rebound" in reason
+
+    def test_rebinding_sealed_name_in_tuple_target_is_rejected(self) -> None:
+        text = f"{loop.SEALED_IMPORT_LINE}\na, NUM_WORKERS = 1, 2\n"
+        reason = loop.validate_experiment_source(text)
+        assert reason is not None and "NUM_WORKERS" in reason
+
+    def test_annassign_rebinding_sealed_name_is_rejected(self) -> None:
+        text = f"{loop.SEALED_IMPORT_LINE}\nNUM_WORKERS: int = 8\n"
+        reason = loop.validate_experiment_source(text)
+        assert reason is not None and "NUM_WORKERS" in reason
+
+    def test_year_kwarg_with_arithmetic_is_rejected(self) -> None:
+        text = f"{loop.SEALED_IMPORT_LINE}\nf(val_min_year=ACCEPT_VAL_MAX_YEAR + 1)\n"
+        reason = loop.validate_experiment_source(text)
+        assert reason is not None and "val_min_year" in reason
+
+    def test_year_kwarg_with_non_sealed_name_is_rejected(self) -> None:
+        text = f"{loop.SEALED_IMPORT_LINE}\nf(max_year=foo)\n"
+        reason = loop.validate_experiment_source(text)
+        assert reason is not None and "max_year" in reason
+
+    def test_year_kwarg_with_sealed_name_or_none_is_accepted(self) -> None:
+        text = (
+            f"{loop.SEALED_IMPORT_LINE}\n"
+            "f(train_max_year=TRAIN_MAX_YEAR, val_min_year=ACCEPT_VAL_MIN_YEAR, "
+            "val_max_year=None)\n"
+        )
+        assert loop.validate_experiment_source(text) is None
+
+    def test_unparseable_file_is_rejected(self) -> None:
+        text = f"{loop.SEALED_IMPORT_LINE}\ndef (:\n"
+        assert loop.validate_experiment_source(text) == "unparseable"
+
 
 class TestMetricsAndResults:
     def test_parse_metrics_reads_named_keys_only(self, tmp_path: Path) -> None:
@@ -290,3 +332,108 @@ class TestPromptAndPins:
         assert loop.check_pins(pins) == []
         target.write_text("tampered")
         assert loop.check_pins(pins) == [str(target)]
+
+    def test_absent_pin_flips_when_file_appears(self, tmp_path) -> None:
+        missing = tmp_path / ".claude" / "settings.json"
+        pins = loop.pin_hashes((str(missing),), allow_absent=True)
+        assert pins[str(missing)] == loop.ABSENT_PIN
+        assert loop.check_pins(pins) == []
+        missing.parent.mkdir(parents=True)
+        missing.write_text("{}")
+        assert loop.check_pins(pins) == [str(missing)]
+
+    def test_content_pin_flips_when_file_changes(self, tmp_path) -> None:
+        present = tmp_path / "CLAUDE.md"
+        present.write_text("rules")
+        pins = loop.pin_hashes((str(present),), allow_absent=True)
+        assert loop.check_pins(pins) == []
+        present.write_text("tampered")
+        assert loop.check_pins(pins) == [str(present)]
+
+    def test_unchanged_absent_pin_passes(self, tmp_path) -> None:
+        missing = tmp_path / "AGENTS.md"
+        pins = loop.pin_hashes((str(missing),), allow_absent=True)
+        assert loop.check_pins(pins) == []
+
+    def test_content_pin_flips_when_file_disappears(self, tmp_path) -> None:
+        present = tmp_path / "CLAUDE.md"
+        present.write_text("rules")
+        pins = loop.pin_hashes((str(present),), allow_absent=True)
+        present.unlink()
+        assert loop.check_pins(pins) == [str(present)]
+
+
+class TestGitHooksIsolation:
+    def test_git_carries_hookspath_when_set(self, monkeypatch) -> None:
+        monkeypatch.setattr(loop, "HOOKS_PATH", "/session/hooks")
+        runner = FakeRunner({})
+        loop._git(runner, ["status", "--porcelain"])
+        cmd = runner.calls[0]
+        assert cmd[:4] == ["git", "-c", "core.hooksPath=/session/hooks", "status"]
+
+    def test_git_is_plain_when_hookspath_unset(self, monkeypatch) -> None:
+        monkeypatch.setattr(loop, "HOOKS_PATH", None)
+        runner = FakeRunner({})
+        loop._git(runner, ["log"])
+        assert runner.calls[0] == ["git", "log"]
+
+
+class TestCrossSessionRecovery:
+    def test_recovers_all_sessions_and_appends_rows(self, tmp_path, monkeypatch) -> None:
+        harness = tmp_path / "autoresearch"
+        for name, sha in (("s1", "aaaa111"), ("s2", "bbbb222")):
+            sdir = harness / "runs" / name
+            sdir.mkdir(parents=True)
+            (sdir / ".in-flight").write_text(sha)
+        monkeypatch.setattr(loop, "HARNESS_DIR", str(harness))
+        calls: list[list[str]] = []
+
+        def fake_run(cmd: list[str], *, cwd: str, **_: object) -> tuple[int, str]:
+            calls.append(cmd)
+            if cmd[:2] == ["git", "rev-parse"]:
+                return (0, "post9999\n")
+            return (0, "")
+
+        monkeypatch.setattr(loop, "run", fake_run)
+        loop._recover_all_in_flight()
+
+        for name in ("s1", "s2"):
+            sdir = harness / "runs" / name
+            assert not (sdir / ".in-flight").exists()
+            rows = (sdir / "results.tsv").read_text().splitlines()
+            assert rows[0] == loop.RESULTS_HEADER
+            assert "runner-died" in rows[1]
+            assert "(recovered interrupted iteration)" in rows[1]
+            assert rows[1].endswith("post9999"[:7])
+        reset_shas = [c[-1] for c in calls if c[:3] == ["git", "reset", "--hard"]]
+        assert "aaaa111" in reset_shas and "bbbb222" in reset_shas
+
+
+class TestMainTrackedResultsGuard:
+    def _run_main(self, tmp_path, monkeypatch, ls_files_rc: int) -> int:
+        harness = tmp_path / "autoresearch"
+        (harness / "runs").mkdir(parents=True)
+        monkeypatch.setattr(loop, "HARNESS_DIR", str(harness))
+
+        def fake_run(cmd: list[str], *, cwd: str, **_: object) -> tuple[int, str]:
+            if cmd[:2] == ["git", "ls-files"]:
+                return (ls_files_rc, "")
+            if cmd[:2] == ["git", "rev-parse"]:
+                return (0, "sha1234\n")
+            return (0, "")
+
+        monkeypatch.setattr(loop, "run", fake_run)
+        # Baseline iteration returns keep with an in-band metric so a proceeding
+        # run terminates cleanly at max-iters=1.
+        monkeypatch.setattr(
+            loop,
+            "run_iteration",
+            lambda *a, **k: loop.IterationResult("keep", 0.06, 0.1, 0.05, "baseline", 1.0),
+        )
+        return loop.main(["--session", "guard", "--max-iters", "1"])
+
+    def test_tracked_results_aborts(self, tmp_path, monkeypatch) -> None:
+        assert self._run_main(tmp_path, monkeypatch, ls_files_rc=0) == 4
+
+    def test_untracked_results_proceeds(self, tmp_path, monkeypatch) -> None:
+        assert self._run_main(tmp_path, monkeypatch, ls_files_rc=1) == 0
