@@ -204,6 +204,52 @@ class TestValidateExperimentSource:
         reason = loop.validate_experiment_source(text)
         assert reason is not None and "val_max_year" in reason
 
+    def test_match_case_capture_of_sealed_name_is_rejected(self) -> None:
+        # Reviewer exploit: capture a smuggled value into a sealed name via a
+        # match-case pattern, then pass it as a *_year keyword.
+        text = (
+            f"{loop.SEALED_IMPORT_LINE}\n"
+            "match compute():\n"
+            "    case TRAIN_MAX_YEAR:\n"
+            "        f(train_max_year=TRAIN_MAX_YEAR)\n"
+        )
+        reason = loop.validate_experiment_source(text)
+        assert reason is not None and "TRAIN_MAX_YEAR" in reason and "rebound" in reason
+
+    def test_match_star_capture_of_sealed_name_is_rejected(self) -> None:
+        text = (
+            f"{loop.SEALED_IMPORT_LINE}\nmatch xs:\n    case [first, *NUM_WORKERS]:\n        pass\n"
+        )
+        reason = loop.validate_experiment_source(text)
+        assert reason is not None and "NUM_WORKERS" in reason and "rebound" in reason
+
+    def test_match_mapping_rest_capture_of_sealed_name_is_rejected(self) -> None:
+        text = (
+            f"{loop.SEALED_IMPORT_LINE}\n"
+            "match d:\n"
+            '    case {"a": v, **ACCEPT_VAL_MIN_YEAR}:\n'
+            "        pass\n"
+        )
+        reason = loop.validate_experiment_source(text)
+        assert reason is not None and "ACCEPT_VAL_MIN_YEAR" in reason and "rebound" in reason
+
+    def test_stockhandler_import_is_rejected(self) -> None:
+        text = f"{loop.SEALED_IMPORT_LINE}\nfrom ophir.ticker import StockHandler\n"
+        reason = loop.validate_experiment_source(text)
+        assert reason is not None and "StockHandler" in reason
+
+    def test_stockhandler_attribute_use_is_rejected(self) -> None:
+        text = (
+            f"{loop.SEALED_IMPORT_LINE}\nimport ophir.ticker as ticker\nh = ticker.StockHandler\n"
+        )
+        reason = loop.validate_experiment_source(text)
+        assert reason is not None and "StockHandler" in reason
+
+    def test_stockhandler_import_with_alias_is_rejected(self) -> None:
+        text = f"{loop.SEALED_IMPORT_LINE}\nfrom ophir.ticker import StockHandler as SH\n"
+        reason = loop.validate_experiment_source(text)
+        assert reason is not None and "StockHandler" in reason
+
 
 class TestMetricsAndResults:
     def test_parse_metrics_reads_named_keys_only(self, tmp_path: Path) -> None:
