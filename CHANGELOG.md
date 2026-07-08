@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Repo setup guided by the OKF best-practice bundles
+  ([kwcantrell/okf-bundles](https://github.com/kwcantrell/okf-bundles)):
+  GitHub Actions CI (`.github/workflows/ci.yml`, job `checks`) running
+  ruff check / ruff format / mypy / pytest on every PR and push to `main`;
+  branch protection on `main` (required `checks` run, linear history, no
+  force pushes); `AGENTS.md` as the canonical agent guide with `CLAUDE.md`
+  importing it via `@AGENTS.md`; pre-commit expanded with ruff (project-venv
+  hooks) and gitleaks secret scanning; a PR template. Spec:
+  `docs/superpowers/specs/2026-07-07-okf-bundle-repo-setup-design.md`.
 - `.agents/skills/quant-trading/`: a layered knowledge skill compiling
   quant-trading best practices and 2023–2026 research. A concise `SKILL.md`
   playbook (checklist + anti-pattern table + ophir callouts) backed by four cited
