@@ -76,6 +76,14 @@ format, mypy, pytest) on every PR and on pushes to `main`.
 - The system is **paper-only** in intent. `account_mode` is validated in
   `config.py`; do not add a path that bypasses it.
 
+## How we work
+
+Non-trivial work follows the superpowers SDLC — **don't jump straight to code**:
+
+**brainstorm → spec (`docs/superpowers/specs/`) → plan (`docs/superpowers/plans/`) →
+implement.** Small, obvious fixes can skip ahead, but design-bearing changes get a
+spec first.
+
 ## Conventions
 
 - **NumPy-style docstrings** throughout `src/ophir` — match the existing density
