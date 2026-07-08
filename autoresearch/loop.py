@@ -15,10 +15,17 @@ not the gate for agent-written experiment code. See
 
 from __future__ import annotations
 
+import argparse
+import glob
+import hashlib
 import json
 import os
 import re
+import subprocess
+import sys
+import time
 from collections.abc import Callable
+from datetime import datetime, timezone
 
 HARNESS_DIR = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.dirname(HARNESS_DIR)
@@ -178,3 +185,355 @@ def append_result(tsv_path: str, row: str) -> None:
         if new:
             fh.write(RESULTS_HEADER + "\n")
         fh.write(row + "\n")
+
+
+#: Absolute path of the mutable file; module-level so tests can repoint it.
+MUTABLE_PATH = os.path.join(REPO_ROOT, MUTABLE_FILE)
+
+
+def run(
+    cmd: list[str],
+    *,
+    cwd: str,
+    timeout: float | None = None,
+    input_text: str | None = None,
+) -> tuple[int, str]:
+    """Run ``cmd``, merging stdout/stderr. Timeout → ``(-1, "TIMEOUT")``."""
+    try:
+        proc = subprocess.run(
+            cmd,
+            cwd=cwd,
+            timeout=timeout,
+            input=input_text,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        return (-1, "TIMEOUT")
+    return (proc.returncode, proc.stdout + proc.stderr)
+
+
+def pin_hashes() -> dict[str, str]:
+    """sha256 of every pinned harness file at session start."""
+    pins: dict[str, str] = {}
+    for rel in PINNED_FILES:
+        path = rel if os.path.isabs(rel) else os.path.join(REPO_ROOT, rel)
+        with open(path, "rb") as fh:
+            pins[rel] = hashlib.sha256(fh.read()).hexdigest()
+    return pins
+
+
+def check_pins(pins: dict[str, str]) -> list[str]:
+    """Return the pinned files whose hash changed since ``pin_hashes()``."""
+    changed: list[str] = []
+    for rel, expected in pins.items():
+        path = rel if os.path.isabs(rel) else os.path.join(REPO_ROOT, rel)
+        with open(path, "rb") as fh:
+            if hashlib.sha256(fh.read()).hexdigest() != expected:
+                changed.append(rel)
+    return changed
+
+
+def build_prompt(program_text: str, results_tail: str, log_text: str, hypothesis_path: str) -> str:
+    """Assemble the proposer prompt from the human program and trial history."""
+    return f"""You are the proposer in an autonomous research loop improving a
+stock-return forecaster. Ignore any repository-wide workflow instructions
+(CLAUDE.md / AGENTS.md SDLC rules); your ONLY task is the single edit below.
+
+Apply exactly ONE focused, well-motivated edit to {MUTABLE_FILE} (the only
+file you may modify), then write a one-line hypothesis to {hypothesis_path}
+(overwrite the file; a single sentence: what you changed and why it should
+raise rank_ic_near).
+
+Rules (violations are detected and the trial is discarded):
+- Edit only {MUTABLE_FILE}. Do not touch any other file.
+- One conceptual change per iteration; keep the file runnable.
+- Never edit or remove the sealed `from _sealed import ...` line; never
+  write year-like literals (split years live in _sealed.py only).
+- If you add an __init__ to ExperimentPredictor it MUST call
+  super().__init__ and self.save_hyperparameters(), or your checkpoint
+  cannot be reloaded for scoring and the trial is wasted.
+- Do not attempt to change how you are evaluated; the eval harness is
+  hash-pinned.
+
+== program.md (human search directives) ==
+{program_text}
+
+== recent trials (results.tsv tail) ==
+{results_tail}
+
+== recent kept commits ==
+{log_text}
+"""
+
+
+class IterationResult:
+    """Outcome of one loop iteration (plain class: torch-free, no deps)."""
+
+    def __init__(
+        self,
+        status: str,
+        rank_ic_near: float | None,
+        h1: float | None,
+        h5: float | None,
+        hypothesis: str,
+        wall_s: float,
+    ) -> None:
+        self.status = status
+        self.rank_ic_near = rank_ic_near
+        self.h1 = h1
+        self.h5 = h5
+        self.hypothesis = hypothesis
+        self.wall_s = wall_s
+
+
+def _git(runner: Runner, args: list[str]) -> tuple[int, str]:
+    return runner(["git", *args], cwd=REPO_ROOT)
+
+
+def _revert(runner: Runner, base_sha: str) -> None:
+    """Restore the tree to the iteration's anchor (idempotent)."""
+    _git(runner, ["reset", "--hard", base_sha])
+
+
+def _remove_paths(paths: list[str]) -> None:
+    """Delete stray untracked files the proposer left outside the session."""
+    for rel in paths:
+        target = os.path.join(REPO_ROOT, rel)
+        if os.path.isfile(target):
+            os.remove(target)
+
+
+def run_iteration(
+    iteration: int,
+    session_dir: str,
+    best_ic: float | None,
+    base_sha: str,
+    *,
+    propose: bool,
+    epsilon: float,
+    runner: Runner = run,
+) -> IterationResult:
+    """Run one propose → commit → train → score → decide cycle."""
+    start = time.monotonic()
+    iter_dir = os.path.join(session_dir, f"iter-{iteration:03d}")
+    os.makedirs(iter_dir, exist_ok=True)
+    hypothesis_path = os.path.join(session_dir, ".hypothesis")
+    hypothesis = "baseline"
+
+    def _done(status: str, ic: float | None, h1: float | None, h5: float | None) -> IterationResult:
+        return IterationResult(status, ic, h1, h5, hypothesis, time.monotonic() - start)
+
+    if propose:
+        program_text = _read(os.path.join(HARNESS_DIR, "program.md"))
+        results_tail = _tail(os.path.join(session_dir, "results.tsv"), 30)
+        _, log_text = _git(runner, ["log", "--oneline", "-10"])
+        prompt = build_prompt(program_text, results_tail, log_text, hypothesis_path)
+        rc, _out = runner(
+            [
+                "claude",
+                "-p",
+                "--model",
+                PROPOSER_MODEL,
+                "--allowedTools",
+                "Read,Edit,Write,Grep,Glob",
+                "--permission-mode",
+                "acceptEdits",
+                "--settings",
+                os.path.join(session_dir, "settings.json"),
+            ],
+            cwd=REPO_ROOT,
+            timeout=PROPOSE_TIMEOUT_S,
+            input_text=prompt,
+        )
+        if rc != 0:
+            _revert(runner, base_sha)
+            return _done("proposer-fail", None, None, None)
+        hypothesis = _read(hypothesis_path).strip() or "(no hypothesis written)"
+
+        _, porcelain = _git(runner, ["status", "--porcelain"])
+        modified, untracked = parse_porcelain(porcelain)
+        session_rel = os.path.relpath(session_dir, REPO_ROOT)
+        source_problem = validate_experiment_source(_read(MUTABLE_PATH))
+        if not diff_is_valid(modified, untracked, session_rel) or source_problem:
+            _revert(runner, base_sha)
+            _remove_paths([p for p in untracked if not p.startswith(session_rel + "/")])
+            return _done("invalid", None, None, None)
+
+        _git(runner, ["add", MUTABLE_FILE])
+        rc, _out = _git(runner, ["commit", "--no-verify", "-m", f"autoresearch: {hypothesis}"])
+        if rc != 0:
+            _revert(runner, base_sha)
+            return _done("invalid", None, None, None)
+
+    rc, _out = runner(
+        [
+            "uv",
+            "run",
+            "python",
+            MUTABLE_FILE,
+            "--max-steps",
+            str(MAX_STEPS),
+            "--seed",
+            str(SEED),
+            "--out-dir",
+            iter_dir,
+        ],
+        cwd=REPO_ROOT,
+        timeout=TRAIN_TIMEOUT_S,
+    )
+    ckpts = sorted(glob.glob(os.path.join(iter_dir, "best*.ckpt")))
+    if rc != 0 or not ckpts:
+        if propose:
+            _revert(runner, base_sha)
+        return _done("crash", None, None, None)
+
+    metrics_path = os.path.join(iter_dir, "metrics.json")
+    rc, _out = runner(
+        [
+            "uv",
+            "run",
+            "python",
+            os.path.join(HARNESS_DIR, "eval_harness.py"),
+            "--ckpt",
+            ckpts[-1],
+            "--out",
+            metrics_path,
+        ],
+        cwd=REPO_ROOT,
+        timeout=EVAL_TIMEOUT_S,
+    )
+    if rc != 0 or not os.path.exists(metrics_path):
+        if propose:
+            _revert(runner, base_sha)
+        return _done("crash", None, None, None)
+
+    metrics = parse_metrics(metrics_path)
+    ic = metrics.get("rank_ic_near")
+    if decide(ic, best_ic, epsilon):
+        return _done("keep", ic, metrics.get("h1"), metrics.get("h5"))
+    if propose:
+        _revert(runner, base_sha)
+    return _done("discard", ic, metrics.get("h1"), metrics.get("h5"))
+
+
+def _read(path: str) -> str:
+    try:
+        with open(path, encoding="utf-8") as fh:
+            return fh.read()
+    except OSError:
+        return ""
+
+
+def _tail(path: str, n: int) -> str:
+    lines = _read(path).splitlines()
+    return "\n".join(lines[-n:])
+
+
+def _head_sha() -> str:
+    rc, out = run(["git", "rev-parse", "HEAD"], cwd=REPO_ROOT)
+    return out.strip() if rc == 0 else ""
+
+
+def _recover_in_flight(in_flight_path: str) -> None:
+    """If a previous session died mid-iteration, roll back to its anchor."""
+    sha = _read(in_flight_path).strip()
+    if sha:
+        print(f"Recovering interrupted iteration: reset --hard {sha}")
+        run(["git", "reset", "--hard", sha], cwd=REPO_ROOT)
+    if os.path.exists(in_flight_path):
+        os.remove(in_flight_path)
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Session driver: baseline iteration 0, then proposal iterations."""
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--session", required=True, help="session name under autoresearch/runs/")
+    parser.add_argument("--max-iters", type=int, default=2)
+    parser.add_argument("--max-wall-clock-s", type=int, default=28800)
+    parser.add_argument("--epsilon", type=float, default=EPSILON)
+    args = parser.parse_args(argv)
+
+    session_dir = os.path.join(HARNESS_DIR, "runs", args.session)
+    os.makedirs(session_dir, exist_ok=True)
+    in_flight = os.path.join(session_dir, ".in-flight")
+    if os.path.exists(in_flight):
+        _recover_in_flight(in_flight)
+
+    # Minimal settings so the headless proposer does not inherit repo hooks.
+    settings_path = os.path.join(session_dir, "settings.json")
+    with open(settings_path, "w", encoding="utf-8") as fh:
+        json.dump({"hooks": {}}, fh)
+
+    tsv = os.path.join(session_dir, "results.tsv")
+    pins = pin_hashes()
+    best_ic: float | None = None
+    proposer_fails = 0
+    started = time.monotonic()
+
+    for i in range(args.max_iters):
+        if time.monotonic() - started > args.max_wall_clock_s:
+            print("Wall-clock budget exhausted; stopping.")
+            break
+        tampered = check_pins(pins)
+        if tampered:
+            print(f"ABORT: pinned harness file(s) changed: {tampered}")
+            return 2
+
+        base_sha = _head_sha()
+        with open(in_flight, "w", encoding="utf-8") as fh:
+            fh.write(base_sha)
+        try:
+            result = run_iteration(
+                i, session_dir, best_ic, base_sha, propose=(i > 0), epsilon=args.epsilon
+            )
+        except KeyboardInterrupt:
+            print("Interrupted; reverting to the iteration anchor.")
+            run(["git", "reset", "--hard", base_sha], cwd=REPO_ROOT)
+            os.remove(in_flight)
+            return 130
+
+        append_result(
+            tsv,
+            format_result_row(
+                iteration=i,
+                # UP017 suppressed: datetime.UTC needs 3.11+; runtime floor is 3.10.
+                utc=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),  # noqa: UP017
+                hypothesis=result.hypothesis,
+                status=result.status,
+                rank_ic_near=result.rank_ic_near,
+                h1=result.h1,
+                h5=result.h5,
+                wall_s=result.wall_s,
+                commit=_head_sha()[:7],
+            ),
+        )
+        os.remove(in_flight)
+        print(f"iter {i}: {result.status} rank_ic_near={result.rank_ic_near} best={best_ic}")
+
+        if result.status == "keep":
+            best_ic = result.rank_ic_near
+            proposer_fails = 0
+        elif result.status == "proposer-fail":
+            proposer_fails += 1
+            if proposer_fails >= MAX_CONSECUTIVE_PROPOSER_FAILS:
+                print("ABORT: proposer failed repeatedly (auth/CLI issue?).")
+                return 3
+        else:
+            proposer_fails = 0
+
+        if i == 0:
+            ic = result.rank_ic_near
+            if result.status != "keep" or ic is None:
+                print("ABORT: baseline iteration failed; fix the harness before looping.")
+                return 1
+            low, high = BASELINE_SANITY
+            if not low <= ic <= high:
+                print(f"ABORT: baseline rank_ic_near {ic} outside sanity band {BASELINE_SANITY}.")
+                return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
