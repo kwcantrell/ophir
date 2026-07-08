@@ -47,17 +47,22 @@ own eval path before any edits are accepted.
 
 1. **Propose.** `loop.py` invokes `claude -p` (headless; opus/fable tier — the
    proposal is the hard-reasoning step) with `program.md`, `results.tsv`, and
-   recent git log in the prompt. Tool allowlist: Read/Edit/Grep only — no
-   Bash. The agent applies **one focused edit** to `train_experiment.py` and
-   writes a one-line hypothesis to `runs/<session>/.hypothesis`.
+   recent git log in the prompt. Tool allowlist: Read/Edit/Write/Grep — no
+   Bash (Write is needed only for the `.hypothesis` note). The agent applies
+   **one focused edit** to `train_experiment.py` and writes a one-line
+   hypothesis to `runs/<session>/.hypothesis`.
 2. **Validate the diff.** Runner checks `git diff --name-only` touched exactly
    `autoresearch/train_experiment.py`, that `eval_harness.py`/`loop.py`/
    `_sealed.py`'s sha256 match the session pin, that the sealed
    `from _sealed import ...` line survives verbatim in
    `train_experiment.py`, and that no year-like literal (2019–2031) was
    introduced outside that import — the split years live only in
-   `_sealed.py`. Any violation → status `invalid`, hard reset, next
-   iteration.
+   `_sealed.py`. An AST parse then enforces the deeper invariants: the sealed
+   names (`ACCEPT_VAL_MAX_YEAR`/`ACCEPT_VAL_MIN_YEAR`/`NUM_WORKERS`/
+   `TRAIN_MAX_YEAR`) cannot be rebound by any assignment, and every `*_year`
+   call keyword must be a sealed name or `None` — closing the "smuggle a year
+   through a variable or expression" route. Any violation → status `invalid`,
+   hard reset, next iteration.
 3. **Commit** with the hypothesis as the message (commit-first: each
    experiment is an atomic, revertable unit).
 4. **Train.** `timeout 600 uv run python autoresearch/train_experiment.py
@@ -67,8 +72,9 @@ own eval path before any edits are accepted.
    JSON with `rank_ic_near` and the per-offset curve.
 6. **Decide (deterministic runner code — the agent never scores itself).**
    Keep if `rank_ic_near > best + EPSILON`; else `git reset --hard HEAD~1`.
-   `EPSILON` is a runner constant derived from the confirm-harness null band,
-   not agent-editable.
+   `EPSILON` is the runner constant defined in item 2 of the departures
+   section below (confirm-harness null band; recalibrated from ≥3 baseline
+   seeds; not agent-editable).
 7. **Log.** Append to `results.tsv`: iteration, timestamp, hypothesis, steps,
    wall seconds, `rank_ic_near`, `h1`, `h5`, status
    (`keep`/`discard`/`crash`/`invalid`). Every trial is logged, including
@@ -117,7 +123,21 @@ Session ends on `--max-iters` or `--max-wall-clock`, whichever first.
 
 - Dedicated worktree + `autoresearch/session-<date>` branch; `main` untouched.
 - 10-minute kill per training run; `--max-iters` / `--max-wall-clock` caps.
-- Proposer allowlist Read/Edit/Grep; the runner owns all shell and git.
+- Proposer allowlist Read/Edit/Write/Grep; the runner owns all shell and git.
+  (Write is scoped to the `.hypothesis` note; the diff validator still rejects
+  any tracked change outside `train_experiment.py`.)
+- Hook + settings isolation: every loop git call runs with
+  `-c core.hooksPath=<session>/hooks` (an empty per-session dir) so no repo or
+  user git hook fires mid-trial, and the runner content-or-absence pins
+  `.claude/settings.json`, `.claude/settings.local.json`, `CLAUDE.md`, and
+  `AGENTS.md` alongside the harness files — an appearance, disappearance, or
+  change of any of them aborts the session.
+- Eval-integrity ordering: `eval_harness.py` binds every trusted symbol
+  (torch/lightning/`ophir.*`/sealed constants) before importing the
+  agent-authored `train_experiment` module, so its top-level code cannot
+  monkeypatch the scorer's dependencies first. This is defense-in-depth only —
+  eval integrity against adversarial experiment code ultimately rests on human
+  diff review of the kept commits at graduation.
 - No network required (data is local under `.ophir/`).
 
 ## Testing
