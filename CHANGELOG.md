@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- CI/test hardening from the repo-setup review: `tests/test_cli.py` help-text
+  asserts now compare against `click.unstyle(...)` output, so they hold in any
+  environment where Rich force-styles terminal output (GitHub Actions, `act`,
+  `FORCE_COLOR` shells) — `TERM: dumb` in CI is now belt-and-suspenders, not
+  load-bearing; the `checks` workflow declares explicit least-privilege
+  `permissions: contents: read`.
+
 ### Added
 
 - Repo setup guided by the OKF best-practice bundles
