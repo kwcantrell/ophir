@@ -13,9 +13,12 @@ jobs:
   checks:
     runs-on: ubuntu-latest
     env:
-      # Rich force-enables terminal styling under GITHUB_ACTIONS; without this,
-      # Typer --help output gains ANSI codes and test_cli.py substring asserts miss.
-      NO_COLOR: "1"
+      # Rich force-enables terminal styling under GITHUB_ACTIONS, which breaks
+      # test_cli.py's plain-substring asserts on Typer --help output. TERM=dumb
+      # is the one knob Rich honors unconditionally (NO_COLOR only drops color,
+      # keeping bold/dim codes). Verified locally: GITHUB_ACTIONS=true TERM=dumb
+      # -> full suite green.
+      TERM: dumb
     steps:
       - uses: actions/checkout@v5
       - uses: astral-sh/setup-uv@v8.3.1
